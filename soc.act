@@ -1,4 +1,5 @@
 import "interrupt.act";
+import "regfile.act";
 
 
 function alu(int<32> a; int<32> b; int<3> funct3; int<7> funct7) : int<32>
@@ -66,11 +67,17 @@ defproc soc(
     bool is_wfi;
     bool running;
 
+    reg_req req_pkt;
+    reg_resp resp_pkt;
+    int<32> alu_result;
+
     chan(int<32>) event_pc;
 
     interrupt inter(event_id_0, event_id_1, event_id_2, event_id_3, event_id_4, event_id_5,
                      event_id_6, event_id_7, event_id_8, event_id_9, event_id_10, event_id_11,
                      event_id_12, event_id_13, event_id_14, event_id_15, event_pc);
+
+    regfile rf;
 
     chp {
         running := false;
@@ -109,8 +116,24 @@ defproc soc(
               [] (opcode = 0b0110011) ->
                     log("decoded OP (R-type ALU)");
                     reg_write := true;
-                    alu_src_imm := false
-                    // alu(rs1_val, rs2_val, funct3, funct7) once regfile provides real operand values
+                    alu_src_imm := false;
+
+                    // read rs1, rs2 -- no write yet, the ALU result isn't known until after this comes back
+                    req_pkt.rs1_addr := rs1; req_pkt.rs1_valid := true;
+                    req_pkt.rs2_addr := rs2; req_pkt.rs2_valid := true;
+                    req_pkt.rd_valid := false;
+                    rf.req!req_pkt;
+                    rf.resp?resp_pkt;
+
+                    alu_result := alu(resp_pkt.rs1_data, resp_pkt.rs2_data, funct3, funct7);
+                    log("alu result = ", alu_result);
+
+                    // write back -- separate transaction, since it depends on the read above
+                    req_pkt.rs1_valid := false;
+                    req_pkt.rs2_valid := false;
+                    req_pkt.rd_addr := rd; req_pkt.rd_data := alu_result; req_pkt.rd_valid := true;
+                    rf.req!req_pkt;
+                    rf.resp?resp_pkt
 
               [] else -> skip ];
             log("is_wfi = ", is_wfi);
