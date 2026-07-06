@@ -32,22 +32,22 @@ defproc interrupt(
             init := false;
 
             [|
-                #event_id_0 -> event_id_0?event_id_recv; event_pc!1
-            [] #event_id_1 -> event_id_1?event_id_recv; event_pc!2
-            [] #event_id_2 -> event_id_2?event_id_recv; event_pc!3
-            [] #event_id_3 -> event_id_3?event_id_recv; event_pc!4
-            [] #event_id_4 -> event_id_4?event_id_recv; event_pc!5
-            [] #event_id_5 -> event_id_5?event_id_recv; event_pc!6
-            [] #event_id_6 -> event_id_6?event_id_recv; event_pc!7
-            [] #event_id_7 -> event_id_7?event_id_recv; event_pc!8
-            [] #event_id_8 -> event_id_8?event_id_recv; event_pc!9
-            [] #event_id_9 -> event_id_9?event_id_recv; event_pc!10
-            [] #event_id_10 -> event_id_10?event_id_recv; event_pc!11
-            [] #event_id_11 -> event_id_11?event_id_recv; event_pc!12
-            [] #event_id_12 -> event_id_12?event_id_recv; event_pc!13
-            [] #event_id_13 -> event_id_13?event_id_recv; event_pc!14
-            [] #event_id_14 -> event_id_14?event_id_recv; event_pc!15
-            [] #event_id_15 -> event_id_15?event_id_recv; event_pc!16
+            #event_id_0 -> event_id_0?event_id_recv; log("event 0 pc: 0x10000000"); event_pc!0x10000000 
+            [] #event_id_1 -> event_id_1?event_id_recv; log("event 1 pc: 0x20000000"); event_pc!0x20000000
+            [] #event_id_2 -> event_id_2?event_id_recv; event_pc!0x30000000
+            [] #event_id_3 -> event_id_3?event_id_recv; event_pc!0x40000000
+            [] #event_id_4 -> event_id_4?event_id_recv; event_pc!0x50000000
+            [] #event_id_5 -> event_id_5?event_id_recv; event_pc!0x60000000
+            [] #event_id_6 -> event_id_6?event_id_recv; event_pc!0x70000000
+            [] #event_id_7 -> event_id_7?event_id_recv; event_pc!0x80000000
+            [] #event_id_8 -> event_id_8?event_id_recv; event_pc!0x90000000
+            [] #event_id_9 -> event_id_9?event_id_recv; event_pc!0xA0000000
+            [] #event_id_10 -> event_id_10?event_id_recv; event_pc!0xB0000000
+            [] #event_id_11 -> event_id_11?event_id_recv; event_pc!0xC0000000
+            [] #event_id_12 -> event_id_12?event_id_recv; event_pc!0xD0000000
+            [] #event_id_13 -> event_id_13?event_id_recv; event_pc!0xE0000000
+            [] #event_id_14 -> event_id_14?event_id_recv; event_pc!0xF0000000
+            [] #event_id_15 -> event_id_15?event_id_recv; event_pc!0xF1000000
             |]
         ]
     }

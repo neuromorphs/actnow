@@ -14,7 +14,7 @@ defproc init_wfi_test() {
         delay := 200000;
         *[ delay > 0 -> delay := delay - 1];
 
-        s.event_id_3!(true);
+        s.event_id_1!(true);
 
         s.imem_req?imem_req_recv;
         s.imem_resp!(11)
