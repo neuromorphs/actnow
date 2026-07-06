@@ -1,0 +1,141 @@
+/*
+module decoder (
+    input  wire [31:0] instr,
+
+    output wire [6:0]  opcode,
+    output wire [4:0]  rd,
+    output wire [4:0]  rs1,
+    output wire [4:0]  rs2,
+    output wire [2:0]  funct3,
+    output wire [6:0]  funct7,
+
+    output reg  [31:0] imm,
+
+    output reg         reg_write,
+    output reg         mem_read,
+    output reg         mem_write,
+    output reg         branch,
+    output reg         jump,
+    output reg         alu_src_imm,
+    output reg         mem_to_reg,
+    output reg         is_event_wait,
+
+    output reg  [3:0]  alu_op,
+    output reg  [2:0]  branch_op,
+    output reg  [2:0]  load_store_width
+);
+*/
+
+defproc decoder(
+    chan?(int<32>) insn,
+
+    chan!(int<7>) opcode,
+    chan!(int<5>) rd,
+    chan!(int<5>) rs1,
+    chan!(int<5>) rs2,
+    chan!(int<3>) funct3,
+    chan!(int<7>) funct7,
+
+    chan!(int<32>) imm,
+
+    chan!(bool) reg_write,
+    chan!(bool) mem_read,
+    chan!(bool) mem_write,
+    chan!(bool) branch,
+    chan!(bool) alu_src_imm,
+    chan!(bool) mem_to_reg
+    chan!(bool) event_wait, // opcode is 
+    
+    chan!(int<4>) alu_op,
+    chan!(int<3>) branch_op,
+    chan!(int<3>) ld_st_width
+
+)
+
+{
+
+    int<32> insn_recv;
+
+    int<7> opcode_send;
+    int<5> rd_send;
+    int<5> rs1_send;
+    int<5> rs2_send;
+    int<3> funct3_send;
+    int<7> funct7_send;
+
+    int<32> imm_send;
+
+    bool reg_write_send;
+    bool mem_read_send;
+    bool mem_write_send;
+    bool branch_send;
+    bool alu_src_imm_send;
+    bool mem_to_reg_send;
+
+    bool event_wait_send;
+
+    int<4> alu_op_send;
+    int<3> branch_op_send;
+    int<3> ld_st_width_send;
+
+    chp {
+
+        *[
+            insn?insn_recv;
+            [
+               // opcode for event wait instruction
+               (insn_recv{6..0} = 10) ->
+                // all outputs should be 0 except for event_wait_send
+                [
+                    opcode_send := 0;
+                    rd_send := 0;
+                    rs1_send := 0;
+                    rs2_send := 0;
+                    funct3_send := 0;
+                    funct7_send := 0;
+
+                    imm_send := 0;
+
+                    reg_write_send := false;
+                    mem_read_send := false;
+                    mem_write_send := false;
+                    branch_send := false;
+                    alu_src_imm_send := false;
+                    mem_to_reg_send := false;
+
+                    event_wait_send := true;
+
+                    alu_op_send := 0;
+                    branch_op_send := 0;
+                    ld_st_width_send := 0
+
+                ]
+               [] else -> skip;
+            ]
+            // send outputs
+            opcode!opcode_send;
+            rd!rd_send;
+            rs1!rs1_send;
+            rs2!rs2_send;
+            funct3!funct3_send;
+            funct7!funct7_send;
+
+            imm!imm_send;
+
+            reg_write!reg_write_send;
+            mem_read!mem_read_send;
+            mem_write!mem_write_send;
+            branch!branch_send;
+            alu_src_imm!alu_src_imm_send;
+            mem_to_reg!mem_to_reg_send;
+
+            event_wait!event_wait_send;
+
+            alu_op!alu_op_send;
+            branch_op!branch_op_send;
+            ld_st_width!ld_st_width_send;
+
+        ]
+
+    }
+}

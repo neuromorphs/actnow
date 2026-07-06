@@ -1,0 +1,10 @@
+defproc core(
+    chan?(bool) reset,
+    chan?(bool) event,
+    chan?(int<32>)imem_req,
+    chan!(int<32>)imem_resp
+    ) {
+
+
+
+}
