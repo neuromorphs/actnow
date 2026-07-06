@@ -1,0 +1,98 @@
+import "interrupt.act";
+
+defproc soc(
+    chan?(bool) event_id_0;
+    chan?(bool) event_id_1;
+    chan?(bool) event_id_2;
+    chan?(bool) event_id_3;
+    chan?(bool) event_id_4;
+    chan?(bool) event_id_5;
+    chan?(bool) event_id_6;
+    chan?(bool) event_id_7;
+    chan?(bool) event_id_8;
+    chan?(bool) event_id_9;
+    chan?(bool) event_id_10;
+    chan?(bool) event_id_11;
+    chan?(bool) event_id_12;
+    chan?(bool) event_id_13;
+    chan?(bool) event_id_14;
+    chan?(bool) event_id_15;
+    chan?(int<32>) imem_resp;
+    chan!(int<32>) imem_req
+    )
+{
+
+    int<32> pc;
+    int<32> insn_send; // hardcode this for now
+
+    int<7> opcode;
+    int<5> rd;
+    int<5> rs1;
+    int<5> rs2;
+    int<3> funct3;
+    int<7> funct7;
+
+    int<32> imm;
+
+    bool reg_write;
+    bool mem_read;
+    bool mem_write;
+    bool branch;
+    bool alu_src_imm;
+    bool mem_to_reg;
+
+    int<4> alu_op;
+    int<3> branch_op;
+    int<3> ld_st_width;
+
+    bool is_wfi;
+    bool running;
+
+    chan(int<32>) event_pc;
+
+    interrupt inter(event_id_0, event_id_1, event_id_2, event_id_3, event_id_4, event_id_5,
+                     event_id_6, event_id_7, event_id_8, event_id_9, event_id_10, event_id_11,
+                     event_id_12, event_id_13, event_id_14, event_id_15, event_pc);
+
+    chp {
+        running := false;
+        *[
+            [ running -> skip [] else -> event_pc?pc ];
+            running := true;
+
+            imem_req!pc;
+            imem_resp?insn_send;
+
+            opcode := insn_send{6..0};
+            rd := insn_send{11..7};
+            funct3 := insn_send{14..12};
+            rs1 := insn_send{19..15};
+            rs2 := insn_send{24..20};
+            funct7 := insn_send{31..25};
+
+            [ (opcode = 11) ->
+                    log("decoded wfi");
+                    is_wfi := true;
+
+                    imm := 0;
+
+                    reg_write := false;
+                    mem_read := false;
+                    mem_write := false;
+                    branch := false;
+                    alu_src_imm := false;
+                    mem_to_reg := false;
+
+                    alu_op := 0;
+                    branch_op := 0;
+                    ld_st_width := 0
+
+              [] else -> is_wfi := false ];
+            log("is_wfi = ", is_wfi);
+
+            [ is_wfi -> running := false
+              [] else -> pc := pc + 4 ]
+        ]
+    }
+
+}

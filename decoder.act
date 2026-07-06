@@ -26,6 +26,7 @@ module decoder (
 );
 */
 
+
 defproc decoder(
     chan?(int<32>) insn;
 

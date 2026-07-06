@@ -1,0 +1,54 @@
+defproc interrupt(
+    chan?(bool) event_id_0;
+    chan?(bool) event_id_1;
+    chan?(bool) event_id_2;
+    chan?(bool) event_id_3;
+    chan?(bool) event_id_4;
+    chan?(bool) event_id_5;
+    chan?(bool) event_id_6;
+    chan?(bool) event_id_7;
+    chan?(bool) event_id_8;
+    chan?(bool) event_id_9;
+    chan?(bool) event_id_10;
+    chan?(bool) event_id_11;
+    chan?(bool) event_id_12;
+    chan?(bool) event_id_13;
+    chan?(bool) event_id_14;
+    chan?(bool) event_id_15;
+    chan!(int<32>) event_pc
+)
+
+{
+    bool event_id_recv;
+    bool init;
+
+    chp {
+
+        init := true;
+        *[
+            [init -> event_pc!0
+            [] else -> skip
+            ];
+            init := false;
+
+            [|
+                #event_id_0 -> event_id_0?event_id_recv; event_pc!1
+            [] #event_id_1 -> event_id_1?event_id_recv; event_pc!2
+            [] #event_id_2 -> event_id_2?event_id_recv; event_pc!3
+            [] #event_id_3 -> event_id_3?event_id_recv; event_pc!4
+            [] #event_id_4 -> event_id_4?event_id_recv; event_pc!5
+            [] #event_id_5 -> event_id_5?event_id_recv; event_pc!6
+            [] #event_id_6 -> event_id_6?event_id_recv; event_pc!7
+            [] #event_id_7 -> event_id_7?event_id_recv; event_pc!8
+            [] #event_id_8 -> event_id_8?event_id_recv; event_pc!9
+            [] #event_id_9 -> event_id_9?event_id_recv; event_pc!10
+            [] #event_id_10 -> event_id_10?event_id_recv; event_pc!11
+            [] #event_id_11 -> event_id_11?event_id_recv; event_pc!12
+            [] #event_id_12 -> event_id_12?event_id_recv; event_pc!13
+            [] #event_id_13 -> event_id_13?event_id_recv; event_pc!14
+            [] #event_id_14 -> event_id_14?event_id_recv; event_pc!15
+            [] #event_id_15 -> event_id_15?event_id_recv; event_pc!16
+            |]
+        ]
+    }
+}
