@@ -1,5 +1,23 @@
 import "interrupt.act";
 
+
+function alu(int<32> a; int<32> b; int<3> funct3; int<7> funct7) : int<32>
+{
+    chp {
+        [  (funct3 = 0b000) & (funct7{5} = 0) -> self := a + b                    // ADD
+        [] (funct3 = 0b000) & (funct7{5} = 1) -> self := a - b                    // SUB
+        [] funct3 = 0b001 -> self := a << b{4..0}                                 // SLL
+        [] funct3 = 0b010 -> self := (a{31} != b{31}) ? int(a{31} = 1) : int(a < b)  // SLT (signed)
+        [] funct3 = 0b011 -> self := int(a < b)                                    // SLTU (unsigned)
+        [] funct3 = 0b100 -> self := a ^ b                                         // XOR
+        [] (funct3 = 0b101) & (funct7{5} = 0) -> self := a >> b{4..0}              // SRL
+        [] (funct3 = 0b101) & (funct7{5} = 1) -> self := (a >> b{4..0}) | ~((-(int(1,32))) >> b{4..0})  // SRA
+        [] funct3 = 0b110 -> self := a | b                                         // OR
+        [] funct3 = 0b111 -> self := a & b                                         // AND
+        ]
+    }
+}
+
 defproc soc(
     chan?(bool) event_id_0;
     chan?(bool) event_id_1;
@@ -70,24 +88,31 @@ defproc soc(
             rs2 := insn_send{24..20};
             funct7 := insn_send{31..25};
 
-            [ (opcode = 11) ->
+            // defaults: everything low unless the opcode below says otherwise
+            imm := 0;
+            reg_write := false;
+            mem_read := false;
+            mem_write := false;
+            branch := false;
+            alu_src_imm := false;
+            mem_to_reg := false;
+            alu_op := 0;
+            branch_op := 0;
+            ld_st_width := 0;
+            is_wfi := false;
+
+            [   // opcode 0b0001011 is wfi
+                (opcode = 0b0001011) ->
                     log("decoded wfi");
-                    is_wfi := true;
+                    is_wfi := true
 
-                    imm := 0;
+              [] (opcode = 0b0110011) ->
+                    log("decoded OP (R-type ALU)");
+                    reg_write := true;
+                    alu_src_imm := false
+                    // alu(rs1_val, rs2_val, funct3, funct7) once regfile provides real operand values
 
-                    reg_write := false;
-                    mem_read := false;
-                    mem_write := false;
-                    branch := false;
-                    alu_src_imm := false;
-                    mem_to_reg := false;
-
-                    alu_op := 0;
-                    branch_op := 0;
-                    ld_st_width := 0
-
-              [] else -> is_wfi := false ];
+              [] else -> skip ];
             log("is_wfi = ", is_wfi);
 
             [ is_wfi -> running := false
