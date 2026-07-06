@@ -1,10 +1,80 @@
+import "decoder.act";
+
 defproc core(
-    chan?(bool) reset,
-    chan?(bool) event,
-    chan?(int<32>)imem_req,
-    chan!(int<32>)imem_resp
-    ) {
+    chan?(bool) reset;
+    chan?(int<4>) event;
+    chan?(int<32>) imem_resp;
+    chan!(int<32>) imem_req
+    )
+{
 
+    bool reset_recv;
+    int<4> event_recv;
+    int<32> pc;
+    int<32> insn_send := 10; // hardcode this for now
 
+    int<7> opcode_recv;
+    int<5> rd_recv;
+    int<5> rs1_recv;
+    int<5> rs2_recv;
+    int<3> funct3_recv;
+    int<7> funct7_recv;
+
+    int<32> imm_recv;
+
+    bool reg_write_recv;
+    bool mem_read_recv;
+    bool mem_write_recv;
+    bool branch_recv;
+    bool alu_src_imm_recv;
+    bool mem_to_reg_recv;
+
+    bool is_wfi;
+
+    int<4> alu_op_recv;
+    int<3> branch_op_recv;
+    int<3> ld_st_width_recv;
+
+    decoder dec;
+
+    chp {
+        reset?reset_recv;
+        log("received reset");
+        *[
+            event?event_recv;
+            log("received event");
+            pc := 0;
+            imem_req!pc;
+            imem_resp?insn_send;
+
+            // 
+            dec.insn!insn_send;
+
+            dec.opcode?opcode_recv;
+            dec.rd?rd_recv;
+            dec.rs1?rs1_recv;
+            dec.rs2?rs2_recv;
+            dec.funct3?funct3_recv;
+            dec.funct7?funct7_recv;
+
+            dec.imm?imm_recv;
+
+            dec.reg_write?reg_write_recv;
+            dec.mem_read?mem_read_recv;
+            dec.mem_write?mem_write_recv;
+            dec.branch?branch_recv;
+            dec.alu_src_imm?alu_src_imm_recv;
+            dec.mem_to_reg?mem_to_reg_recv;
+
+            dec.event_wait?is_wfi;
+
+            dec.alu_op?alu_op_recv;
+            dec.branch_op?branch_op_recv;
+            dec.ld_st_width?ld_st_width_recv;
+
+            [ is_wfi -> skip;
+              [] else -> skip ]
+        ]
+    }
 
 }
