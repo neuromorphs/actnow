@@ -11,7 +11,7 @@ function alu(int<32> a; int<32> b; int<3> funct3; int<7> funct7) : int<32>
         [] funct3 = 0b011 -> self := int(a < b)                                    // SLTU (unsigned)
         [] funct3 = 0b100 -> self := a ^ b                                         // XOR
         [] (funct3 = 0b101) & (funct7{5} = 0) -> self := a >> b{4..0}              // SRL
-        [] (funct3 = 0b101) & (funct7{5} = 1) -> self := (a >> b{4..0}) | ~((-(int(1,32))) >> b{4..0})  // SRA
+        [] (funct3 = 0b101) & (funct7{5} = 1) -> self := (a >> b{4..0}) | ((a{31} = 1) ? ~((-(int(1,32))) >> b{4..0}) : int(0,32))  // SRA
         [] funct3 = 0b110 -> self := a | b                                         // OR
         [] funct3 = 0b111 -> self := a & b                                         // AND
         ]

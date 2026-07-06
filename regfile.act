@@ -1,1 +1,5 @@
-defproc regfile()
+defproc regfile(
+    chan?(bool) reg_write;
+    chan?(int<5>) rd;
+    
+)

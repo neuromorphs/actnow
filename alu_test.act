@@ -1,0 +1,86 @@
+import "soc.act";
+
+defproc alu_test() {
+
+    int<32> r;
+    int<32> neg5, neg3, neg16, neg1;
+
+    chp {
+        neg5 := -(int(5,32));
+        neg3 := -(int(3,32));
+        neg16 := -(int(16,32));
+        neg1 := -(int(1,32));
+
+        // ADD: funct3=000, funct7=0000000
+        r := alu(int(5,32), int(3,32), 0b000, 0b0000000);
+        log("ADD  5 + 3        = ", r, "  (want 8)");
+
+        r := alu(neg5, int(3,32), 0b000, 0b0000000);
+        log("ADD -5 + 3        = ", r, "  (want 4294967294 / -2)");
+
+        // SUB: funct3=000, funct7=0100000
+        r := alu(int(5,32), int(3,32), 0b000, 0b0100000);
+        log("SUB  5 - 3        = ", r, "  (want 2)");
+
+        r := alu(int(3,32), int(5,32), 0b000, 0b0100000);
+        log("SUB  3 - 5        = ", r, "  (want 4294967294 / -2)");
+
+        // SLL: funct3=001
+        r := alu(int(1,32), int(4,32), 0b001, 0b0000000);
+        log("SLL  1 << 4       = ", r, "  (want 16)");
+
+        r := alu(int(1,32), int(31,32), 0b001, 0b0000000);
+        log("SLL  1 << 31      = ", r, "  (want 2147483648)");
+
+        // SLT: funct3=010 (signed)
+        r := alu(neg5, int(3,32), 0b010, 0b0000000);
+        log("SLT -5 <s  3      = ", r, "  (want 1)");
+
+        r := alu(int(5,32), neg3, 0b010, 0b0000000);
+        log("SLT  5 <s -3      = ", r, "  (want 0)");
+
+        r := alu(neg5, neg3, 0b010, 0b0000000);
+        log("SLT -5 <s -3      = ", r, "  (want 1)");
+
+        r := alu(int(3,32), int(5,32), 0b010, 0b0000000);
+        log("SLT  3 <s  5      = ", r, "  (want 1)");
+
+        // SLTU: funct3=011 (unsigned)
+        r := alu(neg5, int(3,32), 0b011, 0b0000000);
+        log("SLTU -5 <u  3      = ", r, "  (want 0, -5 is huge unsigned)");
+
+        r := alu(int(3,32), int(5,32), 0b011, 0b0000000);
+        log("SLTU  3 <u  5      = ", r, "  (want 1)");
+
+        // XOR: funct3=100
+        r := alu(int(6,32), int(1,32), 0b100, 0b0000000);
+        log("XOR  6 ^ 1        = ", r, "  (want 7)");
+
+        // SRL: funct3=101, funct7=0000000
+        r := alu(int(16,32), int(2,32), 0b101, 0b0000000);
+        log("SRL  16 >> 2      = ", r, "  (want 4)");
+
+        r := alu(neg16, int(2,32), 0b101, 0b0000000);
+        log("SRL -16 >> 2      = ", r, "  (want 1073741820, zero-filled)");
+
+        // SRA: funct3=101, funct7=0100000
+        r := alu(neg16, int(2,32), 0b101, 0b0100000);
+        log("SRA -16 >>> 2     = ", r, "  (want 4294967292 / -4)");
+
+        r := alu(neg1, int(31,32), 0b101, 0b0100000);
+        log("SRA -1 >>> 31     = ", r, "  (want 4294967295 / -1)");
+
+        r := alu(int(16,32), int(2,32), 0b101, 0b0100000);
+        log("SRA  16 >>> 2     = ", r, "  (want 4, positive unaffected)");
+
+        // OR: funct3=110
+        r := alu(int(6,32), int(3,32), 0b110, 0b0000000);
+        log("OR   6 | 3        = ", r, "  (want 7)");
+
+        // AND: funct3=111
+        r := alu(int(6,32), int(3,32), 0b111, 0b0000000);
+        log("AND  6 & 3        = ", r, "  (want 2)")
+    }
+}
+
+alu_test t;
