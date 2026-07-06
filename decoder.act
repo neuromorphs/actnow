@@ -56,38 +56,16 @@ defproc decoder(
 
     int<32> insn_recv;
 
-    // int<7> opcode_send;
-    // int<5> rd_send;
-    // int<5> rs1_send;
-    // int<5> rs2_send;
-    // int<3> funct3_send;
-    // int<7> funct7_send;
-
-    // int<32> imm_send;
-
-    // bool reg_write_send;
-    // bool mem_read_send;
-    // bool mem_write_send;
-    // bool branch_send;
-    // bool alu_src_imm_send;
-    // bool mem_to_reg_send;
-
-    // bool event_wait_send;
-
-    // int<4> alu_op_send;
-    // int<3> branch_op_send;
-    // int<3> ld_st_width_send;
-
     chp {
 
         *[
             insn?insn_recv;
             [
                // opcode for event wait instruction
-               (insn_recv{6..0} = 10) ->
+               (insn_recv{6..0} = 11) ->
                     log("decoded wfi");
                 // all outputs should be 0 except for event_wait_send
-                    opcode!(10);
+                    opcode!(11);
                     rd!(0);
                     rs1!(0);
                     rs2!(0);
@@ -96,22 +74,21 @@ defproc decoder(
 
                     imm!(0);
 
-                    reg_write!(0);
-                    mem_read!(0);
-                    mem_write!(0);
-                    branch!(0);
-                    alu_src_imm!(0);
-                    mem_to_reg!(0);
+                    reg_write!(false);
+                    mem_read!(false);
+                    mem_write!(false);
+                    branch!(false);
+                    alu_src_imm!(false);
+                    mem_to_reg!(false);
 
-                    event_wait!(1);
+                    event_wait!(true);
 
                     alu_op!(0);
                     branch_op!(0);
                     ld_st_width!(0)
 
                [] else -> skip
-            ];
-
+            ]
 
         ]
 

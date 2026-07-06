@@ -11,7 +11,7 @@ defproc core(
     bool reset_recv;
     int<4> event_recv;
     int<32> pc;
-    int<32> insn_send := 10; // hardcode this for now
+    int<32> insn_send; // hardcode this for now
 
     int<7> opcode_recv;
     int<5> rd_recv;
@@ -30,6 +30,7 @@ defproc core(
     bool mem_to_reg_recv;
 
     bool is_wfi;
+    bool running;
 
     int<4> alu_op_recv;
     int<3> branch_op_recv;
@@ -44,36 +45,39 @@ defproc core(
             event?event_recv;
             log("received event");
             pc := 0;
-            imem_req!pc;
-            imem_resp?insn_send;
+            running := true;
+            *[ running ->
+                imem_req!pc;
+                imem_resp?insn_send;
 
-            // 
-            dec.insn!insn_send;
+                dec.insn!insn_send;
 
-            dec.opcode?opcode_recv;
-            dec.rd?rd_recv;
-            dec.rs1?rs1_recv;
-            dec.rs2?rs2_recv;
-            dec.funct3?funct3_recv;
-            dec.funct7?funct7_recv;
+                dec.opcode?opcode_recv;
+                dec.rd?rd_recv;
+                dec.rs1?rs1_recv;
+                dec.rs2?rs2_recv;
+                dec.funct3?funct3_recv;
+                dec.funct7?funct7_recv;
 
-            dec.imm?imm_recv;
+                dec.imm?imm_recv;
 
-            dec.reg_write?reg_write_recv;
-            dec.mem_read?mem_read_recv;
-            dec.mem_write?mem_write_recv;
-            dec.branch?branch_recv;
-            dec.alu_src_imm?alu_src_imm_recv;
-            dec.mem_to_reg?mem_to_reg_recv;
+                dec.reg_write?reg_write_recv;
+                dec.mem_read?mem_read_recv;
+                dec.mem_write?mem_write_recv;
+                dec.branch?branch_recv;
+                dec.alu_src_imm?alu_src_imm_recv;
+                dec.mem_to_reg?mem_to_reg_recv;
 
-            dec.event_wait?is_wfi;
+                dec.event_wait?is_wfi;
+                log("is_wfi = ", is_wfi);
 
-            dec.alu_op?alu_op_recv;
-            dec.branch_op?branch_op_recv;
-            dec.ld_st_width?ld_st_width_recv;
+                dec.alu_op?alu_op_recv;
+                dec.branch_op?branch_op_recv;
+                dec.ld_st_width?ld_st_width_recv;
 
-            [ is_wfi -> skip;
-              [] else -> skip ]
+                [ is_wfi -> running := false
+                  [] else -> pc := pc + 4 ]
+            ]
         ]
     }
 

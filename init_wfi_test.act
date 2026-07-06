@@ -1,0 +1,32 @@
+import "core.act";
+
+defproc init_wfi_test() {
+
+    core c;
+    int<32> imem_req_recv;
+    int<32> delay;
+
+    chp {
+        c.reset!(true);
+        c.event!(0);
+
+        c.imem_req?imem_req_recv;
+        c.imem_resp!(11);
+
+
+        delay := 200000;
+        *[ delay > 0 -> delay := delay - 1];
+
+        c.event!(0);
+        
+        c.imem_req?imem_req_recv;
+        c.imem_resp!(11)
+
+
+        
+    }
+
+}
+
+init_wfi_test iwt;
+
