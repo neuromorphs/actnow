@@ -1,0 +1,63 @@
+export function alu_r_type(int<32> a; int<32> b; int<3> funct3; int<7> funct7) : int<32>
+{
+    chp {
+        [  (funct3 = 0b000) & (funct7{5} = 0) -> self := a + b                    // ADD
+        [] (funct3 = 0b000) & (funct7{5} = 1) -> self := a - b                    // SUB
+        [] funct3 = 0b001 -> self := a << b{4..0}                                 // SLL
+        [] funct3 = 0b010 -> self := (a{31} != b{31}) ? int(a{31} = 1) : int(a < b)  // SLT (signed)
+        [] funct3 = 0b011 -> self := int(a < b)                                    // SLTU (unsigned)
+        [] funct3 = 0b100 -> self := a ^ b                                         // XOR
+        [] (funct3 = 0b101) & (funct7{5} = 0) -> self := a >> b{4..0}              // SRL
+        [] (funct3 = 0b101) & (funct7{5} = 1) -> self := (a >> b{4..0}) | ((a{31} = 1) ? ~((-(int(1,32))) >> b{4..0}) : int(0,32))  // SRA
+        [] funct3 = 0b110 -> self := a | b                                         // OR
+        [] funct3 = 0b111 -> self := a & b                                         // AND
+        ]
+    }
+}
+
+export function alu_i_type(int<32> a; int<32> imm; int<3> funct3) : int<32>
+{
+    chp {
+        [  funct3 = 0b000 -> self := a + imm
+        [] funct3 = 0b010 -> self := (a{31} != imm{31}) ? int(a{31} = 1) : int(a < imm)  // SLT (signed)
+        [] funct3 = 0b011 -> self := int(a < imm)                                    // SLTU (unsigned)
+        [] funct3 = 0b100 -> self := a ^ imm                                         // XOR
+        [] funct3 = 0b110 -> self := a | imm                                         // OR
+        [] funct3 = 0b111 -> self := a & imm                                         // AND
+        ]
+    }
+}
+
+export function rd_write(req_pkt req; int<32> alu_result) : reg_req
+{
+    chp {
+        req.rs1_valid := false;
+        req.rs2_valid := false;
+        req.rd_data := alu_result;
+        req.rd_valid := true;
+        self := req
+    }
+}
+
+export function rs1_rs2_read(req_pkt req; int<5> rs1_addr; int<5> rs2_addr) : reg_req
+{
+    chp {
+        req.rs1_addr := rs1_addr;
+        req.rs1_valid := true;
+        req.rs2_addr := rs2_addr;
+        req.rs2_valid := true;
+        req.rd_valid := false;
+        self := req
+    }
+}
+
+export function rs1_read(req_pkt req; int<5> rs1_addr) : reg_req
+{
+    chp {
+        req.rs1_addr := rs1_addr;
+        req.rs1_valid := true;
+        req.rs2_valid := false;
+        req.rd_valid := false;
+        self := req
+    }
+}
