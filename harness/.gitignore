@@ -1,5 +1,6 @@
 gen/
 fpga/vivado/
+fpga/bd/
 *.log
 *.jou
 .Xil
