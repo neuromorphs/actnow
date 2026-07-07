@@ -8,9 +8,13 @@ defproc regfile_test() {
 
     chp {
         // read x0 on both ports before any writes -- want 0, 0
-        q.rs1_addr := 0; q.rs1_valid := true;
-        q.rs2_addr := 0; q.rs2_valid := true;
-        q.rd_addr := 0;  q.rd_data := 0; q.rd_valid := false;
+        q.rs1_addr := 0; 
+        q.rs1_valid := true;
+        q.rs2_addr := 0; 
+        q.rs2_valid := true;
+        q.rd_addr := 0;  
+        q.rd_data := 0; 
+        q.rd_valid := false;
         r.req!q;
         r.resp?p;
         log("read x0/x0 (want 0, 0) = ", p.rs1_data, ", ", p.rs2_data);
@@ -18,34 +22,47 @@ defproc regfile_test() {
         // write 42 to reg 5 (reads in this same packet are unused, rs1_valid/rs2_valid false)
         q.rs1_valid := false;
         q.rs2_valid := false;
-        q.rd_addr := 5; q.rd_data := 42; q.rd_valid := true;
+        q.rd_addr := 5; 
+        q.rd_data := 42; 
+        q.rd_valid := true;
         r.req!q;
 
         // read reg5 via both ports -- want 42, 42
-        q.rs1_addr := 5; q.rs1_valid := true;
-        q.rs2_addr := 5; q.rs2_valid := true;
+        q.rs1_addr := 5; 
+        q.rs1_valid := true;
+        q.rs2_addr := 5; 
+        q.rs2_valid := true;
         q.rd_valid := false;
         r.req!q;
         r.resp?p;
         log("read reg5/reg5 (want 42, 42) = ", p.rs1_data, ", ", p.rs2_data);
 
         // attempt to write 99 to x0 -- should be silently dropped
-        q.rd_addr := 0; q.rd_data := 99; q.rd_valid := true;
+        q.rd_addr := 0; 
+        q.rd_data := 99;
+        q.rd_valid := true;
         r.req!q;
         r.resp?p;
 
         // read x0 again (want still 0) and reg5 (want still 42, unaffected)
-        q.rs1_addr := 0; q.rs1_valid := true;
-        q.rs2_addr := 5; q.rs2_valid := true;
+        q.rs1_addr := 0; 
+        q.rs1_valid := true;
+        q.rs2_addr := 5; 
+        q.rs2_valid := true;
         q.rd_valid := false;
         r.req!q;
         r.resp?p;
         log("read x0/reg5 after blocked write (want 0, 42) = ", p.rs1_data, ", ", p.rs2_data);
 
         // single packet exercising a read AND a write together, mixed with one unused operand
-        q.rs1_addr := 5; q.rs1_valid := true;    // used
-        q.rs2_addr := 9; q.rs2_valid := false;   // unused this instruction
-        q.rd_addr := 6; q.rd_data := 7; q.rd_valid := true;
+        q.rs1_addr := 5; 
+        q.rs1_valid := true;    // used
+        q.rs2_addr := 9; 
+        q.rs2_valid := false;   // unused this instruction
+        q.rd_addr := 6; 
+        q.rd_data := 7; 
+        q.rd_valid := true;
+
         r.req!q;
         r.resp?p;
         log("combined read+write packet: rs1 (want 42) = ", p.rs1_data);

@@ -18,12 +18,15 @@ export function alu_r_type(int<32> a; int<32> b; int<3> funct3; int<7> funct7) :
 export function alu_i_type(int<32> a; int<32> imm; int<3> funct3) : int<32>
 {
     chp {
-        [  funct3 = 0b000 -> self := a + imm
-        [] funct3 = 0b010 -> self := (a{31} != imm{31}) ? int(a{31} = 1) : int(a < imm)  // SLT (signed)
-        [] funct3 = 0b011 -> self := int(a < imm)                                    // SLTU (unsigned)
+        [  funct3 = 0b000 -> self := a + imm // ADDI
+        [] funct3 = 0b001 -> self := a << imm{4..0} // SLLI
+        [] funct3 = 0b010 -> self := (a{31} != imm{31}) ? int(a{31} = 1) : int(a < imm)  // SLTI (signed)
+        [] funct3 = 0b011 -> self := int(a < imm)                                    // SLTIU (unsigned)
         [] funct3 = 0b100 -> self := a ^ imm                                         // XOR
-        [] funct3 = 0b110 -> self := a | imm                                         // OR
-        [] funct3 = 0b111 -> self := a & imm                                         // AND
+        [] funct3 = 0b110 -> self := a | imm                                         // ORI
+        [] funct3 = 0b111 -> self := a & imm                                         // ANDI
+        [] (funct3 = 0b101) &  (imm{11..5} = 0) -> self := a >> imm{4..0}              // SRLI
+        [] (funct3 = 0b101) &  (imm{11..5} = 32) -> self := (a >> imm{4..0}) | ((a{31} = 1) ? ~((-(int(1,32))) >> imm{4..0}) : int(0,32))  // SRAI
         ]
     }
 }
