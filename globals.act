@@ -6,6 +6,8 @@ pint WIDTH_DATA = 32,
 deftype addr_t(int<WIDTH_ADDR_BASE> base; int<WIDTH_ADDR_OFFSET> offset) { }
 
 defenum op_mem_t { W, R, R_AND_W };
+defenum size_mem_t { BYTE, HALF_WORD, WORD };
+deftype mode_mem_t(op_mem_t op; size_mem_t size) { }
 
 pint ADDR_MEM = 0,
     ADDR_INT_CTRL = 1,
@@ -13,3 +15,6 @@ pint ADDR_MEM = 0,
     ADDR_INTERNAL_RESERVED_1 = 3;
 
 pint ADDR_RESET = 0x40000;
+
+// 8 Ki words
+pint SIZE_MEM_BYTES = 8 * 1024 * 8;

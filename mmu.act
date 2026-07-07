@@ -1,49 +1,64 @@
 import "globals.act";
 
+function mask_data (int<WIDTH_DATA> data; size_mem_t size) : int<WIDTH_DATA> {
+    chp {
+        [ size = size_mem_t.BYTE       -> self := data & 0xff
+        [] size = size_mem_t.HALF_WORD -> self := data & 0xffff
+        [] else                        -> self := data
+        ]
+    }
+}
+
 /*
 To core:
-0. receives op from core
+0. receives mode from core
 1. sends rdata to core, in parallel or/and receives wdata from core depending on op
 
 To peripherals:
-0. sends op to periph
+0. sends mode to periph
 1. receives rdata from periph, in parallel or/and sends wdata to periph depending on op
+
+sized transfers: only the low BYTE / HALF_WORD / WORD bits are kept. higher bits are 0
 */
 defproc mmu(
-    chan?(addr_t) addr_core; chan?(op_mem_t) op_core; chan?(int<WIDTH_DATA>) wdata_core; chan!(int<WIDTH_DATA>) rdata_core;
-    chan!(addr_t) addr_mem; chan!(op_mem_t) op_mem; chan!(int<WIDTH_DATA>) wdata_mem; chan?(int<WIDTH_DATA>) rdata_mem;
-    chan!(addr_t) addr_int_ctrl; chan!(op_mem_t) op_int_ctrl; chan!(int<WIDTH_DATA>) wdata_int_ctrl; chan?(int<WIDTH_DATA>) rdata_int_ctrl;
-    chan!(addr_t) addr_ext; chan!(op_mem_t) op_ext; chan!(int<WIDTH_DATA>) wdata_ext; chan?(int<WIDTH_DATA>) rdata_ext
+    chan?(addr_t) addr_core; chan?(mode_mem_t) mode_core; chan?(int<WIDTH_DATA>) wdata_core; chan!(int<WIDTH_DATA>) rdata_core;
+    chan!(addr_t) addr_mem; chan!(mode_mem_t) mode_mem; chan!(int<WIDTH_DATA>) wdata_mem; chan?(int<WIDTH_DATA>) rdata_mem;
+    chan!(addr_t) addr_int_ctrl; chan!(mode_mem_t) mode_int_ctrl; chan!(int<WIDTH_DATA>) wdata_int_ctrl; chan?(int<WIDTH_DATA>) rdata_int_ctrl;
+    chan!(addr_t) addr_ext; chan!(mode_mem_t) mode_ext; chan!(int<WIDTH_DATA>) wdata_ext; chan?(int<WIDTH_DATA>) rdata_ext
 ) {
     addr_t addr;
+    mode_mem_t mode;
     op_mem_t op;
+    size_mem_t size;
     int<WIDTH_DATA> wdata;
     int<WIDTH_DATA> rdata;
     bool is_write, is_read;
 
     chp {
         *[
-            addr_core?addr; op_core?op;
+            addr_core?addr; mode_core?mode;
+            op := mode.op;
+            size := mode.size;
             is_write := (op = op_mem_t.W) | (op = op_mem_t.R_AND_W);
             is_read := (op = op_mem_t.R) | (op = op_mem_t.R_AND_W);
 
             // receive from core
             [
-                is_write -> wdata_core?wdata
+                is_write -> wdata_core?wdata; wdata := mask_data(wdata, size)
                 [] else -> skip
             ];
 
             // interface with peripherals
             [
                 addr.base = ADDR_MEM ->
-                    addr_mem!addr; op_mem!op;
+                    addr_mem!addr; mode_mem!mode;
                     [
                         op = op_mem_t.W -> wdata_mem!wdata
                         [] op = op_mem_t.R -> rdata_mem?rdata
                         [] op = op_mem_t.R_AND_W -> rdata_mem?rdata, wdata_mem!wdata
                     ]
                 [] addr.base = ADDR_INT_CTRL ->
-                    addr_int_ctrl!addr; op_int_ctrl!op;
+                    addr_int_ctrl!addr; mode_int_ctrl!mode;
                     [
                         op = op_mem_t.W -> wdata_int_ctrl!wdata
                         [] op = op_mem_t.R -> rdata_int_ctrl?rdata
@@ -52,7 +67,7 @@ defproc mmu(
                 [] (addr.base = ADDR_INTERNAL_RESERVED_0) | (addr.base = ADDR_INTERNAL_RESERVED_1) ->
                     skip
                 [] else ->
-                    addr_ext!addr; op_ext!op;
+                    addr_ext!addr; mode_ext!mode;
                     [
                         op = op_mem_t.W -> wdata_ext!wdata
                         [] op = op_mem_t.R -> rdata_ext?rdata
@@ -62,7 +77,7 @@ defproc mmu(
 
             // send to core
             [
-                is_read -> rdata_core!rdata
+                is_read -> rdata := mask_data(rdata, size); rdata_core!rdata
                 [] else -> skip
             ]
         ]
