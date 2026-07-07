@@ -19,9 +19,12 @@ defproc regfile(
         *[
             req?req_recv;
 
-            resp_send.rs1_data := (req_recv.rs1_addr = 0) ? int(0,32) : regs[req_recv.rs1_addr];
-            resp_send.rs2_data := (req_recv.rs2_addr = 0) ? int(0,32) : regs[req_recv.rs2_addr];
-            resp!resp_send;
+            [ req_recv.rs1_valid | req_recv.rs2_valid ->
+                    resp_send.rs1_data := (req_recv.rs1_addr = 0) ? int(0,32) : regs[req_recv.rs1_addr];
+                    resp_send.rs2_data := (req_recv.rs2_addr = 0) ? int(0,32) : regs[req_recv.rs2_addr];
+                    resp!resp_send
+              [] else -> skip
+            ];
 
             [ req_recv.rd_valid & (req_recv.rd_addr != 0) ->
                     regs[req_recv.rd_addr] := req_recv.rd_data;
