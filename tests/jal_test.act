@@ -1,0 +1,42 @@
+import "soc.act";
+
+// Drives soc through JAL followed by JALR in one continuous run (no WFI in
+// between, since waking always re-vectors pc rather than resuming -- see
+// wfi_test.act / the soc.act "flush" discussion). Deliberately uses a
+// negative JAL offset, since that's exactly the case that used to corrupt
+// bit 0 of the reconstructed immediate (the sign bit only shows up as a
+// problem when it's actually set). JALR's target then depends on JAL's
+// link register, so a wrong JALR mask or JAL return-address value would
+// show up as a wrong final fetch address here too.
+defproc jal_test() {
+
+    soc s;
+    int<32> addr, insn, off;
+
+    chp {
+        // Boot at pc=0 (automatic, via interrupt's initial event_pc!0).
+        // JAL x1, -8 -- backward jump, opcode=1101111, rd=1
+        off := -(int(8,32));
+        insn := (off{20} << 31) | (off{19..12} << 12) | (off{11} << 20) | (off{10..1} << 21) | 0b1101111 | (int(1,32) << 7);
+
+        s.imem_req?addr;
+        assert(addr = 0, "first fetch addr: want 0, got ", addr);
+        s.imem_resp!insn;
+
+        // next_pc should be 0 + (-8) = -8 (unsigned: 4294967288); rd(x1) = pc+4 = 4
+        s.imem_req?addr;
+        assert(addr = 4294967288, "post-JAL fetch addr: want 4294967288 / -8, got ", addr);
+
+        // JALR x2, x1, 4 -- target = (x1=4 + 4) & ~1 = 8
+        insn := (int(4,32) << 20) | (int(1,32) << 15) | (int(2,32) << 7) | 0b1100111;
+        s.imem_resp!insn;
+
+        s.imem_req?addr;
+        assert(addr = 8, "post-JALR fetch addr: want 8, got ", addr);
+        s.imem_resp!(11);
+
+        log("jal_test: all assertions passed")
+    }
+}
+
+jal_test t;

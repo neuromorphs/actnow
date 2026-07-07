@@ -130,12 +130,6 @@ are silent.
 - SB
 - SH
 - SW
-### Misc ( I don't think we need these , do we ? )
-- FENCE
-- FENCE.TSO
-- PAUSE
-- ECALL
-- EBREAK
 
 ### another thing to keep in mind is 
 

@@ -20,16 +20,20 @@ defproc interrupt(
 
 {
     bool event_id_recv;
-    bool init;
+    bool is_reset;
 
     chp {
 
-        init := true;
+        // RESET VECTOR: fires exactly once, unconditionally, independent of
+        // the 16 maskable event lines below -- this is not "an event", it's
+        // the hardware reset every real chip needs to bootstrap before any
+        // interrupt source could possibly be configured/enabled yet.
+        is_reset := true;
         *[
-            [init -> event_pc!0
+            [is_reset -> log("reset vector: pc 0x0"); event_pc!0
             [] else -> skip
             ];
-            init := false;
+            is_reset := false;
 
             [|
             #event_id_0 -> event_id_0?event_id_recv; log("event 0 pc: 0x10000000"); event_pc!0x10000000 
