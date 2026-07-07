@@ -1,6 +1,6 @@
 import "interrupt.act";
 import "regfile.act";
-import "alu.act";
+import "utils.act";
 
 defproc soc(
     chan?(bool) event_id_0;

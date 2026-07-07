@@ -1,4 +1,4 @@
-import "alu.act";
+import "utils.act";
 
 // Probes the merged `alu` function with both operand shapes it needs to
 // support: real rs1/rs2 register values (R-type), and the resolved-by-decode

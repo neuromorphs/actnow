@@ -17,3 +17,18 @@ export function alu(int<32> a; int<32> b; int<3> funct3; int<7> funct7) : int<32
         ]
     }
 }
+
+export function branch_taken(int<32> rs1; int<32> rs2; int<3> funct3) : bool
+{
+    chp {
+        // funct3{2:1} selects the comparison: 00=equality (via XOR==0),
+        // 10=signed less-than, 11=unsigned less-than -- all via the shared alu
+        [ funct3{2..1} = 0b00 -> self := bool(alu(rs1, rs2, 0b100, 0b0000000) = 0)
+        [] funct3{2..1} = 0b10 -> self := bool(alu(rs1, rs2, 0b010, 0b0000000) = 1)
+        [] funct3{2..1} = 0b11 -> self := bool(alu(rs1, rs2, 0b011, 0b0000000) = 1)
+        ];
+        // funct3{0} flips the sense: BNE/BGE/BGEU take the branch on the
+        // negation of what BEQ/BLT/BLTU would
+        [ funct3{0} = 1 -> self := ~self [] else -> skip ]
+    }
+}
