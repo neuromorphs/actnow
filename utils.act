@@ -1,32 +1,33 @@
-export function alu_r_type(int<32> a; int<32> b; int<3> funct3; int<7> funct7) : int<32>
+export function build_r_insn(int<7> opcode; int<5> rd; int<3> funct3; int<5> rs1; int<5> rs2; int<7> funct7) : int<32>
 {
     chp {
-        [  (funct3 = 0b000) & (funct7{5} = 0) -> self := a + b                    // ADD
-        [] (funct3 = 0b000) & (funct7{5} = 1) -> self := a - b                    // SUB
-        [] funct3 = 0b001 -> self := a << b{4..0}                                 // SLL
-        [] funct3 = 0b010 -> self := (a{31} != b{31}) ? int(a{31} = 1) : int(a < b)  // SLT (signed)
-        [] funct3 = 0b011 -> self := int(a < b)                                    // SLTU (unsigned)
-        [] funct3 = 0b100 -> self := a ^ b                                         // XOR
-        [] (funct3 = 0b101) & (funct7{5} = 0) -> self := a >> b{4..0}              // SRL
-        [] (funct3 = 0b101) & (funct7{5} = 1) -> self := (a >> b{4..0}) | ((a{31} = 1) ? ~((-(int(1,32))) >> b{4..0}) : int(0,32))  // SRA
-        [] funct3 = 0b110 -> self := a | b                                         // OR
-        [] funct3 = 0b111 -> self := a & b                                         // AND
-        ]
+        self := (funct7 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3 << 12) | (rd << 7) | opcode
     }
 }
 
-export function alu_i_type(int<32> a; int<32> imm; int<3> funct3) : int<32>
+export function build_i_insn(int<7> opcode; int<5> rd; int<3> funct3; int<5> rs1; int<12> imm) : int<32>
 {
     chp {
-        [  funct3 = 0b000 -> self := a + imm // ADDI
-        [] funct3 = 0b001 -> self := a << imm{4..0} // SLLI
-        [] funct3 = 0b010 -> self := (a{31} != imm{31}) ? int(a{31} = 1) : int(a < imm)  // SLTI (signed)
-        [] funct3 = 0b011 -> self := int(a < imm)                                    // SLTIU (unsigned)
-        [] funct3 = 0b100 -> self := a ^ imm                                         // XOR
-        [] funct3 = 0b110 -> self := a | imm                                         // ORI
-        [] funct3 = 0b111 -> self := a & imm                                         // ANDI
-        [] (funct3 = 0b101) &  (imm{11..5} = 0) -> self := a >> imm{4..0}              // SRLI
-        [] (funct3 = 0b101) &  (imm{11..5} = 32) -> self := (a >> imm{4..0}) | ((a{31} = 1) ? ~((-(int(1,32))) >> imm{4..0}) : int(0,32))  // SRAI
+        self := (imm << 20) | (rs1 << 15) | (funct3 << 12) | (rd << 7) | opcode
+    }
+}
+
+// Single shared ALU for R-type, I-type, and the shift-immediates (SLLI/SRLI/SRAI).
+// Note that b can either be rs2 or the immediate, depending on the instruction type. 
+// The caller is responsible for providing the correct value.
+export function alu(int<32> a; int<32> b; int<3> funct3; int<7> funct7) : int<32>
+{
+    chp {
+        [  (funct3 = 0b000) & (funct7{5} = 0) -> self := a + b                    // ADD / ADDI
+        [] (funct3 = 0b000) & (funct7{5} = 1) -> self := a - b                    // SUB
+        [] funct3 = 0b001 -> self := a << b{4..0}                                 // SLL / SLLI
+        [] funct3 = 0b010 -> self := (a{31} != b{31}) ? int(a{31} = 1) : int(a < b)  // SLT / SLTI (signed)
+        [] funct3 = 0b011 -> self := int(a < b)                                    // SLTU / SLTIU (unsigned)
+        [] funct3 = 0b100 -> self := a ^ b                                         // XOR / XORI
+        [] (funct3 = 0b101) & (funct7{5} = 0) -> self := a >> b{4..0}              // SRL / SRLI
+        [] (funct3 = 0b101) & (funct7{5} = 1) -> self := (a >> b{4..0}) | ((a{31} = 1) ? ~((-(int(1,32))) >> b{4..0}) : int(0,32))  // SRA / SRAI
+        [] funct3 = 0b110 -> self := a | b                                         // OR / ORI
+        [] funct3 = 0b111 -> self := a & b                                         // AND / ANDI
         ]
     }
 }

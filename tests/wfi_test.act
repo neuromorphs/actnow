@@ -1,6 +1,6 @@
 import "../soc.act";
 
-defproc init_wfi_test() {
+defproc wfi_test() {
 
     soc s;
     int<32> imem_req_recv;
@@ -28,4 +28,4 @@ defproc init_wfi_test() {
 
 }
 
-init_wfi_test iwt;
+wfi_test wt;

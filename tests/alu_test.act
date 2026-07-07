@@ -1,85 +1,151 @@
-import "../soc.act";
+import "../utils.act";
 
+// Probes the merged `alu` function with both operand shapes it needs to
+// support: real rs1/rs2 register values (R-type), and the resolved-by-decode
+// second operand for I-type -- a sign-extended immediate for the normal
+// OP-IMM instructions, or the raw shamt (+ real funct7 bits) for
+// SLLI/SRLI/SRAI, exactly as soc.act's OP-IMM branch builds them.
 defproc alu_test() {
 
     int<32> r;
-    int<32> neg5, neg3, neg16, neg1;
+    int<32> neg5, neg10, neg3, neg16, neg1;
 
     chp {
         neg5 := -(int(5,32));
+        neg10 := -(int(10,32));
         neg3 := -(int(3,32));
         neg16 := -(int(16,32));
         neg1 := -(int(1,32));
 
+        // ---- R-type ----
+
         // ADD: funct3=000, funct7=0000000
         r := alu(int(5,32), int(3,32), 0b000, 0b0000000);
-        log("ADD  5 + 3        = ", r, "  (want 8)");
+        assert(r = 8, "ADD 5+3: want 8, got ", r);
 
         r := alu(neg5, int(3,32), 0b000, 0b0000000);
-        log("ADD -5 + 3        = ", r, "  (want 4294967294 / -2)");
+        assert(r = 4294967294, "ADD -5+3: want 4294967294 / -2, got ", r);
 
         // SUB: funct3=000, funct7=0100000
         r := alu(int(5,32), int(3,32), 0b000, 0b0100000);
-        log("SUB  5 - 3        = ", r, "  (want 2)");
+        assert(r = 2, "SUB 5-3: want 2, got ", r);
 
         r := alu(int(3,32), int(5,32), 0b000, 0b0100000);
-        log("SUB  3 - 5        = ", r, "  (want 4294967294 / -2)");
+        assert(r = 4294967294, "SUB 3-5: want 4294967294 / -2, got ", r);
 
         // SLL: funct3=001
         r := alu(int(1,32), int(4,32), 0b001, 0b0000000);
-        log("SLL  1 << 4       = ", r, "  (want 16)");
+        assert(r = 16, "SLL 1<<4: want 16, got ", r);
 
         r := alu(int(1,32), int(31,32), 0b001, 0b0000000);
-        log("SLL  1 << 31      = ", r, "  (want 2147483648)");
+        assert(r = 2147483648, "SLL 1<<31: want 2147483648, got ", r);
 
         // SLT: funct3=010 (signed)
         r := alu(neg5, int(3,32), 0b010, 0b0000000);
-        log("SLT -5 <s  3      = ", r, "  (want 1)");
+        assert(r = 1, "SLT -5<s3: want 1, got ", r);
 
         r := alu(int(5,32), neg3, 0b010, 0b0000000);
-        log("SLT  5 <s -3      = ", r, "  (want 0)");
+        assert(r = 0, "SLT 5<s-3: want 0, got ", r);
 
         r := alu(neg5, neg3, 0b010, 0b0000000);
-        log("SLT -5 <s -3      = ", r, "  (want 1)");
+        assert(r = 1, "SLT -5<s-3: want 1, got ", r);
 
         r := alu(int(3,32), int(5,32), 0b010, 0b0000000);
-        log("SLT  3 <s  5      = ", r, "  (want 1)");
+        assert(r = 1, "SLT 3<s5: want 1, got ", r);
 
         // SLTU: funct3=011 (unsigned)
         r := alu(neg5, int(3,32), 0b011, 0b0000000);
-        log("SLTU -5 <u  3      = ", r, "  (want 0, -5 is huge unsigned)");
+        assert(r = 0, "SLTU -5<u3: want 0 (-5 is huge unsigned), got ", r);
 
         r := alu(int(3,32), int(5,32), 0b011, 0b0000000);
-        log("SLTU  3 <u  5      = ", r, "  (want 1)");
+        assert(r = 1, "SLTU 3<u5: want 1, got ", r);
 
         // XOR: funct3=100
         r := alu(int(6,32), int(1,32), 0b100, 0b0000000);
-        log("XOR  6 ^ 1        = ", r, "  (want 7)");
+        assert(r = 7, "XOR 6^1: want 7, got ", r);
 
         // SRL: funct3=101, funct7=0000000
         r := alu(int(16,32), int(2,32), 0b101, 0b0000000);
-        log("SRL  16 >> 2      = ", r, "  (want 4)");
+        assert(r = 4, "SRL 16>>2: want 4, got ", r);
 
         r := alu(neg16, int(2,32), 0b101, 0b0000000);
-        log("SRL -16 >> 2      = ", r, "  (want 1073741820, zero-filled)");
+        assert(r = 1073741820, "SRL -16>>2: want 1073741820, zero-filled, got ", r);
 
         // SRA: funct3=101, funct7=0100000
         r := alu(neg16, int(2,32), 0b101, 0b0100000);
-        log("SRA -16 >>> 2     = ", r, "  (want 4294967292 / -4)");
+        assert(r = 4294967292, "SRA -16>>>2: want 4294967292 / -4, got ", r);
 
         r := alu(neg1, int(31,32), 0b101, 0b0100000);
-        log("SRA -1 >>> 31     = ", r, "  (want 4294967295 / -1)");
+        assert(r = 4294967295, "SRA -1>>>31: want 4294967295 / -1, got ", r);
 
         r := alu(int(16,32), int(2,32), 0b101, 0b0100000);
-        log("SRA  16 >>> 2     = ", r, "  (want 4, positive unaffected)");
+        assert(r = 4, "SRA 16>>>2: want 4, positive unaffected, got ", r);
 
         // OR: funct3=110
         r := alu(int(6,32), int(3,32), 0b110, 0b0000000);
-        log("OR   6 | 3        = ", r, "  (want 7)");
+        assert(r = 7, "OR 6|3: want 7, got ", r);
 
         // AND: funct3=111
         r := alu(int(6,32), int(3,32), 0b111, 0b0000000);
-        log("AND  6 & 3        = ", r, "  (want 2)")
+        assert(r = 2, "AND 6&3: want 2, got ", r);
+
+        // ---- I-type ----
+
+        // ADDI: funct3=000, funct7=0000000 (imm never selects SUB)
+        r := alu(int(10,32), int(5,32), 0b000, 0b0000000);
+        assert(r = 15, "ADDI 10+5: want 15, got ", r);
+
+        r := alu(neg10, int(5,32), 0b000, 0b0000000);
+        assert(r = 4294967291, "ADDI -10+5: want 4294967291 / -5, got ", r);
+
+        // SLTI: funct3=010 (signed)
+        r := alu(neg5, int(3,32), 0b010, 0b0000000);
+        assert(r = 1, "SLTI -5<s3: want 1, got ", r);
+
+        r := alu(int(5,32), neg3, 0b010, 0b0000000);
+        assert(r = 0, "SLTI 5<s-3: want 0, got ", r);
+
+        // SLTIU: funct3=011 (unsigned)
+        r := alu(neg5, int(3,32), 0b011, 0b0000000);
+        assert(r = 0, "SLTIU -5<u3: want 0 (-5 is huge unsigned), got ", r);
+
+        r := alu(int(3,32), int(5,32), 0b011, 0b0000000);
+        assert(r = 1, "SLTIU 3<u5: want 1, got ", r);
+
+        // XORI: funct3=100
+        r := alu(int(6,32), int(1,32), 0b100, 0b0000000);
+        assert(r = 7, "XORI 6^1: want 7, got ", r);
+
+        // ORI: funct3=110
+        r := alu(int(6,32), int(3,32), 0b110, 0b0000000);
+        assert(r = 7, "ORI 6|3: want 7, got ", r);
+
+        // ANDI: funct3=111
+        r := alu(int(6,32), int(3,32), 0b111, 0b0000000);
+        assert(r = 2, "ANDI 6&3: want 2, got ", r);
+
+        // SLLI: funct3=001, b = shamt (not a normal immediate)
+        r := alu(int(1,32), int(4,32), 0b001, 0b0000000);
+        assert(r = 16, "SLLI 1<<4: want 16, got ", r);
+
+        r := alu(int(1,32), int(31,32), 0b001, 0b0000000);
+        assert(r = 2147483648, "SLLI 1<<31: want 2147483648, got ", r);
+
+        // SRLI: funct3=101, funct7=0000000, b = shamt
+        r := alu(int(16,32), int(2,32), 0b101, 0b0000000);
+        assert(r = 4, "SRLI 16>>2: want 4, got ", r);
+
+        r := alu(neg16, int(2,32), 0b101, 0b0000000);
+        assert(r = 1073741820, "SRLI -16>>2: want 1073741820, zero-filled, got ", r);
+
+        // SRAI: funct3=101, funct7=0100000, b = shamt
+        r := alu(neg16, int(2,32), 0b101, 0b0100000);
+        assert(r = 4294967292, "SRAI -16>>>2: want 4294967292 / -4, got ", r);
+
+        r := alu(int(16,32), int(2,32), 0b101, 0b0100000);
+        assert(r = 4, "SRAI 16>>>2: want 4, positive unaffected, got ", r);
+
+        log("alu_test: all assertions passed")
     }
 }
 

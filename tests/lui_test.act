@@ -11,7 +11,7 @@ defproc lui_test() {
         // opcode = 0b0110111, rd = 5, imm[31:12] = 0x12345
         // insn = (imm[31:12] << 12) | (rd << 7) | opcode
         insn := (int(0x12345,32) << 12) | (int(5,32) << 7) | int(0b0110111,32);
-        log("encoded LUI insn = ", insn, " (want 305418935 / 0x12345037)");
+        assert(insn = 305418935, "encoded LUI insn: want 305418935 / 0x12345037, got ", insn);
 
         s.imem_req?addr;
         s.imem_resp!insn;

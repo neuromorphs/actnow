@@ -53,6 +53,8 @@ defproc soc(
     reg_req req_pkt;
     reg_resp resp_pkt;
     int<32> alu_result;
+    int<32> alu_b;
+    int<7> alu_funct7;
 
     chan(int<32>) event_pc;
 
@@ -100,7 +102,7 @@ defproc soc(
                     rf.req!req_pkt;
                     rf.resp?resp_pkt;
 
-                    alu_result := alu_r_type(resp_pkt.rs1_data, resp_pkt.rs2_data, funct3, funct7);
+                    alu_result := alu(resp_pkt.rs1_data, resp_pkt.rs2_data, funct3, funct7);
                     log("alu result = ", alu_result);
 
                     // write back -- separate transaction, since it depends on the read above
@@ -132,8 +134,21 @@ defproc soc(
                     // we receive the response, and then we can compute the ALU result
                     rf.resp?resp_pkt;
 
+                    // SLLI/SRLI/SRAI don't use a normal sign-extended immediate -- the field
+                    // is really shamt (bits[24:20], i.e. rs2's position) plus a funct7-shaped
+                    // variant selector (bits[31:25], already sitting in `funct7`), exactly like
+                    // the R-type shift instructions. Route those through the same operand shape
+                    // the ALU already expects for SLL/SRL/SRA rather than through `imm`.
+                    [ (funct3 = 0b001) | (funct3 = 0b101) ->
+                            alu_b := int(rs2, 32);
+                            alu_funct7 := funct7
+                      [] else ->
+                            alu_b := imm;
+                            alu_funct7 := 0b0000000
+                    ];
+
                     // compute the ALU result
-                    alu_result := alu_i_type(resp_pkt.rs1_data, imm, funct3);
+                    alu_result := alu(resp_pkt.rs1_data, alu_b, funct3, alu_funct7);
                     log("alu result = ", alu_result);
 
                     // write back -- separate transaction, since it depends on the read above
