@@ -1,0 +1,297 @@
+import std;
+
+import "globals.act";
+import "mem.act";
+
+/*
+ * Testbench for the `mem` module (actnow/mem.act).
+ *
+ * Memory model under test
+ * -----------------------
+ *   `mem` is a byte-addressable, 32-bit-word memory built from 4 byte-wide
+ *   std::ram banks.  A byte at byte-address A lives in:
+ *
+ *        bank   = A mod 4        (byte lane, from offset{1..0})
+ *        widx   = A div 4        (word index / bank location, from offset>>2)
+ *
+ *   The low byte of a word is lane 0 (little-endian across the banks).
+ *
+ *   Sized transfers only ever touch the low BYTE / HALF_WORD / WORD bits;
+ *   higher bits are masked to 0.  Writes ignore the high bits of the supplied
+ *   word (only `nbytes` lanes are written); reads zero-extend the result.
+ *
+ * Capacity / configurability
+ * ---------------------------
+ *   Total data bytes  = SIZE_MEM_WORDS * 4.
+ *   The byte offset field is WIDTH_ADDR_OFFSET (16) bits wide, so it can
+ *   address up to 2^16 = 8*1024*8 bytes.  SIZE_MEM_WORDS is intentionally set
+ *   to 8*1024 (=> 8*1024*4 data bytes) but may be raised up to 16*1024
+ *   (=> 8*1024*8 bytes) to fill the whole address space.  This testbench reads
+ *   SIZE_MEM_WORDS symbolically, so it always exercises the current top word.
+ *
+ * Structure
+ * ---------
+ *   Everything is inline in test(): local channels drive the mem ports directly,
+ *   and the chp body issues write / read / read-modify-write transactions,
+ *   self-checking every read against the expected (post-mask) value.
+ *   (A macro-based driver would be cleaner, but is avoided on purpose.)
+ */
+defproc test() {
+    mem m;
+
+    // Local channels wired to the memory under test.
+    chan(addr_t)            addr;
+    chan(mode_mem_t)        mode;
+    chan(int<WIDTH_DATA>)   wdata;
+    chan(int<WIDTH_DATA>)   rdata;
+
+    addr  = m.addr;
+    mode  = m.mode;
+    wdata = m.wdata;
+    rdata = m.rdata;
+
+    // Scratch state for building transactions.
+    addr_t a;
+    mode_mem_t md;
+    int<WIDTH_DATA> r;
+
+    chp {
+        log("======== mem test start ========");
+        log("SIZE_MEM_WORDS = ", SIZE_MEM_WORDS,
+            "  => ", SIZE_MEM_WORDS * 4, " data bytes, top word offset = ",
+            (SIZE_MEM_WORDS - 1) * 4);
+
+        // -------- Group A: WORD-aligned write / read-back --------
+        log("--- Group A: WORD write/read-back at several words ---");
+        a.base := 0; a.offset := 0; md.op := op_mem_t.W; md.size := size_mem_t.WORD;
+        log("%x  WRITE off=0x", 0, "  val=0x", 0xDEADBEEF);
+        addr!a; mode!md; wdata!int(0xDEADBEEF, WIDTH_DATA);
+
+        a.base := 0; a.offset := 4; md.op := op_mem_t.W; md.size := size_mem_t.WORD;
+        log("%x  WRITE off=0x", 4, "  val=0x", 0xCAFEBABE);
+        addr!a; mode!md; wdata!int(0xCAFEBABE, WIDTH_DATA);
+
+        a.base := 0; a.offset := 8; md.op := op_mem_t.W; md.size := size_mem_t.WORD;
+        log("%x  WRITE off=0x", 8, "  val=0x", 0x12345678);
+        addr!a; mode!md; wdata!int(0x12345678, WIDTH_DATA);
+
+        a.base := 0; a.offset := 0; md.op := op_mem_t.R; md.size := size_mem_t.WORD;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 0, "  got=0x", r, "%x  exp=0x", 0xDEADBEEF);
+        assert(r = 0xDEADBEEF, "MEM read mismatch");
+
+        a.base := 0; a.offset := 4; md.op := op_mem_t.R; md.size := size_mem_t.WORD;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 4, "  got=0x", r, "%x  exp=0x", 0xCAFEBABE);
+        assert(r = 0xCAFEBABE, "MEM read mismatch");
+
+        a.base := 0; a.offset := 8; md.op := op_mem_t.R; md.size := size_mem_t.WORD;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 8, "  got=0x", r, "%x  exp=0x", 0x12345678);
+        assert(r = 0x12345678, "MEM read mismatch");
+
+        // Independence: re-read word 0 after later writes.
+        a.base := 0; a.offset := 0; md.op := op_mem_t.R; md.size := size_mem_t.WORD;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 0, "  got=0x", r, "%x  exp=0x", 0xDEADBEEF);
+        assert(r = 0xDEADBEEF, "MEM read mismatch (word 0 clobbered)");
+
+        // -------- Group B: BYTE lanes assemble into a word --------
+        // word 3 is byte offsets 12..15; each lane written separately, then the
+        // whole word is read back.  High bits of each byte value are masked off.
+        log("--- Group B: per-byte writes assembling word @ off 12 ---");
+        a.base := 0; a.offset := 12; md.op := op_mem_t.W; md.size := size_mem_t.WORD;
+        log("%x  WRITE off=0x", 12, "  val=0x", 0x00000000);
+        addr!a; mode!md; wdata!int(0x00000000, WIDTH_DATA);
+
+        a.base := 0; a.offset := 12; md.op := op_mem_t.W; md.size := size_mem_t.BYTE;
+        log("%x  WRITE off=0x", 12, "  BYTE val=0x", 0xDEADBE11);
+        addr!a; mode!md; wdata!int(0xDEADBE11, WIDTH_DATA);   // -> lane0 = 0x11
+
+        a.base := 0; a.offset := 13; md.op := op_mem_t.W; md.size := size_mem_t.BYTE;
+        log("%x  WRITE off=0x", 13, "  BYTE val=0x", 0xDEADBE22);
+        addr!a; mode!md; wdata!int(0xDEADBE22, WIDTH_DATA);   // -> lane1 = 0x22
+
+        a.base := 0; a.offset := 14; md.op := op_mem_t.W; md.size := size_mem_t.BYTE;
+        log("%x  WRITE off=0x", 14, "  BYTE val=0x", 0xDEADBE33);
+        addr!a; mode!md; wdata!int(0xDEADBE33, WIDTH_DATA);   // -> lane2 = 0x33
+
+        a.base := 0; a.offset := 15; md.op := op_mem_t.W; md.size := size_mem_t.BYTE;
+        log("%x  WRITE off=0x", 15, "  BYTE val=0x", 0xDEADBE44);
+        addr!a; mode!md; wdata!int(0xDEADBE44, WIDTH_DATA);   // -> lane3 = 0x44
+
+        a.base := 0; a.offset := 12; md.op := op_mem_t.R; md.size := size_mem_t.WORD;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 12, "  WORD got=0x", r, "%x  exp=0x", 0x44332211);
+        assert(r = 0x44332211, "MEM byte-lane assembly mismatch");
+
+        a.base := 0; a.offset := 12; md.op := op_mem_t.R; md.size := size_mem_t.BYTE;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 12, "  BYTE got=0x", r, "%x  exp=0x", 0x11);
+        assert(r = 0x11, "MEM byte read mismatch");
+
+        a.base := 0; a.offset := 13; md.op := op_mem_t.R; md.size := size_mem_t.BYTE;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 13, "  BYTE got=0x", r, "%x  exp=0x", 0x22);
+        assert(r = 0x22, "MEM byte read mismatch");
+
+        a.base := 0; a.offset := 14; md.op := op_mem_t.R; md.size := size_mem_t.BYTE;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 14, "  BYTE got=0x", r, "%x  exp=0x", 0x33);
+        assert(r = 0x33, "MEM byte read mismatch");
+
+        a.base := 0; a.offset := 15; md.op := op_mem_t.R; md.size := size_mem_t.BYTE;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 15, "  BYTE got=0x", r, "%x  exp=0x", 0x44);
+        assert(r = 0x44, "MEM byte read mismatch");
+
+        // -------- Group C: HALF_WORD lanes --------
+        // word 4 is byte offsets 16..19; two aligned half-words (off 16, 18).
+        log("--- Group C: half-word writes assembling word @ off 16 ---");
+        a.base := 0; a.offset := 16; md.op := op_mem_t.W; md.size := size_mem_t.WORD;
+        log("%x  WRITE off=0x", 16, "  val=0x", 0x00000000);
+        addr!a; mode!md; wdata!int(0x00000000, WIDTH_DATA);
+
+        a.base := 0; a.offset := 16; md.op := op_mem_t.W; md.size := size_mem_t.HALF_WORD;
+        log("%x  WRITE off=0x", 16, "  HALF val=0x", 0xDEAD1234);
+        addr!a; mode!md; wdata!int(0xDEAD1234, WIDTH_DATA);   // low half -> 0x1234
+
+        a.base := 0; a.offset := 18; md.op := op_mem_t.W; md.size := size_mem_t.HALF_WORD;
+        log("%x  WRITE off=0x", 18, "  HALF val=0x", 0xBEEF5678);
+        addr!a; mode!md; wdata!int(0xBEEF5678, WIDTH_DATA);   // high half -> 0x5678
+
+        a.base := 0; a.offset := 16; md.op := op_mem_t.R; md.size := size_mem_t.WORD;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 16, "  WORD got=0x", r, "%x  exp=0x", 0x56781234);
+        assert(r = 0x56781234, "MEM half-word assembly mismatch");
+
+        a.base := 0; a.offset := 16; md.op := op_mem_t.R; md.size := size_mem_t.HALF_WORD;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 16, "  HALF got=0x", r, "%x  exp=0x", 0x1234);
+        assert(r = 0x1234, "MEM half-word read mismatch");
+
+        a.base := 0; a.offset := 18; md.op := op_mem_t.R; md.size := size_mem_t.HALF_WORD;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 18, "  HALF got=0x", r, "%x  exp=0x", 0x5678);
+        assert(r = 0x5678, "MEM half-word read mismatch");
+
+        // -------- Group D: read-side masking --------
+        // Write a full word, then read sub-word sizes at every lane and confirm
+        // the correct masked byte / half is returned.
+        log("--- Group D: sub-word reads of a full word @ off 20 ---");
+        a.base := 0; a.offset := 20; md.op := op_mem_t.W; md.size := size_mem_t.WORD;
+        log("%x  WRITE off=0x", 20, "  val=0x", 0xDEADBEEF);
+        addr!a; mode!md; wdata!int(0xDEADBEEF, WIDTH_DATA);
+
+        a.base := 0; a.offset := 20; md.op := op_mem_t.R; md.size := size_mem_t.BYTE;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 20, "  BYTE got=0x", r, "%x  exp=0x", 0xEF);
+        assert(r = 0xEF, "MEM read-side byte mask mismatch");
+
+        a.base := 0; a.offset := 21; md.op := op_mem_t.R; md.size := size_mem_t.BYTE;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 21, "  BYTE got=0x", r, "%x  exp=0x", 0xBE);
+        assert(r = 0xBE, "MEM read-side byte mask mismatch");
+
+        a.base := 0; a.offset := 22; md.op := op_mem_t.R; md.size := size_mem_t.BYTE;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 22, "  BYTE got=0x", r, "%x  exp=0x", 0xAD);
+        assert(r = 0xAD, "MEM read-side byte mask mismatch");
+
+        a.base := 0; a.offset := 23; md.op := op_mem_t.R; md.size := size_mem_t.BYTE;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 23, "  BYTE got=0x", r, "%x  exp=0x", 0xDE);
+        assert(r = 0xDE, "MEM read-side byte mask mismatch");
+
+        a.base := 0; a.offset := 20; md.op := op_mem_t.R; md.size := size_mem_t.HALF_WORD;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 20, "  HALF got=0x", r, "%x  exp=0x", 0xBEEF);
+        assert(r = 0xBEEF, "MEM read-side half mask mismatch");
+
+        a.base := 0; a.offset := 22; md.op := op_mem_t.R; md.size := size_mem_t.HALF_WORD;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 22, "  HALF got=0x", r, "%x  exp=0x", 0xDEAD);
+        assert(r = 0xDEAD, "MEM read-side half mask mismatch");
+
+        a.base := 0; a.offset := 20; md.op := op_mem_t.R; md.size := size_mem_t.WORD;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 20, "  WORD got=0x", r, "%x  exp=0x", 0xDEADBEEF);
+        assert(r = 0xDEADBEEF, "MEM word read mismatch");
+
+        // -------- Group E: read-modify-write --------
+        log("--- Group E: read-modify-write @ off 24 ---");
+        a.base := 0; a.offset := 24; md.op := op_mem_t.W; md.size := size_mem_t.WORD;
+        log("%x  WRITE off=0x", 24, "  val=0x", 0x11111111);
+        addr!a; mode!md; wdata!int(0x11111111, WIDTH_DATA);
+
+        a.base := 0; a.offset := 24; md.op := op_mem_t.R_AND_W; md.size := size_mem_t.WORD;
+        addr!a; mode!md; wdata!int(0x22222222, WIDTH_DATA); rdata?r;
+        log("%x  RMW   off=0x", 24, "  new=0x", 0x22222222, "%x  oldgot=0x", r, "%x  oldexp=0x", 0x11111111);
+        assert(r = 0x11111111, "MEM RMW old-value mismatch");
+
+        a.base := 0; a.offset := 24; md.op := op_mem_t.R; md.size := size_mem_t.WORD;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 24, "  WORD got=0x", r, "%x  exp=0x", 0x22222222);
+        assert(r = 0x22222222, "MEM RMW new-value not stored");
+
+        a.base := 0; a.offset := 24; md.op := op_mem_t.R_AND_W; md.size := size_mem_t.BYTE;
+        addr!a; mode!md; wdata!int(0xDEADBEFF, WIDTH_DATA); rdata?r;
+        log("%x  RMW   off=0x", 24, "  BYTE new=0x", 0xFF, "%x  oldgot=0x", r, "%x  oldexp=0x", 0x22);
+        assert(r = 0x22, "MEM byte RMW old-value mismatch");
+
+        a.base := 0; a.offset := 24; md.op := op_mem_t.R; md.size := size_mem_t.WORD;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 24, "  WORD got=0x", r, "%x  exp=0x", 0x222222FF);
+        assert(r = 0x222222FF, "MEM byte RMW did not update only lane 0");
+
+        // -------- Group F: write-side masking preserves neighbours --------
+        // A BYTE write into a fully-set word must only change lane 0.
+        log("--- Group F: byte write leaves other lanes intact @ off 28 ---");
+        a.base := 0; a.offset := 28; md.op := op_mem_t.W; md.size := size_mem_t.WORD;
+        log("%x  WRITE off=0x", 28, "  val=0x", 0xFFFFFFFF);
+        addr!a; mode!md; wdata!int(0xFFFFFFFF, WIDTH_DATA);
+
+        a.base := 0; a.offset := 28; md.op := op_mem_t.W; md.size := size_mem_t.BYTE;
+        log("%x  WRITE off=0x", 28, "  BYTE val=0x", 0xDEADBEAB);
+        addr!a; mode!md; wdata!int(0xDEADBEAB, WIDTH_DATA);   // lane0 <- 0xAB, rest stay 0xFF
+
+        a.base := 0; a.offset := 28; md.op := op_mem_t.R; md.size := size_mem_t.WORD;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 28, "  WORD got=0x", r, "%x  exp=0x", 0xFFFFFFAB);
+        assert(r = 0xFFFFFFAB, "MEM write-side masking clobbered neighbours");
+
+        // -------- Group G: top-of-memory (capacity / configurability) --------
+        // Exercises the highest word index for the current SIZE_MEM_WORDS.
+        log("--- Group G: top-of-memory word (capacity check) ---");
+        a.base := 0; a.offset := int((SIZE_MEM_WORDS - 1) * 4, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.W; md.size := size_mem_t.WORD;
+        log("%x  WRITE off=0x", (SIZE_MEM_WORDS - 1) * 4, "  val=0x", 0xA5A5A5A5);
+        addr!a; mode!md; wdata!int(0xA5A5A5A5, WIDTH_DATA);
+
+        a.base := 0; a.offset := int((SIZE_MEM_WORDS - 1) * 4, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.R; md.size := size_mem_t.WORD;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  top WORD got=0x", r, "%x  exp=0x", 0xA5A5A5A5);
+        assert(r = 0xA5A5A5A5, "MEM top-of-memory word mismatch");
+
+        a.base := 0; a.offset := int((SIZE_MEM_WORDS - 1) * 4, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.R; md.size := size_mem_t.BYTE;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  top BYTE(lane0) got=0x", r, "%x  exp=0x", 0xA5);
+        assert(r = 0xA5, "MEM top-of-memory low byte mismatch");
+
+        a.base := 0; a.offset := int((SIZE_MEM_WORDS - 1) * 4 + 3, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.R; md.size := size_mem_t.BYTE;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  top BYTE(lane3) got=0x", r, "%x  exp=0x", 0xA5);
+        assert(r = 0xA5, "MEM top-of-memory high byte mismatch");
+
+        // Confirm word 0 is still intact after touching the top of memory.
+        a.base := 0; a.offset := 0; md.op := op_mem_t.R; md.size := size_mem_t.WORD;
+        addr!a; mode!md; rdata?r;
+        log("%x  READ  off=0x", 0, "  WORD got=0x", r, "%x  exp=0x", 0xDEADBEEF);
+        assert(r = 0xDEADBEEF, "MEM word 0 clobbered by top-of-memory access");
+
+        log("======== mem test complete (all reads matched) ========")
+    }
+}
