@@ -1,4 +1,4 @@
-import "soc.act";
+import "../soc.act";
 
 function build_r_insn(int<7> opcode; int<5> rd; int<3> funct3; int<5> rs1; int<5> rs2; int<7> funct7) : int<32>
 {

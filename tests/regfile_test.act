@@ -1,4 +1,4 @@
-import "regfile.act";
+import "../regfile.act";
 
 defproc regfile_test() {
 

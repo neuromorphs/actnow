@@ -1,4 +1,4 @@
-import "soc.act";
+import "../soc.act";
 
 defproc init_wfi_test() {
 
