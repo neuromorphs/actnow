@@ -2,7 +2,7 @@ import "interrupt.act";
 import "regfile.act";
 
 
-function alu(int<32> a; int<32> b; int<3> funct3; int<7> funct7) : int<32>
+function alu_r_type(int<32> a; int<32> b; int<3> funct3; int<7> funct7) : int<32>
 {
     chp {
         [  (funct3 = 0b000) & (funct7{5} = 0) -> self := a + b                    // ADD
@@ -15,6 +15,19 @@ function alu(int<32> a; int<32> b; int<3> funct3; int<7> funct7) : int<32>
         [] (funct3 = 0b101) & (funct7{5} = 1) -> self := (a >> b{4..0}) | ((a{31} = 1) ? ~((-(int(1,32))) >> b{4..0}) : int(0,32))  // SRA
         [] funct3 = 0b110 -> self := a | b                                         // OR
         [] funct3 = 0b111 -> self := a & b                                         // AND
+        ]
+    }
+}
+
+function alu_i_type(int<32> a; int<32> imm; int<3> funct3) : int<32>
+{
+    chp {
+        [  funct3 = 0b000 -> self := a + imm
+        [] funct3 = 0b010 -> self := (a{31} != imm{31}) ? int(a{31} = 1) : int(a < imm)  // SLT (signed)
+        [] funct3 = 0b011 -> self := int(a < imm)                                    // SLTU (unsigned)
+        [] funct3 = 0b100 -> self := a ^ imm                                         // XOR
+        [] funct3 = 0b110 -> self := a | imm                                         // OR
+        [] funct3 = 0b111 -> self := a & imm                                         // AND
         ]
     }
 }
@@ -125,7 +138,7 @@ defproc soc(
                     rf.req!req_pkt;
                     rf.resp?resp_pkt;
 
-                    alu_result := alu(resp_pkt.rs1_data, resp_pkt.rs2_data, funct3, funct7);
+                    alu_result := alu_r_type(resp_pkt.rs1_data, resp_pkt.rs2_data, funct3, funct7);
                     log("alu result = ", alu_result);
 
                     // write back -- separate transaction, since it depends on the read above
@@ -134,7 +147,28 @@ defproc soc(
                     req_pkt.rd_addr := rd; req_pkt.rd_data := alu_result; req_pkt.rd_valid := true;
                     rf.req!req_pkt;
                     rf.resp?resp_pkt
+              [] (opcode = 0b0010011) -> 
+                    log("I-type instruction");
+                    reg_write := true;
+                    alu_src_imm := true;
+                    imm := insn_send{31..20};
+                    [ insn_send{31} = 1 -> imm := imm | ((-(int(1,32))) << 12)
+                      [] else -> skip ];
+                    req_pkt.rs1_addr := rs1; req_pkt.rs1_valid := true;
+                    req_pkt.rs2_valid := false;
+                    req_pkt.rd_addr := rd; req_pkt.rd_valid := false;
+                    rf.req!req_pkt;
+                    rf.resp?resp_pkt;
 
+                    alu_result := alu_i_type(resp_pkt.rs1_data, imm, funct3);
+                    log("alu result = ", alu_result);
+                    
+                    // write back -- separate transaction, since it depends on the read above
+                    req_pkt.rs1_valid := false;
+                    req_pkt.rs2_valid := false;
+                    req_pkt.rd_addr := rd; req_pkt.rd_data := alu_result; req_pkt.rd_valid := true;
+                    rf.req!req_pkt;
+                    rf.resp?resp_pkt
               [] else -> skip ];
             log("is_wfi = ", is_wfi);
 
