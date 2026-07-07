@@ -1,0 +1,233 @@
+import "globals.act";
+import "mmu.act";
+
+// Source for address generation
+defproc addr_source (chan!(addr_t) addr; chan!(op_mem_t) op; chan!(int<WIDTH_DATA>) wdata) {
+    addr_t a;
+    op_mem_t o;
+    int<WIDTH_DATA> w;
+    int i;
+
+    chp {
+        log("======== MMU test start ========");
+        // Test 1: Write to internal SRAM (base=0)
+        log("--- Test 1: 4x Write to internal SRAM (base=0) ---");
+        i := 0;
+        *[ i < 4 ->
+            a.base := 0;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            o := op_mem_t.W;
+            w := int(0x1000 + i, WIDTH_DATA);
+            addr!a; op!o; wdata!w;
+            i := i + 1
+        ];
+
+        // Test 2: Read from internal SRAM
+        log("--- Test 2: 4x Read from internal SRAM (base=0) ---");
+        i := 0;
+        *[ i < 4 ->
+            a.base := 0;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            o := op_mem_t.R;
+            addr!a; op!o;
+            i := i + 1
+        ];
+
+        // Test 3: Write to interrupt controller (base=1)
+        log("--- Test 3: 2x Write to interrupt controller (base=1) ---");
+        i := 0;
+        *[ i < 2 ->
+            a.base := 1;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            o := op_mem_t.W;
+            w := int(0x2000 + i, WIDTH_DATA);
+            addr!a; op!o; wdata!w;
+            i := i + 1
+        ];
+
+        // Test 4: Read from interrupt controller
+        log("--- Test 4: 2x Read from interrupt controller (base=1) ---");
+        i := 0;
+        *[ i < 2 ->
+            a.base := 1;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            o := op_mem_t.R;
+            addr!a; op!o;
+            i := i + 1
+        ];
+
+        // Test 5: RMW (read-modify-write) to external memory (base>=4)
+        log("--- Test 5: 3x RMW to external memory (base=4) ---");
+        i := 0;
+        *[ i < 3 ->
+            a.base := 4;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            o := op_mem_t.R_AND_W;
+            w := int(0x3000 + i, WIDTH_DATA);
+            addr!a; op!o; wdata!w;
+            i := i + 1
+        ];
+
+        // Test 6: Write to reserved address 0 (should consume wdata but do nothing)
+        log("--- Test 6: 2x Write to reserved base=2 (no-op, wdata consumed) ---");
+        i := 0;
+        *[ i < 2 ->
+            a.base := 2;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            o := op_mem_t.W;
+            w := int(0x4000 + i, WIDTH_DATA);
+            addr!a; op!o; wdata!w;
+            i := i + 1
+        ];
+
+        // Test 7: Write to reserved address 1 (should consume wdata but do nothing)
+        log("--- Test 7: 2x Write to reserved base=3 (no-op, wdata consumed) ---");
+        i := 0;
+        *[ i < 2 ->
+            a.base := 3;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            o := op_mem_t.W;
+            w := int(0x5000 + i, WIDTH_DATA);
+            addr!a; op!o; wdata!w;
+            i := i + 1
+        ];
+        log("======== MMU test complete ========")
+    }
+}
+
+// Sink for read data
+defproc read_sink (chan?(int<WIDTH_DATA>) rdata) {
+    int<WIDTH_DATA> r;
+
+    chp {
+        *[ rdata?r; log("%xRead data: 0x", r) ]
+    }
+}
+
+// Dummy memory backend (receives and echoes)
+defproc mem_backend (
+    chan?(addr_t) addr; chan?(op_mem_t) op;
+    chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata
+) {
+    addr_t a;
+    op_mem_t o;
+    int<WIDTH_DATA> w, r;
+    pint data_store;
+
+    chp {
+        *[
+            addr?a; op?o;
+            [
+                o = op_mem_t.W ->
+                    wdata?w;
+                    log("%xMEM: Write 0x", w, "%d to addr base=", a.base, " offset=", a.offset)
+                [] o = op_mem_t.R ->
+                    r := int(0xDEADBEEF, WIDTH_DATA);
+                    rdata!r;
+                    log("%xMEM: Read 0x", r, "%d from addr base=", a.base, " offset=", a.offset)
+                [] o = op_mem_t.R_AND_W ->
+                    wdata?w;
+                    r := int(0xCAFEBABE, WIDTH_DATA);
+                    rdata!r;
+                    log("%xMEM: RMW write 0x", w, "%x read 0x", r, "%d from addr base=", a.base, " offset=", a.offset)
+            ]
+        ]
+    }
+}
+
+// Interrupt controller backend
+defproc intctrl_backend (
+    chan?(addr_t) addr; chan?(op_mem_t) op;
+    chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata
+) {
+    addr_t a;
+    op_mem_t o;
+    int<WIDTH_DATA> w, r;
+
+    chp {
+        *[
+            addr?a; op?o;
+            [
+                o = op_mem_t.W ->
+                    wdata?w;
+                    log("%xINTCTRL: Write 0x", w, "%d to offset=", a.offset)
+                [] o = op_mem_t.R ->
+                    r := int(0x12345678, WIDTH_DATA);
+                    rdata!r;
+                    log("%xINTCTRL: Read 0x", r, "%d from offset=", a.offset)
+                [] o = op_mem_t.R_AND_W ->
+                    wdata?w;
+                    r := int(0x87654321, WIDTH_DATA);
+                    rdata!r;
+                    log("%xINTCTRL: RMW write 0x", w, "%x read 0x", r, "%d from offset=", a.offset)
+            ]
+        ]
+    }
+}
+
+// External memory backend
+defproc ext_backend (
+    chan?(addr_t) addr; chan?(op_mem_t) op;
+    chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata
+) {
+    addr_t a;
+    op_mem_t o;
+    int<WIDTH_DATA> w, r;
+
+    chp {
+        *[
+            addr?a; op?o;
+            [
+                o = op_mem_t.W ->
+                    wdata?w;
+                    log("%xEXT: Write 0x", w, "%d to addr base=", a.base, " offset=", a.offset)
+                [] o = op_mem_t.R ->
+                    r := int(0xFFFFFFFF, WIDTH_DATA);
+                    rdata!r;
+                    log("%xEXT: Read 0x", r, "%d from addr base=", a.base, " offset=", a.offset)
+                [] o = op_mem_t.R_AND_W ->
+                    wdata?w;
+                    r := int(0x11223344, WIDTH_DATA);
+                    rdata!r;
+                    log("%xEXT: RMW write 0x", w, "%x read 0x", r, "%d from addr base=", a.base, " offset=", a.offset)
+            ]
+        ]
+    }
+}
+
+// Main testbench
+defproc test() {
+    // Instantiate components
+    addr_source asrc;
+    read_sink rsink;
+    mmu m;
+    mem_backend mem;
+    intctrl_backend intctrl;
+    ext_backend ext;
+
+    // Wire address and operation sources to MMU
+    asrc.addr = m.addr_core;
+    asrc.op = m.op_core;
+    asrc.wdata = m.wdata_core;
+
+    // Wire read data sink from MMU
+    rsink.rdata = m.rdata_core;
+
+    // Wire MMU internal SRAM ports to memory backend
+    mem.addr = m.addr_mem;
+    mem.op = m.op_mem;
+    mem.wdata = m.wdata_mem;
+    m.rdata_mem = mem.rdata;
+
+    // Wire MMU interrupt controller ports to intctrl backend
+    intctrl.addr = m.addr_int_ctrl;
+    intctrl.op = m.op_int_ctrl;
+    intctrl.wdata = m.wdata_int_ctrl;
+    m.rdata_int_ctrl = intctrl.rdata;
+
+    // Wire MMU external memory ports to ext backend
+    ext.addr = m.addr_ext;
+    ext.op = m.op_ext;
+    ext.wdata = m.wdata_ext;
+    m.rdata_ext = ext.rdata;
+}

@@ -1,0 +1,76 @@
+import "globals.act";
+
+/*
+To core:
+0. receives op from core
+1. sends rdata to core or/and receives wdata from core depending on op
+
+To peripherals:
+0. sends op to periph
+1. receives rdata from periph or/and sends wdata to periph depending on op
+*/
+defproc mmu(
+    chan?(addr_t) addr_core; chan?(op_mem_t) op_core; chan?(int<WIDTH_DATA>) wdata_core; chan!(int<WIDTH_DATA>) rdata_core;
+    chan!(addr_t) addr_mem; chan!(op_mem_t) op_mem; chan!(int<WIDTH_DATA>) wdata_mem; chan?(int<WIDTH_DATA>) rdata_mem;
+    chan!(addr_t) addr_int_ctrl; chan!(op_mem_t) op_int_ctrl; chan!(int<WIDTH_DATA>) wdata_int_ctrl; chan?(int<WIDTH_DATA>) rdata_int_ctrl;
+    chan!(addr_t) addr_ext; chan!(op_mem_t) op_ext; chan!(int<WIDTH_DATA>) wdata_ext; chan?(int<WIDTH_DATA>) rdata_ext
+) {
+    addr_t addr;
+    op_mem_t op;
+    int<WIDTH_DATA> wdata;
+    int<WIDTH_DATA> rdata;
+    bool is_write, is_read;
+
+    chp {
+        *[
+            addr_core?addr; op_core?op;
+            is_write := (op = op_mem_t.W) | (op = op_mem_t.R_AND_W);
+            is_read := (op = op_mem_t.R) | (op = op_mem_t.R_AND_W);
+
+            // receive from core
+            [
+                is_write -> wdata_core?wdata
+                [] else -> skip
+            ];
+
+            // interface with peripherals
+            [
+                addr.base = ADDR_MEM ->
+                    addr_mem!addr; op_mem!op;
+                    [
+                        is_write -> wdata_mem!wdata
+                        [] else -> skip
+                    ]
+                [] addr.base = ADDR_INT_CTRL ->
+                    addr_int_ctrl!addr; op_int_ctrl!op;
+                    [
+                        is_write -> wdata_int_ctrl!wdata
+                        [] else -> skip
+                    ]
+                [] (addr.base = ADDR_INTERNAL_RESERVED_0) | (addr.base = ADDR_INTERNAL_RESERVED_1) ->
+                    skip
+                [] else ->
+                    addr_ext!addr; op_ext!op;
+                    [
+                        is_write -> wdata_ext!wdata
+                        [] else -> skip
+                    ]
+            ];
+
+            // send to core
+            [
+                is_read ->
+                    [
+                        addr.base = ADDR_MEM ->
+                            rdata_mem?rdata
+                        [] addr.base = ADDR_INT_CTRL ->
+                            rdata_int_ctrl?rdata
+                        [] else ->
+                            rdata_ext?rdata
+                    ];
+                    rdata_core!rdata
+                [] else -> skip
+            ]
+        ]
+    }
+}
