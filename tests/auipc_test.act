@@ -1,0 +1,29 @@
+import "soc.act";
+
+// Drives soc through a single AUIPC instruction. This specifically guards
+// against a real bug that existed here: rd_addr and rd_data got swapped, so
+// the computed pc+imm value was being truncated into the 5-bit register
+// address field instead of written as the result, and rd_data just held the
+// raw (un-added-to-pc) immediate. This test would have failed loudly under
+// that bug -- x3 would never have received 4096.
+defproc auipc_test() {
+
+    soc s;
+    int<32> addr, insn;
+
+    chp {
+        // AUIPC x3, 0x1  -->  rd := pc + (1 << 12) = 0 + 4096
+        insn := (int(1,32) << 12) | (int(3,32) << 7) | 0b0010111;
+
+        s.imem_req?addr;
+        assert(addr = 0, "fetch addr: want 0, got ", addr);
+        s.imem_resp!insn;
+
+        s.imem_req?addr;
+        s.imem_resp!(11);
+
+        log("auipc_test: all assertions passed")
+    }
+}
+
+auipc_test t;
