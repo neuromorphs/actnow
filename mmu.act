@@ -3,11 +3,11 @@ import "globals.act";
 /*
 To core:
 0. receives op from core
-1. sends rdata to core or/and receives wdata from core depending on op
+1. sends rdata to core, in parallel or/and receives wdata from core depending on op
 
 To peripherals:
 0. sends op to periph
-1. receives rdata from periph or/and sends wdata to periph depending on op
+1. receives rdata from periph, in parallel or/and sends wdata to periph depending on op
 */
 defproc mmu(
     chan?(addr_t) addr_core; chan?(op_mem_t) op_core; chan?(int<WIDTH_DATA>) wdata_core; chan!(int<WIDTH_DATA>) rdata_core;
@@ -38,37 +38,31 @@ defproc mmu(
                 addr.base = ADDR_MEM ->
                     addr_mem!addr; op_mem!op;
                     [
-                        is_write -> wdata_mem!wdata
-                        [] else -> skip
+                        op = op_mem_t.W -> wdata_mem!wdata
+                        [] op = op_mem_t.R -> rdata_mem?rdata
+                        [] op = op_mem_t.R_AND_W -> rdata_mem?rdata, wdata_mem!wdata
                     ]
                 [] addr.base = ADDR_INT_CTRL ->
                     addr_int_ctrl!addr; op_int_ctrl!op;
                     [
-                        is_write -> wdata_int_ctrl!wdata
-                        [] else -> skip
+                        op = op_mem_t.W -> wdata_int_ctrl!wdata
+                        [] op = op_mem_t.R -> rdata_int_ctrl?rdata
+                        [] op = op_mem_t.R_AND_W -> rdata_int_ctrl?rdata, wdata_int_ctrl!wdata
                     ]
                 [] (addr.base = ADDR_INTERNAL_RESERVED_0) | (addr.base = ADDR_INTERNAL_RESERVED_1) ->
                     skip
                 [] else ->
                     addr_ext!addr; op_ext!op;
                     [
-                        is_write -> wdata_ext!wdata
-                        [] else -> skip
+                        op = op_mem_t.W -> wdata_ext!wdata
+                        [] op = op_mem_t.R -> rdata_ext?rdata
+                        [] op = op_mem_t.R_AND_W -> rdata_ext?rdata, wdata_ext!wdata
                     ]
             ];
 
             // send to core
             [
-                is_read ->
-                    [
-                        addr.base = ADDR_MEM ->
-                            rdata_mem?rdata
-                        [] addr.base = ADDR_INT_CTRL ->
-                            rdata_int_ctrl?rdata
-                        [] else ->
-                            rdata_ext?rdata
-                    ];
-                    rdata_core!rdata
+                is_read -> rdata_core!rdata
                 [] else -> skip
             ]
         ]
