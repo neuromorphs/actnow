@@ -84,11 +84,11 @@ defproc soc(
             imm := 0;
             is_wfi := false;
 
-            [   // opcode 0b0001011 is wfi
+            [   // WFI
                 (opcode = 0b0001011) ->
                     log("decoded wfi");
                     is_wfi := true
-
+                // R-type
                 [] (opcode = 0b0110011) ->
                     log("R-type instruction");
 
@@ -113,7 +113,7 @@ defproc soc(
                     req_pkt.rd_valid := true;
 
                     rf.req!req_pkt
-
+                // I-type
                 [] (opcode = 0b0010011) ->
                     log("I-type instruction");
 
@@ -159,7 +159,7 @@ defproc soc(
                     req_pkt.rd_valid := true;
 
                     rf.req!req_pkt
-                
+                // U-type (LUI)
                 [] (opcode = 0b0110111) ->
                     log ("LUI");
 
@@ -174,9 +174,21 @@ defproc soc(
                     req_pkt.rd_data := imm;
                     req_pkt.rd_valid := true;
                     rf.req!req_pkt
-
-            
-
+                // FENCE, FENCE.TSO, PAUSE, ECALL, EBREAK (NOP)
+                [] (opcode = 0b0001111) | (opcode = 0b1110011) ->
+                    log("NOP / FENCE / PAUSE / ECALL / EBREAK -- no action taken")
+                // B-type
+                [] (opcode = 0b1100011) ->
+                    log("B-type instruction -- not implemented yet")
+                // S-type
+                [] (opcode = 0b0100011) ->
+                    log("S-type instruction -- not implemented yet")
+                // U-type (AUIPC)
+                [] (opcode = 0b0010111) ->
+                    log("U-type instruction (AUIPC) -- not implemented yet")
+                // J-type (JAL and JALR)
+                [] (opcode = 0b1101111) | (opcode = 0b1100111) ->
+                    log("J-type instruction (JAL/JALR) -- not implemented yet")
                 [] else -> skip 
             ];
             log("is_wfi = ", is_wfi);
