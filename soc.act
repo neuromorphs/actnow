@@ -177,7 +177,14 @@ defproc soc(
                     log("S-type instruction -- not implemented yet")
                 // U-type (AUIPC)
                 [] (opcode = 0b0010111) ->
-                    log("U-type instruction (AUIPC) -- not implemented yet")
+                    log("U-type instruction (AUIPC)");
+                    imm := insn_send{31..12} << 12;
+                    req_pkt.rs1_valid := false;
+                    req_pkt.rs2_valid := false;
+                    req_pkt.rd_addr := alu(pc, imm, 0b000, 0b0000000); // pc + imm
+                    req_pkt.rd_data := imm;
+                    req_pkt.rd_valid := true;
+                    rf.req!req_pkt
                 // J-type (JAL)
                 [] (opcode = 0b1101111) ->
                     log("J-type instruction (JAL)");
