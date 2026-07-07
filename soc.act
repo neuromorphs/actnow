@@ -148,7 +148,22 @@ defproc soc(
                     log("NOP / FENCE / PAUSE / ECALL / EBREAK -- no action taken")
                 // B-type
                 [] (opcode = 0b1100011) ->
-                    log("B-type instruction -- not implemented yet")
+                    log("B-type instruction");
+
+                    req_pkt.rs1_valid := true, req_pkt.rs1_addr := rs1,
+                    req_pkt.rs2_valid := true, req_pkt.rs2_addr := rs2,
+                    req_pkt.rd_valid := false;
+                    rf.req!req_pkt;
+                    rf.resp?resp_pkt;
+                    imm := (insn_send{7} << 11) | (insn_send{30..25} << 5) | (insn_send{11..8} << 1);
+                    [ insn_send{31} = 1 -> imm := imm | ((-(int(1,32))) << 12)
+                      [] else -> skip ];
+
+                    [ branch_taken(resp_pkt.rs1_data, resp_pkt.rs2_data, funct3) ->
+                        next_pc := alu(pc, imm, 0b000, 0b0000000) // pc + imm
+                      [] else -> skip
+                    ]
+
                 // S-type
                 [] (opcode = 0b0100011) ->
                     log("S-type instruction -- not implemented yet")
