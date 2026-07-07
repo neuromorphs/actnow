@@ -1,17 +1,3 @@
-export function build_r_insn(int<7> opcode; int<5> rd; int<3> funct3; int<5> rs1; int<5> rs2; int<7> funct7) : int<32>
-{
-    chp {
-        self := (funct7 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3 << 12) | (rd << 7) | opcode
-    }
-}
-
-export function build_i_insn(int<7> opcode; int<5> rd; int<3> funct3; int<5> rs1; int<12> imm) : int<32>
-{
-    chp {
-        self := (imm << 20) | (rs1 << 15) | (funct3 << 12) | (rd << 7) | opcode
-    }
-}
-
 // Single shared ALU for R-type, I-type, and the shift-immediates (SLLI/SRLI/SRAI).
 // Note that b can either be rs2 or the immediate, depending on the instruction type. 
 // The caller is responsible for providing the correct value.

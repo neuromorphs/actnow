@@ -161,7 +161,7 @@ defproc soc(
                     rf.req!req_pkt
                 
                 [] (opcode = 0b0110111) ->
-                    log ("LUI - Load unsigned int");
+                    log ("LUI");
 
                     // get imm from insn
                     imm := insn_send{31..12};
