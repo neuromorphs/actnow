@@ -227,6 +227,9 @@ defproc soc(
                     // without a second, dedicated adder+AND gate
                     next_pc := alu(resp_pkt.rs1_data, imm, 0b000, 0b0000000);
                     next_pc := alu(next_pc, ~(int(1,32)), 0b111, 0b0000000)
+                
+                [] (opcode = 0b0000011) -> 
+                    log ("LOAD")
 
                 [] else -> skip
             ];
