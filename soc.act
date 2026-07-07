@@ -108,12 +108,11 @@ defproc soc(
                     req_pkt.rs1_addr := rs1, req_pkt.rs1_valid := true,
                     req_pkt.rs2_valid := false, req_pkt.rd_valid := false;
 
-                    // we send a request for this data
-                    rf.req!req_pkt;
-
-                    // we receive the response, and then we can compute the ALU result
-                    rf.resp?resp_pkt;
-
+                    // the read transaction and the alu_b/alu_funct7 selection are independent --
+                    // the selection only reads funct3/funct7/rs2/imm, none of which come from
+                    // resp_pkt, so run them concurrently instead of after the read completes
+                    (rf.req!req_pkt; rf.resp?resp_pkt),
+                    (
                     // SLLI/SRLI/SRAI don't use a normal sign-extended immediate -- the field
                     // is really shamt (bits[24:20], i.e. rs2's position) plus a funct7-shaped
                     // variant selector (bits[31:25], already sitting in `funct7`), exactly like
@@ -123,7 +122,7 @@ defproc soc(
                             alu_b := int(rs2, 32), alu_funct7 := funct7
                       [] else ->
                             alu_b := imm, alu_funct7 := 0b0000000
-                    ];
+                    ]);
 
                     // write back -- separate transaction, since it depends on the read above
                     req_pkt.rs1_valid := false, req_pkt.rs2_valid := false,
@@ -153,11 +152,14 @@ defproc soc(
                     req_pkt.rs1_valid := true, req_pkt.rs1_addr := rs1,
                     req_pkt.rs2_valid := true, req_pkt.rs2_addr := rs2,
                     req_pkt.rd_valid := false;
-                    rf.req!req_pkt;
-                    rf.resp?resp_pkt;
-                    imm := (insn_send{7} << 11) | (insn_send{30..25} << 5) | (insn_send{11..8} << 1);
-                    [ insn_send{31} = 1 -> imm := imm | ((-(int(1,32))) << 12)
-                      [] else -> skip ];
+
+                    // the regfile round-trip and the immediate reconstruction are
+                    // independent -- only branch_taken() below needs both, so let
+                    // them happen concurrently instead of back to back
+                    (rf.req!req_pkt; rf.resp?resp_pkt),
+                    (imm := (insn_send{7} << 11) | (insn_send{30..25} << 5) | (insn_send{11..8} << 1);
+                     [ insn_send{31} = 1 -> imm := imm | ((-(int(1,32))) << 12)
+                       [] else -> skip ]);
 
                     [ branch_taken(resp_pkt.rs1_data, resp_pkt.rs2_data, funct3) ->
                         next_pc := alu(pc, imm, 0b000, 0b0000000) // pc + imm
@@ -179,17 +181,23 @@ defproc soc(
                 [] (opcode = 0b1101111) ->
                     log("J-type instruction (JAL)");
 
+                    // imm reconstruction and the write-back setup are independent -- the
+                    // write-back's rd_data is just pc+4, it never touches imm -- so run them
+                    // concurrently; only the final next_pc computation below needs imm ready
+                    (
                     // imm[20] (sign bit) is fully handled by the sign-extension step below via
                     // the ~0<<20 mask -- including insn_send{31} unshifted here would corrupt
                     // bit 0, which must always be 0 (jump targets are 2-byte aligned)
                     imm := (insn_send{19..12} << 12) | (insn_send{20} << 11) | (insn_send{30..21} << 1);
                     [ insn_send{31} = 1 -> imm := imm | ((-(int(1,32))) << 20)
-                      [] else -> skip ];
-
+                      [] else -> skip ]
+                    ),
+                    (
                     // JAL never reads a register -- it's pure PC-relative, write-only
                     req_pkt.rs1_valid := false, req_pkt.rs2_valid := false,
                     req_pkt.rd_addr := rd, req_pkt.rd_valid := true,
-                    req_pkt.rd_data := alu(pc, int(4,32), 0b000, 0b0000000); // return address = pc + 4
+                    req_pkt.rd_data := alu(pc, int(4,32), 0b000, 0b0000000) // return address = pc + 4
+                    );
 
                     // sending the write-back and computing the jump target are independent --
                     // neither depends on the other, so they can happen concurrently
@@ -197,13 +205,18 @@ defproc soc(
 
                 [] (opcode = 0b1100111) ->
                     log("I-type instruction (JALR)");
+                    // same independence as JAL: imm reconstruction and the write-back setup
+                    // (whose rd_data is just pc+4) don't touch each other
+                    (
                     imm := insn_send{31..20};
                     [ insn_send{31} = 1 -> imm := imm | ((-(int(1,32))) << 12)
-                      [] else -> skip ];
-
+                      [] else -> skip ]
+                    ),
+                    (
                     req_pkt.rs1_addr := rs1, req_pkt.rs1_valid := true,
                     req_pkt.rs2_valid := false, req_pkt.rd_addr := rd, req_pkt.rd_valid := true,
-                    req_pkt.rd_data := alu(pc, int(4,32), 0b000, 0b0000000); // return address = pc + 4
+                    req_pkt.rd_data := alu(pc, int(4,32), 0b000, 0b0000000) // return address = pc + 4
+                    );
 
                     rf.req!req_pkt;
                     rf.resp?resp_pkt;
