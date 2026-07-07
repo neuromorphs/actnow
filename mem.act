@@ -1,0 +1,81 @@
+import std;
+
+import "globals.act";
+
+defproc mem(chan?(addr_t) addr; chan?(mode_mem_t) mode; chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata) {
+    pint WORD_BITS = std::ceil_log2(SIZE_MEM_WORDS);
+    std::ram<SIZE_MEM_WORDS, 8> bank[4];
+
+    addr_t ad;
+    mode_mem_t md;
+    op_mem_t op;
+    size_mem_t size;
+
+    int<2> off;                 // byte lane within word
+    int<WORD_BITS> widx;        // word index (bank location)
+    int<3> nbytes;              // 1 / 2 / 4
+    int<2> cmd;                 // std::ram command: 0=write 1=read 2=rmw
+    int<WIDTH_DATA> wd;         // incoming write word (data in low bits)
+    int<8> bo[4];               // per-bank read byte
+
+    chp {
+        *[
+            addr?ad, mode?md;
+            op   := md.op,
+            size := md.size,
+            off  := ad.offset{1..0},
+            widx := int(ad.offset >> 2, WORD_BITS);
+            [
+                size = size_mem_t.BYTE -> nbytes := 1
+                [] size = size_mem_t.HALF_WORD -> nbytes := 2
+                [] else -> nbytes := 4
+            ],
+            [
+                op = op_mem_t.W -> cmd := 0
+                [] op = op_mem_t.R -> cmd := 1
+                [] else -> cmd := 2
+            ];
+
+            // receive wdata if write
+            [
+                op = op_mem_t.R -> skip
+                [] else -> wdata?wd
+            ],
+            // in parallel, prep std::ram banks
+            (, i : 4 :
+                [
+                    (i >= off) & (i < off + nbytes) -> bank[i].addr!widx, bank[i].rd!cmd
+                    [] else -> skip
+                ]
+            );
+
+            // transfer data with banks
+            (, i : 4 :
+                [
+                    (i >= off) & (i < off + nbytes) ->
+                        // send to banks if write
+                        [
+                            op = op_mem_t.R -> skip
+                            [] else -> bank[i].din!int(wd >> (8 * (i - off)), 8)
+                        ],
+                        // in parallel, receive from banks if read
+                        [
+                            op = op_mem_t.W -> skip
+                            [] else -> bank[i].dout?bo[i]
+                        ]
+                    [] else -> skip
+                ]
+            );
+
+            // send rdata if read
+            [
+                op = op_mem_t.W -> skip
+                [] else -> [
+                    size = size_mem_t.BYTE -> rdata!{int(0, 24), bo[off]}
+                    [] size = size_mem_t.HALF_WORD -> rdata!{int(0, 16), bo[off + 1], bo[off]}
+                    [] else -> rdata!{bo[3], bo[2], bo[1], bo[0]}
+                ]
+            ]
+        ]
+    }
+}

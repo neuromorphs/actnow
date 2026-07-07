@@ -1,0 +1,367 @@
+import "globals.act";
+import "mmu.act";
+
+// Returns true iff w has no bits set above the transfer-size boundary,
+// i.e. the MMU masked the higher bits to 0 as required.
+function masked_ok (int<WIDTH_DATA> w; size_mem_t size) : bool {
+    chp {
+        [ size = size_mem_t.BYTE       -> self := (w{31..8} = 0)
+        [] size = size_mem_t.HALF_WORD -> self := (w{31..16} = 0)
+        [] else                        -> self := true
+        ]
+    }
+}
+
+// Source for address / mode / write-data generation.
+// For every read-producing transaction it also emits the expected (post-mask)
+// read value on `exp`, so the read sink can self-check.
+defproc addr_source (
+    chan!(addr_t) addr; chan!(mode_mem_t) mode;
+    chan!(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) exp
+) {
+    addr_t a;
+    mode_mem_t md;
+    int<WIDTH_DATA> w, e;
+    int i;
+
+    chp {
+        log("======== MMU test start ========");
+
+        // ---------------- WORD-sized functional tests ----------------
+
+        // Test 1: Write to internal SRAM (base=0), WORD
+        log("--- Test 1: 4x WORD Write to internal SRAM (base=0) ---");
+        i := 0;
+        *[ i < 4 ->
+            a.base := 0;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            md.op := op_mem_t.W;
+            md.size := size_mem_t.WORD;
+            w := int(0x1000 + i, WIDTH_DATA);
+            addr!a; mode!md; wdata!w;
+            i := i + 1
+        ];
+
+        // Test 2: Read from internal SRAM, WORD
+        log("--- Test 2: 4x WORD Read from internal SRAM (base=0) ---");
+        i := 0;
+        *[ i < 4 ->
+            a.base := 0;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            md.op := op_mem_t.R;
+            md.size := size_mem_t.WORD;
+            e := int(0xDEADBEEF, WIDTH_DATA);
+            addr!a; mode!md; exp!e;
+            i := i + 1
+        ];
+
+        // Test 3: Write to interrupt controller (base=1), WORD
+        log("--- Test 3: 2x WORD Write to interrupt controller (base=1) ---");
+        i := 0;
+        *[ i < 2 ->
+            a.base := 1;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            md.op := op_mem_t.W;
+            md.size := size_mem_t.WORD;
+            w := int(0x2000 + i, WIDTH_DATA);
+            addr!a; mode!md; wdata!w;
+            i := i + 1
+        ];
+
+        // Test 4: Read from interrupt controller, WORD
+        log("--- Test 4: 2x WORD Read from interrupt controller (base=1) ---");
+        i := 0;
+        *[ i < 2 ->
+            a.base := 1;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            md.op := op_mem_t.R;
+            md.size := size_mem_t.WORD;
+            e := int(0xDEADBEEF, WIDTH_DATA);
+            addr!a; mode!md; exp!e;
+            i := i + 1
+        ];
+
+        // Test 5: RMW (read-modify-write) to external memory (base=4), WORD
+        log("--- Test 5: 3x WORD RMW to external memory (base=4) ---");
+        i := 0;
+        *[ i < 3 ->
+            a.base := 4;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            md.op := op_mem_t.R_AND_W;
+            md.size := size_mem_t.WORD;
+            w := int(0x3000 + i, WIDTH_DATA);
+            e := int(0xDEADBEEF, WIDTH_DATA);
+            addr!a; mode!md; wdata!w; exp!e;
+            i := i + 1
+        ];
+
+        // Test 6: Write to reserved base=2 (should consume wdata but do nothing)
+        log("--- Test 6: 2x WORD Write to reserved base=2 (no-op, wdata consumed) ---");
+        i := 0;
+        *[ i < 2 ->
+            a.base := 2;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            md.op := op_mem_t.W;
+            md.size := size_mem_t.WORD;
+            w := int(0x4000 + i, WIDTH_DATA);
+            addr!a; mode!md; wdata!w;
+            i := i + 1
+        ];
+
+        // Test 7: Write to reserved base=3 (should consume wdata but do nothing)
+        log("--- Test 7: 2x WORD Write to reserved base=3 (no-op, wdata consumed) ---");
+        i := 0;
+        *[ i < 2 ->
+            a.base := 3;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            md.op := op_mem_t.W;
+            md.size := size_mem_t.WORD;
+            w := int(0x5000 + i, WIDTH_DATA);
+            addr!a; mode!md; wdata!w;
+            i := i + 1
+        ];
+
+        // ---------------- Sized-transfer (masking) tests ----------------
+        // The source always presents the full pattern 0xDEADBEEF; the MMU must
+        // mask the high bits to 0 before the value reaches the backend (writes)
+        // or the read sink (reads).
+
+        // Test 8: BYTE Write to SRAM -> backend must observe 0x000000EF
+        log("--- Test 8: BYTE Write to SRAM (base=0), 0xDEADBEEF -> expect 0x000000EF ---");
+        a.base := 0;
+        a.offset := int(0, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.W;
+        md.size := size_mem_t.BYTE;
+        w := int(0xDEADBEEF, WIDTH_DATA);
+        addr!a; mode!md; wdata!w;
+
+        // Test 9: HALF_WORD Write to SRAM -> backend must observe 0x0000BEEF
+        log("--- Test 9: HALF_WORD Write to SRAM (base=0), 0xDEADBEEF -> expect 0x0000BEEF ---");
+        a.base := 0;
+        a.offset := int(1, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.W;
+        md.size := size_mem_t.HALF_WORD;
+        w := int(0xDEADBEEF, WIDTH_DATA);
+        addr!a; mode!md; wdata!w;
+
+        // Test 10: WORD Write to SRAM -> backend must observe full 0xDEADBEEF
+        log("--- Test 10: WORD Write to SRAM (base=0), 0xDEADBEEF -> expect 0xDEADBEEF ---");
+        a.base := 0;
+        a.offset := int(2, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.W;
+        md.size := size_mem_t.WORD;
+        w := int(0xDEADBEEF, WIDTH_DATA);
+        addr!a; mode!md; wdata!w;
+
+        // Test 11: BYTE Read from SRAM (backend returns 0xDEADBEEF) -> sink expects 0x000000EF
+        log("--- Test 11: BYTE Read from SRAM (base=0) -> sink expects 0x000000EF ---");
+        a.base := 0;
+        a.offset := int(0, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.R;
+        md.size := size_mem_t.BYTE;
+        e := int(0xEF, WIDTH_DATA);
+        addr!a; mode!md; exp!e;
+
+        // Test 12: HALF_WORD Read from SRAM -> sink expects 0x0000BEEF
+        log("--- Test 12: HALF_WORD Read from SRAM (base=0) -> sink expects 0x0000BEEF ---");
+        a.base := 0;
+        a.offset := int(1, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.R;
+        md.size := size_mem_t.HALF_WORD;
+        e := int(0xBEEF, WIDTH_DATA);
+        addr!a; mode!md; exp!e;
+
+        // Test 13: WORD Read from SRAM -> sink expects full 0xDEADBEEF
+        log("--- Test 13: WORD Read from SRAM (base=0) -> sink expects 0xDEADBEEF ---");
+        a.base := 0;
+        a.offset := int(2, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.R;
+        md.size := size_mem_t.WORD;
+        e := int(0xDEADBEEF, WIDTH_DATA);
+        addr!a; mode!md; exp!e;
+
+        // Test 14: BYTE RMW to external memory: write 0xDEADBEEF (masked to 0x000000EF)
+        //          and read back a full pattern from the backend (masked to BYTE for core)
+        log("--- Test 14: BYTE RMW to ext (base=4): write expects 0x000000EF, sink expects low byte ---");
+        a.base := 4;
+        a.offset := int(0, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.R_AND_W;
+        md.size := size_mem_t.BYTE;
+        w := int(0xDEADBEEF, WIDTH_DATA);
+        e := int(0xEF, WIDTH_DATA);
+        addr!a; mode!md; wdata!w; exp!e;
+
+        // Test 15: HALF_WORD RMW to interrupt controller (base=1)
+        log("--- Test 15: HALF_WORD RMW to intctrl (base=1): write expects 0x0000BEEF ---");
+        a.base := 1;
+        a.offset := int(0, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.R_AND_W;
+        md.size := size_mem_t.HALF_WORD;
+        w := int(0xDEADBEEF, WIDTH_DATA);
+        e := int(0xBEEF, WIDTH_DATA);
+        addr!a; mode!md; wdata!w; exp!e;
+
+        log("======== MMU test complete ========")
+    }
+}
+
+// Sink for read data. Checks each returned value against the expected
+// (post-mask) value supplied by the source on `exp`.
+defproc read_sink (chan?(int<WIDTH_DATA>) rdata; chan?(int<WIDTH_DATA>) exp) {
+    int<WIDTH_DATA> r, e;
+
+    chp {
+        *[ rdata?r; exp?e;
+           log("%xRead data: 0x", r);
+           assert(r = e, "read data mismatch: MMU read-side masking/routing broken")
+        ]
+    }
+}
+
+// Dummy memory backend (receives and echoes). Reads always return 0xDEADBEEF so that
+// the MMU's read-side masking can be observed at the read sink. Every received write
+// value is asserted to already have its higher bits masked to 0 by the MMU.
+defproc mem_backend (
+    chan?(addr_t) addr; chan?(mode_mem_t) mode;
+    chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata
+) {
+    addr_t a;
+    mode_mem_t md;
+    op_mem_t o;
+    size_mem_t s;
+    int<WIDTH_DATA> w, r;
+
+    chp {
+        *[
+            addr?a; mode?md;
+            o := md.op;
+            s := md.size;
+            [
+                o = op_mem_t.W ->
+                    wdata?w;
+                    assert(masked_ok(w, s), "MEM: write data not masked to transfer size");
+                    log("%xMEM: Write 0x", w, "%u (size=", s, ") to addr base=", a.base, " offset=", a.offset)
+                [] o = op_mem_t.R ->
+                    r := int(0xDEADBEEF, WIDTH_DATA);
+                    rdata!r;
+                    log("%xMEM: Read 0x", r, "%u (size=", s, ") from addr base=", a.base, " offset=", a.offset)
+                [] o = op_mem_t.R_AND_W ->
+                    wdata?w;
+                    assert(masked_ok(w, s), "MEM: RMW write data not masked to transfer size");
+                    r := int(0xDEADBEEF, WIDTH_DATA);
+                    rdata!r;
+                    log("%xMEM: RMW write 0x", w, "%x read 0x", r, "%u (size=", s, ") from addr base=", a.base, " offset=", a.offset)
+            ]
+        ]
+    }
+}
+
+// Interrupt controller backend
+defproc intctrl_backend (
+    chan?(addr_t) addr; chan?(mode_mem_t) mode;
+    chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata
+) {
+    addr_t a;
+    mode_mem_t md;
+    op_mem_t o;
+    size_mem_t s;
+    int<WIDTH_DATA> w, r;
+
+    chp {
+        *[
+            addr?a; mode?md;
+            o := md.op;
+            s := md.size;
+            [
+                o = op_mem_t.W ->
+                    wdata?w;
+                    assert(masked_ok(w, s), "INTCTRL: write data not masked to transfer size");
+                    log("%xINTCTRL: Write 0x", w, "%u (size=", s, ") to offset=", a.offset)
+                [] o = op_mem_t.R ->
+                    r := int(0xDEADBEEF, WIDTH_DATA);
+                    rdata!r;
+                    log("%xINTCTRL: Read 0x", r, "%u (size=", s, ") from offset=", a.offset)
+                [] o = op_mem_t.R_AND_W ->
+                    wdata?w;
+                    assert(masked_ok(w, s), "INTCTRL: RMW write data not masked to transfer size");
+                    r := int(0xDEADBEEF, WIDTH_DATA);
+                    rdata!r;
+                    log("%xINTCTRL: RMW write 0x", w, "%x read 0x", r, "%u (size=", s, ") from offset=", a.offset)
+            ]
+        ]
+    }
+}
+
+// External memory backend
+defproc ext_backend (
+    chan?(addr_t) addr; chan?(mode_mem_t) mode;
+    chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata
+) {
+    addr_t a;
+    mode_mem_t md;
+    op_mem_t o;
+    size_mem_t s;
+    int<WIDTH_DATA> w, r;
+
+    chp {
+        *[
+            addr?a; mode?md;
+            o := md.op;
+            s := md.size;
+            [
+                o = op_mem_t.W ->
+                    wdata?w;
+                    assert(masked_ok(w, s), "EXT: write data not masked to transfer size");
+                    log("%xEXT: Write 0x", w, "%u (size=", s, ") to addr base=", a.base, " offset=", a.offset)
+                [] o = op_mem_t.R ->
+                    r := int(0xDEADBEEF, WIDTH_DATA);
+                    rdata!r;
+                    log("%xEXT: Read 0x", r, "%u (size=", s, ") from addr base=", a.base, " offset=", a.offset)
+                [] o = op_mem_t.R_AND_W ->
+                    wdata?w;
+                    assert(masked_ok(w, s), "EXT: RMW write data not masked to transfer size");
+                    r := int(0xDEADBEEF, WIDTH_DATA);
+                    rdata!r;
+                    log("%xEXT: RMW write 0x", w, "%x read 0x", r, "%u (size=", s, ") from addr base=", a.base, " offset=", a.offset)
+            ]
+        ]
+    }
+}
+
+// Main testbench
+defproc test() {
+    // Instantiate components
+    addr_source asrc;
+    read_sink rsink;
+    mmu m;
+    mem_backend mem;
+    intctrl_backend intctrl;
+    ext_backend ext;
+
+    // Wire address / mode / write-data sources to MMU
+    asrc.addr = m.addr_core;
+    asrc.mode = m.mode_core;
+    asrc.wdata = m.wdata_core;
+
+    // Wire read data sink from MMU, and expected-value stream from source
+    rsink.rdata = m.rdata_core;
+    asrc.exp = rsink.exp;
+
+    // Wire MMU internal SRAM ports to memory backend
+    mem.addr = m.addr_mem;
+    mem.mode = m.mode_mem;
+    mem.wdata = m.wdata_mem;
+    m.rdata_mem = mem.rdata;
+
+    // Wire MMU interrupt controller ports to intctrl backend
+    intctrl.addr = m.addr_int_ctrl;
+    intctrl.mode = m.mode_int_ctrl;
+    intctrl.wdata = m.wdata_int_ctrl;
+    m.rdata_int_ctrl = intctrl.rdata;
+
+    // Wire MMU external memory ports to ext backend
+    ext.addr = m.addr_ext;
+    ext.mode = m.mode_ext;
+    ext.wdata = m.wdata_ext;
+    m.rdata_ext = ext.rdata;
+}
