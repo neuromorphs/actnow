@@ -87,11 +87,15 @@ defproc soc(
                     log("decoded wfi");
                     is_wfi := true
 
-              [] (opcode = 0b0110011) ->
+                [] (opcode = 0b0110011) ->
                     log("R-type instruction");
 
                     // read rs1, rs2 -- no write yet, the ALU result isn't known until after this comes back
-                    req_pkt := rs1_rs2_read(req_pkt, rs1, rs2);
+                    req_pkt.rs1_addr := rs1; 
+                    req_pkt.rs1_valid := true;
+                    req_pkt.rs2_addr := rs2; 
+                    req_pkt.rs2_valid := true;
+                    req_pkt.rd_valid := false;
 
                     rf.req!req_pkt;
                     rf.resp?resp_pkt;
@@ -100,9 +104,15 @@ defproc soc(
                     log("alu result = ", alu_result);
 
                     // write back -- separate transaction, since it depends on the read above
-                    rf.req!rd_write(req_pkt, alu_result)
+                    req_pkt.rs1_valid := false;
+                    req_pkt.rs2_valid := false;
+                    req_pkt.rd_addr := rd; 
+                    req_pkt.rd_data := alu_result; 
+                    req_pkt.rd_valid := true;
 
-              [] (opcode = 0b0010011) ->
+                    rf.req!req_pkt
+
+                [] (opcode = 0b0010011) ->
                     log("I-type instruction");
 
                     // get imm from instruction, sign-extend to 32 bits
@@ -111,7 +121,10 @@ defproc soc(
                       [] else -> skip ];
 
                       // we oonly need to read rs1 for I-type instructions, since the second operand is the immediate
-                    req_pkt := rs1_read(req_pkt, rs1);
+                    req_pkt.rs1_addr := rs1;
+                    req_pkt.rs1_valid := true;
+                    req_pkt.rs2_valid := false;
+                    req_pkt.rd_valid := false;
 
                     // we send a request for this data
                     rf.req!req_pkt;
@@ -124,15 +137,40 @@ defproc soc(
                     log("alu result = ", alu_result);
 
                     // write back -- separate transaction, since it depends on the read above
-                    req_pkt := rd_write(req_pkt, alu_result);
+                    req_pkt.rs1_valid := false;
+                    req_pkt.rs2_valid := false;
+                    req_pkt.rd_addr := rd;
+                    req_pkt.rd_data := alu_result;
+                    req_pkt.rd_valid := true;
 
                     rf.req!req_pkt
+                
+                [] (opcode = 0b0110111) ->
+                    log ("LUI - Load unsigned int");
 
-              [] else -> skip ];
+                    // get imm from insn
+                    imm := insn_send{31..12};
+                    imm := imm << 12;
+
+                    // send a write packet to rd
+                    req_pkt.rs1_valid := false;
+                    req_pkt.rs2_valid := false;
+                    req_pkt.rd_addr := rd;
+                    req_pkt.rd_data := imm;
+                    req_pkt.rd_valid := true;
+                    rf.req!req_pkt
+
+            
+
+                [] else -> skip 
+            ];
             log("is_wfi = ", is_wfi);
 
-            [ is_wfi -> running := false
-              [] else -> pc := pc + 4 ]
+            [ is_wfi -> 
+                running := false
+                [] else -> 
+                pc := pc + 4 
+            ]
         ]
     }
 

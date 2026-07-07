@@ -27,37 +27,3 @@ export function alu_i_type(int<32> a; int<32> imm; int<3> funct3) : int<32>
         ]
     }
 }
-
-export function rd_write(req_pkt req; int<32> alu_result) : reg_req
-{
-    chp {
-        req.rs1_valid := false;
-        req.rs2_valid := false;
-        req.rd_data := alu_result;
-        req.rd_valid := true;
-        self := req
-    }
-}
-
-export function rs1_rs2_read(req_pkt req; int<5> rs1_addr; int<5> rs2_addr) : reg_req
-{
-    chp {
-        req.rs1_addr := rs1_addr;
-        req.rs1_valid := true;
-        req.rs2_addr := rs2_addr;
-        req.rs2_valid := true;
-        req.rd_valid := false;
-        self := req
-    }
-}
-
-export function rs1_read(req_pkt req; int<5> rs1_addr) : reg_req
-{
-    chp {
-        req.rs1_addr := rs1_addr;
-        req.rs1_valid := true;
-        req.rs2_valid := false;
-        req.rd_valid := false;
-        self := req
-    }
-}

@@ -1,0 +1,26 @@
+import "soc.act";
+
+defproc lui_test() {
+
+    soc s;
+    int<32> addr;
+    int<32> insn;
+
+    chp {
+        // LUI x5, 0x12345
+        // opcode = 0b0110111, rd = 5, imm[31:12] = 0x12345
+        // insn = (imm[31:12] << 12) | (rd << 7) | opcode
+        insn := (int(0x12345,32) << 12) | (int(5,32) << 7) | int(0b0110111,32);
+        log("encoded LUI insn = ", insn, " (want 305418935 / 0x12345037)");
+
+        s.imem_req?addr;
+        s.imem_resp!insn;
+
+        // wake again with WFI so the core returns to waiting cleanly
+        s.event_id_0!(true);
+        s.imem_req?addr;
+        s.imem_resp!(11)
+    }
+}
+
+lui_test t;
