@@ -41,6 +41,12 @@ vivado -mode batch -nojournal -nolog -source fpga/tcl/run_synth.tcl
 vivado -mode batch -nojournal -nolog -source fpga/tcl/run_impl.tcl
 ```
 
+Or run the full project-to-implementation flow:
+
+```sh
+./run_vivado_flow.sh
+```
+
 The project is created as `fpga/vivado/actnow_proj.xpr`, with reports under
 `fpga/vivado/reports/`.
 
