@@ -1,0 +1,5 @@
+gen/
+fpga/vivado/
+*.log
+*.jou
+.Xil
