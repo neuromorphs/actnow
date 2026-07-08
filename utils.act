@@ -34,3 +34,13 @@ export function branch_taken(int<WIDTH_DATA> rs1; int<WIDTH_DATA> rs2; int<WIDTH
         [ funct3{0} = 1 -> self := ~self [] else -> skip ]
     }
 }
+
+export function compute_addr(int<WIDTH_DATA> base_reg; int<WIDTH_DATA> imm) : addr_t
+{
+    int<WIDTH_DATA> ea;
+    chp {
+        ea := alu(base_reg, imm, 0b000, 0b0000000);   // base + imm, one adder, computed once
+        self.base := ea{19..16};
+        self.offset := ea{15..0}
+    }
+}

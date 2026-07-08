@@ -25,7 +25,7 @@ defproc soc(
     chan!(addr_t) addr_ext;
     chan!(mode_mem_t) mode_ext;
     chan!(int<WIDTH_DATA>) wdata_ext;
-    chan?(int<WIDTH_DATA>) rdata_ext;
+    chan?(int<WIDTH_DATA>) rdata_ext
     )
 {
 
@@ -260,7 +260,47 @@ defproc soc(
                     next_pc := alu(next_pc, ~(int(1,32)), 0b111, 0b0000000)
                 
                 [] (opcode = OPCODE_LOAD) ->
-                    log ("LOAD")
+                    log("I-type instruction (LOAD)");
+
+                    // imm reconstruction, the rs1 read, and the size selection are all
+                    // independent of each other -- run them concurrently
+                    (
+                    imm := instr{31..20};
+                    [ instr{31} = 1 -> imm := imm | ((-(int(1,32))) << 12)
+                      [] else -> skip ]
+                    ),
+                    (
+                    req_pkt.rs1_addr := rs1, req_pkt.rs1_valid := true,
+                    req_pkt.rs2_valid := false, req_pkt.rd_valid := false;
+                    rf.req!req_pkt;
+                    rf.resp?resp_pkt
+                    ),
+                    (
+                    [ funct3{1..0} = 0b00 -> mode_core.size := size_mem_t.BYTE
+                      [] funct3{1..0} = 0b01 -> mode_core.size := size_mem_t.HALF_WORD
+                      [] else -> mode_core.size := size_mem_t.WORD
+                    ],
+                    mode_core.op := op_mem_t.R
+                    );
+
+                    // address depends on imm and rs1_data, both ready now
+                    addr_core := compute_addr(resp_pkt.rs1_data, imm);
+
+                    mmu.addr_core!addr_core; mmu.mode_core!mode_core;
+                    mmu.rdata_core?rdata_core;
+
+                    // sign-extend for LB/LH; LBU/LHU/LW pass through untouched --
+                    // mmu already zero-extended/masked to the requested size
+                    [ (funct3 = 0b000) & (rdata_core{7} = 1) -> rdata_core := rdata_core | ((-(int(1,32))) << 8)
+                      [] (funct3 = 0b001) & (rdata_core{15} = 1) -> rdata_core := rdata_core | ((-(int(1,32))) << 16)
+                      [] else -> skip
+                    ];
+
+                    req_pkt.rs1_valid := false, req_pkt.rs2_valid := false,
+                    req_pkt.rd_addr := rd, req_pkt.rd_valid := true,
+                    req_pkt.rd_data := rdata_core;
+
+                    rf.req!req_pkt
 
                 [] else -> skip
             ];

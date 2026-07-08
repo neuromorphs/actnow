@@ -1,0 +1,40 @@
+import "globals.act";
+
+// Minimal repro for an actsim toolchain bug (not a bug in this project's
+// code): sending a `mode_mem_t` value over a channel crashes the simulator,
+// because mode_mem_t's fields (op_mem_t, size_mem_t) are defenum types, and
+// actsim's expr_multires (state.cc, _count / _init_helper) mis-sizes any
+// deftype struct that has an enum-typed field -- it counts the field when
+// sizing the channel value but doesn't know how to fill it, so the internal
+// `pos` and `nvals` counters disagree and the simulator hits
+// `Assertion: pos == nvals` on the very first send/receive of that struct.
+//
+// A bare enum sent directly over a channel (not nested in a struct) is fine
+// -- only an enum *nested inside a struct* like mode_mem_t triggers this.
+//
+// This test is expected to CRASH actsim, not fail an ACT-level assertion --
+// so `make mode_mem_t_enum_bug_test` will report FAIL, but for the "right"
+// reason (simulator crash), not a wrong result from our own logic.
+defproc sender(chan!(mode_mem_t) c) {
+    mode_mem_t m;
+    chp {
+        m.op := op_mem_t.W, m.size := size_mem_t.WORD;
+        c!m
+    }
+}
+
+defproc receiver(chan?(mode_mem_t) c) {
+    mode_mem_t m;
+    chp {
+        c?m;
+        log("received")
+    }
+}
+
+defproc mode_mem_t_enum_bug_test() {
+    chan(mode_mem_t) ch;
+    sender s(ch);
+    receiver r(ch);
+}
+
+mode_mem_t_enum_bug_test mt;
