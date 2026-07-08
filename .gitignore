@@ -1,2 +1,6 @@
-/.actsim_history
-/tests/.actsim_history
+# actflow history files
+.actsim_history
+.prsim_history
+
+# C build artifacts
+software/**/build/
