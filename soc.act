@@ -1,3 +1,4 @@
+import "globals.act";
 import "interrupt.act";
 import "regfile.act";
 import "utils.act";
@@ -24,27 +25,27 @@ defproc soc(
     )
 {
 
-    int<32> pc;
-    int<32> insn_send; // hardcode this for now
+    int<WIDTH_DATA> pc;
+    int<WIDTH_DATA> insn_send; // hardcode this for now
 
-    int<7> opcode;
-    int<5> rd;
-    int<5> rs1;
-    int<5> rs2;
-    int<3> funct3;
-    int<7> funct7;
+    int<WIDTH_OPCODE> opcode;
+    int<WIDTH_REG> rd;
+    int<WIDTH_REG> rs1;
+    int<WIDTH_REG> rs2;
+    int<WIDTH_FUNCT3> funct3;
+    int<WIDTH_FUNCT7> funct7;
 
-    int<32> imm;
+    int<WIDTH_DATA> imm;
 
-    int<32> next_pc;
+    int<WIDTH_DATA> next_pc;
 
     bool is_wfi;
     bool running;
 
     reg_req req_pkt;
     reg_resp resp_pkt;
-    int<32> alu_b;
-    int<7> alu_funct7;
+    int<WIDTH_DATA> alu_b;
+    int<WIDTH_FUNCT7> alu_funct7;
 
     chan(int<32>) event_pc;
 
@@ -74,11 +75,11 @@ defproc soc(
             next_pc := alu(pc, int(4,32), 0b000, 0b0000000); // pc + 4, via the shared ALU
 
             [   // WFI
-                (opcode = 0b0001011) ->
+                (opcode = OPCODE_WFI) ->
                     log("decoded wfi");
                     is_wfi := true
                 // R-type
-                [] (opcode = 0b0110011) ->
+                [] (opcode = OPCODE_OP) ->
                     log("R-type instruction");
 
                     // read rs1, rs2 -- no write yet, the ALU result isn't known until after this comes back
@@ -96,7 +97,7 @@ defproc soc(
 
                     rf.req!req_pkt
                 // I-type
-                [] (opcode = 0b0010011) ->
+                [] (opcode = OPCODE_OP_IMM) ->
                     log("I-type instruction");
 
                     // get imm from instruction, sign-extend to 32 bits
@@ -131,7 +132,7 @@ defproc soc(
 
                     rf.req!req_pkt
                 // U-type (LUI)
-                [] (opcode = 0b0110111) ->
+                [] (opcode = OPCODE_LUI) ->
                     log ("LUI");
 
                     // get imm from insn
@@ -143,10 +144,10 @@ defproc soc(
                     req_pkt.rd_data := imm;
                     rf.req!req_pkt
                 // FENCE, FENCE.TSO, PAUSE, ECALL, EBREAK (NOP)
-                [] (opcode = 0b0001111) | (opcode = 0b1110011) ->
+                [] (opcode = OPCODE_MISC_MEM) | (opcode = OPCODE_SYSTEM) ->
                     log("NOP / FENCE / PAUSE / ECALL / EBREAK -- no action taken")
                 // B-type
-                [] (opcode = 0b1100011) ->
+                [] (opcode = OPCODE_BRANCH) ->
                     log("B-type instruction");
 
                     req_pkt.rs1_valid := true, req_pkt.rs1_addr := rs1,
@@ -167,10 +168,10 @@ defproc soc(
                     ]
 
                 // S-type
-                [] (opcode = 0b0100011) ->
+                [] (opcode = OPCODE_STORE) ->
                     log("S-type instruction -- not implemented yet")
                 // U-type (AUIPC)
-                [] (opcode = 0b0010111) ->
+                [] (opcode = OPCODE_AUIPC) ->
                     log("U-type instruction (AUIPC)");
                     imm := insn_send{31..12} << 12;
                     req_pkt.rs1_valid := false, req_pkt.rs2_valid := false,
@@ -178,7 +179,7 @@ defproc soc(
                     req_pkt.rd_data := alu(pc, imm, 0b000, 0b0000000); // pc + imm
                     rf.req!req_pkt
                 // J-type (JAL)
-                [] (opcode = 0b1101111) ->
+                [] (opcode = OPCODE_JAL) ->
                     log("J-type instruction (JAL)");
 
                     // imm reconstruction and the write-back setup are independent -- the
@@ -203,7 +204,7 @@ defproc soc(
                     // neither depends on the other, so they can happen concurrently
                     rf.req!req_pkt, next_pc := alu(pc, imm, 0b000, 0b0000000) // pc + imm
 
-                [] (opcode = 0b1100111) ->
+                [] (opcode = OPCODE_JALR) ->
                     log("I-type instruction (JALR)");
                     // same independence as JAL: imm reconstruction and the write-back setup
                     // (whose rd_data is just pc+4) don't touch each other
@@ -228,7 +229,7 @@ defproc soc(
                     next_pc := alu(resp_pkt.rs1_data, imm, 0b000, 0b0000000);
                     next_pc := alu(next_pc, ~(int(1,32)), 0b111, 0b0000000)
                 
-                [] (opcode = 0b0000011) -> 
+                [] (opcode = OPCODE_LOAD) ->
                     log ("LOAD")
 
                 [] else -> skip

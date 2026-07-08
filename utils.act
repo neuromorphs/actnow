@@ -1,7 +1,9 @@
+import "globals.act";
+
 // Single shared ALU for R-type, I-type, and the shift-immediates (SLLI/SRLI/SRAI).
-// Note that b can either be rs2 or the immediate, depending on the instruction type. 
+// Note that b can either be rs2 or the immediate, depending on the instruction type.
 // The caller is responsible for providing the correct value.
-export function alu(int<32> a; int<32> b; int<3> funct3; int<7> funct7) : int<32>
+export function alu(int<WIDTH_DATA> a; int<WIDTH_DATA> b; int<WIDTH_FUNCT3> funct3; int<WIDTH_FUNCT7> funct7) : int<WIDTH_DATA>
 {
     chp {
         [  (funct3 = 0b000) & (funct7{5} = 0) -> self := a + b                    // ADD / ADDI
@@ -18,7 +20,7 @@ export function alu(int<32> a; int<32> b; int<3> funct3; int<7> funct7) : int<32
     }
 }
 
-export function branch_taken(int<32> rs1; int<32> rs2; int<3> funct3) : bool
+export function branch_taken(int<WIDTH_DATA> rs1; int<WIDTH_DATA> rs2; int<WIDTH_FUNCT3> funct3) : bool
 {
     chp {
         // funct3{2:1} selects the comparison: 00=equality (via XOR==0),

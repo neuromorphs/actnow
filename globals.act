@@ -18,3 +18,27 @@ pint ADDR_RESET = 0x40000;
 
 // 8 Ki words
 pint SIZE_MEM_WORDS = 8 * 1024;
+
+// RV32I instruction field widths (bit positions themselves are fixed by the
+// ISA -- see soc.act's field extraction -- these are just the widths of the
+// variables that hold each field).
+pint WIDTH_OPCODE = 7,
+    WIDTH_REG = 5,      // rd, rs1, rs2 -- 32 architectural registers
+    WIDTH_FUNCT3 = 3,
+    WIDTH_FUNCT7 = 7;
+
+// Major (7-bit) opcodes, opcode map inst[1:0]=11 -- see the RV32I base
+// instruction set table. OPCODE_WFI is this project's own extension, placed
+// in the custom-0 slot the base ISA reserves for exactly this purpose.
+pint OPCODE_LOAD     = 0b0000011,
+    OPCODE_WFI       = 0b0001011,  // custom-0 (project extension, not standard RV32I)
+    OPCODE_MISC_MEM  = 0b0001111,  // FENCE / FENCE.TSO / PAUSE
+    OPCODE_OP_IMM    = 0b0010011,
+    OPCODE_AUIPC     = 0b0010111,
+    OPCODE_STORE     = 0b0100011,
+    OPCODE_OP        = 0b0110011,
+    OPCODE_LUI       = 0b0110111,
+    OPCODE_BRANCH    = 0b1100011,
+    OPCODE_JALR      = 0b1100111,
+    OPCODE_JAL       = 0b1101111,
+    OPCODE_SYSTEM    = 0b1110011;  // ECALL / EBREAK
