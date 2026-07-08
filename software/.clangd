@@ -1,0 +1,17 @@
+# clangd configuration for the freestanding rv32i sources.
+# clangd uses its own bundled clang, so point it at the RISC-V target and
+# supply the same freestanding flags the GCC build uses; otherwise it lints
+# against the host target and mis-sizes types / rejects the setup.
+CompileFlags:
+  Add:
+    - --target=riscv32-unknown-elf
+    - -march=rv32i
+    - -mabi=ilp32
+    - -ffreestanding
+    - -nostdlib
+    - -fno-builtin
+    - -Wall
+    - -Wextra
+
+Diagnostics:
+  UnusedIncludes: Strict
