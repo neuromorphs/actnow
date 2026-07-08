@@ -1,0 +1,81 @@
+import "soc.act";
+
+// Drives soc through LUI (base address in x1), ADDI (all-ones value in x2),
+// then all three STORE variants (SW, SB, SH) against that base, then WFI.
+//
+// Unlike LOAD, STORE's result (the masked write value on wdata_ext) is
+// directly observable from outside soc -- mmu.act masks wdata down to the
+// requested size before forwarding it to the peripheral -- so this test can
+// fully assert the actual stored value, not just the fetch address, without
+// needing to eyeball regfile's internal log line.
+defproc store_test() {
+
+    soc s;
+    addr_t addr;
+    mode_mem_t mode;
+    int<32> wdata;
+    int<32> insn;
+    int<32> off;
+
+    chp {
+        // pc=ADDR_RESET+0: LUI x1, 0x40  -->  x1 = 0x40000 (base address)
+        insn := (int(0x40,32) << 12) | (int(1,32) << 7) | 0b0110111;
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.base = 4, "fetch 0 addr base: want 4, got ", addr.base);
+        assert(addr.offset = 0, "fetch 0 addr offset: want 0, got ", addr.offset);
+        s.rdata_ext!insn;
+
+        // pc=+4: ADDI x2, x0, -1  -->  x2 = 0xffffffff
+        insn := (0b111111111111 << 20) | (int(0,32) << 15) | (0b000 << 12) | (int(2,32) << 7) | OPCODE_OP_IMM;
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 4, "fetch 1 (ADDI insn) addr offset: want 4, got ", addr.offset);
+        s.rdata_ext!insn;
+
+        // pc=+8: SW x2, 0x400(x1)  -->  addr = 0x40000+0x400 = 0x40400, full word
+        off := int(0x400,32);
+        insn := (off{11..5} << 25) | (int(2,32) << 20) | (int(1,32) << 15) | (0b010 << 12) | (off{4..0} << 7) | OPCODE_STORE;
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 8, "fetch 2 (SW insn) addr offset: want 8, got ", addr.offset);
+        s.rdata_ext!insn;
+
+        s.addr_ext?addr; s.mode_ext?mode; s.wdata_ext?wdata;
+        assert(addr.base = 4, "SW data addr base: want 4, got ", addr.base);
+        assert(addr.offset = 0x400, "SW data addr offset: want 0x400, got ", addr.offset);
+        assert(mode.op = op_mem_t.W, "SW data mode.op: want W");
+        assert(mode.size = size_mem_t.WORD, "SW data mode.size: want WORD");
+        assert(wdata = int(0xffffffff,32), "SW wdata: want 0xffffffff, got ", wdata);
+
+        // pc=+12: SB x2, 0x404(x1)  -->  addr = 0x40404, masked to low byte
+        off := int(0x404,32);
+        insn := (off{11..5} << 25) | (int(2,32) << 20) | (int(1,32) << 15) | (0b000 << 12) | (off{4..0} << 7) | OPCODE_STORE;
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 12, "fetch 3 (SB insn) addr offset: want 12, got ", addr.offset);
+        s.rdata_ext!insn;
+
+        s.addr_ext?addr; s.mode_ext?mode; s.wdata_ext?wdata;
+        assert(addr.offset = 0x404, "SB data addr offset: want 0x404, got ", addr.offset);
+        assert(mode.size = size_mem_t.BYTE, "SB data mode.size: want BYTE");
+        assert(wdata = int(0xff,32), "SB wdata: want 0xff, got ", wdata);
+
+        // pc=+16: SH x2, 0x408(x1)  -->  addr = 0x40408, masked to low half-word
+        off := int(0x408,32);
+        insn := (off{11..5} << 25) | (int(2,32) << 20) | (int(1,32) << 15) | (0b001 << 12) | (off{4..0} << 7) | OPCODE_STORE;
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 16, "fetch 4 (SH insn) addr offset: want 16, got ", addr.offset);
+        s.rdata_ext!insn;
+
+        s.addr_ext?addr; s.mode_ext?mode; s.wdata_ext?wdata;
+        assert(addr.offset = 0x408, "SH data addr offset: want 0x408, got ", addr.offset);
+        assert(mode.size = size_mem_t.HALF_WORD, "SH data mode.size: want HALF_WORD");
+        assert(wdata = int(0xffff,32), "SH wdata: want 0xffff, got ", wdata);
+
+        // pc=+20: WFI
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 20, "fetch 5 (WFI) addr offset: want 20, got ", addr.offset);
+        s.rdata_ext!(11);
+
+        log("store_test: all assertions passed")
+    }
+}
+
+store_test st;

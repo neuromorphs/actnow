@@ -5,16 +5,15 @@ core boots into a low-power wait state, wakes on an external event, executes
 straight-line instructions until it hits a custom `WFI` instruction, then
 returns to waiting.
 
-## Instructions to implement:
-### Stores
-- SB
-- SH
-- SW
+## Instructions
 
-Loads (LB/LH/LW/LBU/LHU) are implemented in `soc.act`, routed through the
-MMU (`mmu.act`) to either internal RAM (`mem.act`) or external memory
-(`addr_ext`/`mode_ext`/`wdata_ext`/`rdata_ext`), with sign/zero-extension
-done in `soc.act` after the MMU's masking. See `tests/load_test.act`.
+The full RV32I base integer set is implemented in `soc.act`, including
+loads (LB/LH/LW/LBU/LHU) and stores (SB/SH/SW), both routed through the MMU
+(`mmu.act`) to either internal RAM (`mem.act`) or external memory
+(`addr_ext`/`mode_ext`/`wdata_ext`/`rdata_ext`). Loads sign/zero-extend in
+`soc.act` after the MMU's masking; stores rely on the MMU masking the write
+value down to the requested size before it reaches the peripheral. See
+`tests/load_test.act` and `tests/store_test.act`.
 
 ## Toolchain
 

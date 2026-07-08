@@ -199,7 +199,36 @@ defproc soc(
 
                 // S-type
                 [] (opcode = OPCODE_STORE) ->
-                    log("S-type instruction -- not implemented yet")
+                    log("S-type instruction (STORE)");
+
+                    // imm reconstruction, the rs1/rs2 read, and the size selection are
+                    // all independent of each other -- run them concurrently
+                    (
+                    imm := (instr{31..25} << 5) | instr{11..7};
+                    [ instr{31} = 1 -> imm := imm | ((-(int(1,32))) << 12)
+                      [] else -> skip ]
+                    ),
+                    (
+                    req_pkt.rs1_addr := rs1, req_pkt.rs1_valid := true,
+                    req_pkt.rs2_addr := rs2, req_pkt.rs2_valid := true,
+                    req_pkt.rd_valid := false;
+                    rf.req!req_pkt;
+                    rf.resp?resp_pkt
+                    ),
+                    (
+                    [ funct3 = 0b000 -> mode_core.size := size_mem_t.BYTE
+                      [] funct3 = 0b001 -> mode_core.size := size_mem_t.HALF_WORD
+                      [] else -> mode_core.size := size_mem_t.WORD
+                    ],
+                    mode_core.op := op_mem_t.W
+                    );
+
+                    // address depends on imm and rs1_data, both ready now
+                    addr_core := compute_addr(resp_pkt.rs1_data, imm);
+
+                    // no rd write-back and no response from the MMU for a plain
+                    // write -- mmu only sends rdata_core back for reads
+                    mmu.addr_core!addr_core; mmu.mode_core!mode_core; mmu.wdata_core!resp_pkt.rs2_data
                 // U-type (AUIPC)
                 [] (opcode = OPCODE_AUIPC) ->
                     log("U-type instruction (AUIPC)");
