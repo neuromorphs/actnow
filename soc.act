@@ -2,6 +2,8 @@ import "globals.act";
 import "interrupt.act";
 import "regfile.act";
 import "utils.act";
+import "mmu.act";
+import "mem.act";
 
 defproc soc(
     chan?(bool) event_id_0;
@@ -20,13 +22,15 @@ defproc soc(
     chan?(bool) event_id_13;
     chan?(bool) event_id_14;
     chan?(bool) event_id_15;
-    chan?(int<32>) imem_resp;
-    chan!(int<32>) imem_req
+    chan!(addr_t) addr_ext;
+    chan!(mode_mem_t) mode_ext;
+    chan!(int<WIDTH_DATA>) wdata_ext;
+    chan?(int<WIDTH_DATA>) rdata_ext;
     )
 {
 
     int<WIDTH_DATA> pc;
-    int<WIDTH_DATA> insn_send; // hardcode this for now
+    int<WIDTH_DATA> instr; // hardcode this for now
 
     int<WIDTH_OPCODE> opcode;
     int<WIDTH_REG> rd;
@@ -55,19 +59,45 @@ defproc soc(
 
     regfile rf;
 
+    // MMU
+    addr_t addr_core;
+    mode_mem_t mode_core;
+    int<WIDTH_DATA> wdata_core;
+    int<WIDTH_DATA> rdata_core;
+
+    mem ram;
+    mmu mmu;
+
+    mmu.addr_mem = ram.addr;
+    mmu.mode_mem = ram.mode;
+    mmu.wdata_mem = ram.wdata;
+    mmu.rdata_mem = ram.rdata;
+
+    // External memory interface
+    mmu.addr_ext = addr_ext;
+    mmu.mode_ext = mode_ext;
+    mmu.wdata_ext = wdata_ext;
+    mmu.rdata_ext = rdata_ext;
+
+    // TODO: wire interrupt
+
     chp {
         running := false;
         *[
             [ running -> skip [] else -> event_pc?pc ];
             running := true;
 
-            imem_req!pc;
-            imem_resp?insn_send;
+            // instruction fetch
+            addr_core.base := pc{19..16}, addr_core.offset := pc{15..0},
+            mode_core.op := op_mem_t.R, mode_core.size := size_mem_t.WORD;
+
+            mmu.addr_core!addr_core; mmu.mode_core!mode_core;   // Match sequential handshake in mmu.act
+            mmu.rdata_core?instr;
 
             // all six fields are independent slices of the same already-resolved
-            // insn_send, and write disjoint variables -- safe to do concurrently
-            opcode := insn_send{6..0}, rd := insn_send{11..7}, funct3 := insn_send{14..12},
-            rs1 := insn_send{19..15}, rs2 := insn_send{24..20}, funct7 := insn_send{31..25};
+            // instr, and write disjoint variables -- safe to do concurrently
+            opcode := instr{6..0}, rd := instr{11..7}, funct3 := instr{14..12},
+            rs1 := instr{19..15}, rs2 := instr{24..20}, funct7 := instr{31..25};
 
             // defaults
             imm := 0;
@@ -101,8 +131,8 @@ defproc soc(
                     log("I-type instruction");
 
                     // get imm from instruction, sign-extend to 32 bits
-                    imm := insn_send{31..20};
-                    [ insn_send{31} = 1 -> imm := imm | ((-(int(1,32))) << 12)
+                    imm := instr{31..20};
+                    [ instr{31} = 1 -> imm := imm | ((-(int(1,32))) << 12)
                       [] else -> skip ];
 
                     // we only need to read rs1 for I-type instructions, since the second operand is the immediate
@@ -136,7 +166,7 @@ defproc soc(
                     log ("LUI");
 
                     // get imm from insn
-                    imm := insn_send{31..12} << 12;
+                    imm := instr{31..12} << 12;
 
                     // send a write packet to rd
                     req_pkt.rs1_valid := false, req_pkt.rs2_valid := false,
@@ -158,8 +188,8 @@ defproc soc(
                     // independent -- only branch_taken() below needs both, so let
                     // them happen concurrently instead of back to back
                     (rf.req!req_pkt; rf.resp?resp_pkt),
-                    (imm := (insn_send{7} << 11) | (insn_send{30..25} << 5) | (insn_send{11..8} << 1);
-                     [ insn_send{31} = 1 -> imm := imm | ((-(int(1,32))) << 12)
+                    (imm := (instr{7} << 11) | (instr{30..25} << 5) | (instr{11..8} << 1);
+                     [ instr{31} = 1 -> imm := imm | ((-(int(1,32))) << 12)
                        [] else -> skip ]);
 
                     [ branch_taken(resp_pkt.rs1_data, resp_pkt.rs2_data, funct3) ->
@@ -173,7 +203,7 @@ defproc soc(
                 // U-type (AUIPC)
                 [] (opcode = OPCODE_AUIPC) ->
                     log("U-type instruction (AUIPC)");
-                    imm := insn_send{31..12} << 12;
+                    imm := instr{31..12} << 12;
                     req_pkt.rs1_valid := false, req_pkt.rs2_valid := false,
                     req_pkt.rd_addr := rd, req_pkt.rd_valid := true,
                     req_pkt.rd_data := alu(pc, imm, 0b000, 0b0000000); // pc + imm
@@ -187,10 +217,10 @@ defproc soc(
                     // concurrently; only the final next_pc computation below needs imm ready
                     (
                     // imm[20] (sign bit) is fully handled by the sign-extension step below via
-                    // the ~0<<20 mask -- including insn_send{31} unshifted here would corrupt
+                    // the ~0<<20 mask -- including instr{31} unshifted here would corrupt
                     // bit 0, which must always be 0 (jump targets are 2-byte aligned)
-                    imm := (insn_send{19..12} << 12) | (insn_send{20} << 11) | (insn_send{30..21} << 1);
-                    [ insn_send{31} = 1 -> imm := imm | ((-(int(1,32))) << 20)
+                    imm := (instr{19..12} << 12) | (instr{20} << 11) | (instr{30..21} << 1);
+                    [ instr{31} = 1 -> imm := imm | ((-(int(1,32))) << 20)
                       [] else -> skip ]
                     ),
                     (
@@ -209,8 +239,8 @@ defproc soc(
                     // same independence as JAL: imm reconstruction and the write-back setup
                     // (whose rd_data is just pc+4) don't touch each other
                     (
-                    imm := insn_send{31..20};
-                    [ insn_send{31} = 1 -> imm := imm | ((-(int(1,32))) << 12)
+                    imm := instr{31..20};
+                    [ instr{31} = 1 -> imm := imm | ((-(int(1,32))) << 12)
                       [] else -> skip ]
                     ),
                     (
