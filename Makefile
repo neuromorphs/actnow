@@ -31,7 +31,7 @@ $(TESTS):
 	@$(AFLAT) tests/$@.act
 	@out=$$(printf "cycle\nquit\n" | $(ACTSIM) tests/$@.act $@ 2>&1); \
 	echo "$$out"; \
-	if echo "$$out" | grep -qi "ASSERTION failed"; then \
+	if echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
 		echo "$@: FAIL"; exit 1; \
 	else \
 		echo "$@: PASS"; \

@@ -1,0 +1,90 @@
+import "soc.act";
+import sim;
+import std;
+
+// Loads a real compiled RV32I program image and runs it through the actual
+// soc pipeline (fetch/decode/execute), instead of hand-crafted instruction
+// words like the other tests. The image comes from
+// software/tests/build/rom.actsim.mem, produced by `make TEST=simple` in
+// software/tests/ (see software/tests/Makefile) -- one 32-bit word per
+// line, "0b"-prefixed so actsim's sim::file_private::read can parse it.
+// actnow/actsim.conf maps file ID 0 to that path.
+//
+// The program under test is software/tests/simple.S, riscv-tests' most
+// basic self-checking test. It has no real pass/fail assertion of its own
+// (RVTEST_PASS is a no-op for this test) -- it just runs straight-line code
+// (AUIPC/ADDI/BGEU/LW/SW/JAL), including one backward jump, and finishes by
+// executing this project's own WFI opcode (encoded as the raw word
+// 0x0000000b at label `mytest_ret`, deliberately reused as riscv-tests'
+// "test finished" marker). Reaching "decoded wfi" in the log below with no
+// crash or hang along the way is what "passing" means here.
+pint ROM_ID = 0;
+pint ROM_MAX_WORDS = 1024;
+
+defproc rom_backend (
+    chan?(addr_t) addr; chan?(mode_mem_t) mode;
+    chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata
+) {
+    pint WORD_BITS = std::ceil_log2(ROM_MAX_WORDS);
+    int<WIDTH_DATA> m[ROM_MAX_WORDS];
+
+    addr_t a;
+    mode_mem_t md;
+    int<WIDTH_DATA> w;
+    int<WORD_BITS> widx;
+    int reader_id;
+    int<32> i, nwords;
+
+    chp {
+        // preload the whole image up front -- the program contains a
+        // backward jump, so addresses aren't accessed in strictly
+        // increasing order and the file can't just be streamed on demand
+        reader_id := sim::file_private::openr(ROM_ID);
+        assert(reader_id != 0, "rom_backend: failed to open ROM image (check actsim.conf's sim.file.name_table)");
+        i := 0;
+        *[ (~sim::file_private::eof(reader_id)) & (i < ROM_MAX_WORDS) ->
+            m[i] := int(sim::file_private::read(reader_id), WIDTH_DATA);
+            i := i + 1
+        ];
+        nwords := i;
+        assert(sim::file_private::closer(reader_id), "rom_backend: failed to close ROM image");
+        log("rom_backend: loaded ", nwords, " words from ROM image");
+
+        *[
+            addr?a; mode?md;
+            widx := int(a.offset >> 2, WORD_BITS);
+            [
+                md.op = op_mem_t.W ->
+                    wdata?w;
+                    m[widx] := w
+                [] md.op = op_mem_t.R ->
+                    rdata!m[widx]
+                [] else -> // R_AND_W
+                    rdata!m[widx];
+                    wdata?w;
+                    m[widx] := w
+            ]
+        ]
+    }
+}
+
+defproc rom_program_test() {
+    soc s;
+
+    rom_backend rb;
+    rb.addr = s.addr_ext;
+    rb.mode = s.mode_ext;
+    rb.wdata = s.wdata_ext;
+    rb.rdata = s.rdata_ext;
+
+    chp {
+        // nothing to drive by hand -- soc boots on its own via the reset
+        // vector, and rom_backend services every fetch/load/store from the
+        // preloaded image. Simulation reaches quiescence once soc decodes
+        // WFI and goes idle (both soc and rom_backend end up blocked
+        // waiting for input nobody sends).
+        skip
+    }
+}
+
+rom_program_test rpt;

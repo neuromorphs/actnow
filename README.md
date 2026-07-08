@@ -7,6 +7,8 @@ returns to waiting.
 
 ## Instructions
 
+Google suite of tests????
+
 The full RV32I base integer set is implemented in `soc.act`, including
 loads (LB/LH/LW/LBU/LHU) and stores (SB/SH/SW), both routed through the MMU
 (`mmu.act`) to either internal RAM (`mem.act`) or external memory
@@ -14,6 +16,53 @@ loads (LB/LH/LW/LBU/LHU) and stores (SB/SH/SW), both routed through the MMU
 `soc.act` after the MMU's masking; stores rely on the MMU masking the write
 value down to the requested size before it reaches the peripheral. See
 `tests/load_test.act` and `tests/store_test.act`.
+
+## Running real compiled programs
+
+`tests/rom_program_test.act` runs an actual compiled RV32I program through
+`soc`'s real fetch/decode/execute pipeline, instead of hand-crafted
+instruction words. It streams the program image from disk at simulation
+time via actsim's `sim::file_private` file API (see `actsim.conf`'s
+`sim.file.name_table`, which maps file ID 0 to
+`software/tests/build/rom.actsim.mem`), and serves it as `soc`'s external
+memory.
+
+To point it at a different program, build one under `software/tests/`
+(riscv-tests style — see `software/tests/README`) and copy/regenerate
+`rom.actsim.mem`:
+
+```
+cd software/tests
+make TEST=<name>          # -> build/rom.mem, build/rom.actsim.mem, build/<name>.lst
+cd ../..
+make rom_program_test
+```
+
+`software/tests/Makefile`'s `rom.actsim.mem` target derives from `rom.mem`
+(itself already used for a Verilog-`$readmemb`-style flow, one bitstring per
+line) by adding the `0b` prefix actsim's file reader needs to parse binary;
+it doesn't touch `rom.mem` itself.
+
+Note: `rom.mem`/`rom.actsim.mem` don't track which `TEST=` last produced
+them, and `make TEST=<name>` won't regenerate them if `<name>`'s own `.elf`
+happens to already be up to date from a previous build — if you switch
+`TEST=` and the image doesn't look like you expect, `rm -f build/rom.mem
+build/rom.actsim.mem` first.
+
+### Pass/fail signalling
+
+Reaching WFI alone doesn't mean a test *passed* — only that it ran to
+completion. The riscv-tests convention (`common/test_start.S`) is: `WFI` =
+pass, `EBREAK` = fail (emitted by a `TEST_CASE` comparison that didn't
+match). `soc.act` treats EBREAK as a halt via the same path as WFI, but logs
+a distinct `EBREAK -- test FAILED` line (with the failing `TESTNUM`/`x28`
+value logged just above it), which the top-level `Makefile` also greps for
+as a second FAIL condition alongside `ASSERTION failed`.
+
+`addi.S` (20 real `TEST_CASE` comparisons — sign extension, overflow
+wraparound, aliasing) passes cleanly through `rom_program_test.act` with
+zero EBREAKs. The detection path itself is verified against a deliberately
+wrong expected value, which correctly produces `EBREAK -- test FAILED`.
 
 ## Toolchain
 

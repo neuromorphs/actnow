@@ -23,14 +23,15 @@ BIN2MEM  := $(COMMON)/bin2mem.sh
 
 CFLAGS := -march=rv32i -mabi=ilp32 -nostdlib -Wl,--build-id=none
 
-BUILD := build
-ELF   := $(BUILD)/$(TEST).elf
-BIN   := $(BUILD)/$(TEST).bin
-LST   := $(BUILD)/$(TEST).lst
-MEM   := $(BUILD)/rom.mem
+BUILD      := build
+ELF        := $(BUILD)/$(TEST).elf
+BIN        := $(BUILD)/$(TEST).bin
+LST        := $(BUILD)/$(TEST).lst
+MEM        := $(BUILD)/rom.mem
+MEM_ACTSIM := $(BUILD)/rom.actsim.mem
 
 .PHONY: all clean
-all: $(MEM) $(LST)
+all: $(MEM) $(MEM_ACTSIM) $(LST)
 
 $(ELF): $(START) $(TEST).S $(LDSCRIPT) | $(BUILD)
 	$(CC) $(CFLAGS) -T $(LDSCRIPT) -o $@ $(START) $(TEST).S
@@ -51,6 +52,14 @@ $(LST): $(ELF)
 $(MEM): $(BIN)
 	sh $(BIN2MEM) $< > $@
 	@echo "TEST $(TEST): $$(wc -c < $(BIN)) bytes -> $$(wc -l < $@) words ($@)"
+
+# actsim's sim::file_private::read parses each line as an integer and only
+# recognizes base via a 0x/0b/0o prefix (else it assumes base 10) -- $(MEM)'s
+# raw bitstring-per-line format (no prefix, kept as-is for Verilog
+# $readmemb compatibility) isn't directly readable by it, so this just adds
+# the "0b" prefix each line needs.
+$(MEM_ACTSIM): $(MEM)
+	sed 's/^/0b/' $< > $@
 
 $(BUILD):
 	mkdir -p $(BUILD)

@@ -173,9 +173,22 @@ defproc soc(
                     req_pkt.rd_addr := rd, req_pkt.rd_valid := true,
                     req_pkt.rd_data := imm;
                     rf.req!req_pkt
-                // FENCE, FENCE.TSO, PAUSE, ECALL, EBREAK (NOP)
-                [] (opcode = OPCODE_MISC_MEM) | (opcode = OPCODE_SYSTEM) ->
-                    log("NOP / FENCE / PAUSE / ECALL / EBREAK -- no action taken")
+                // EBREAK (SYSTEM opcode, instr[31:20]=0x001) halts the core exactly
+                // like WFI -- it's the riscv-tests harness's fail signal (see
+                // common/test_start.S: "fail -> ebreak"), and there's no trap
+                // handler to vector to yet, so halting is the only sound thing
+                // to do with it. Reuses is_wfi's existing halt path rather than
+                // adding a second one; the distinct log line is what makes it
+                // possible to tell a real failure apart from a normal WFI.
+                [] (opcode = OPCODE_SYSTEM) & (instr{31..20} = 1) ->
+                    log("EBREAK -- test FAILED (see TESTNUM/x28 above)");
+                    is_wfi := true
+                // FENCE, FENCE.TSO, PAUSE, ECALL (NOP) -- excludes EBREAK
+                // (instr[31:20]=1), which is handled by the guard above;
+                // without that exclusion both guards are true whenever
+                // opcode=SYSTEM and instr[31:20]=1, a real mutex violation
+                [] (opcode = OPCODE_MISC_MEM) | ((opcode = OPCODE_SYSTEM) & (instr{31..20} != 1)) ->
+                    log("NOP / FENCE / PAUSE / ECALL -- no action taken")
                 // B-type
                 [] (opcode = OPCODE_BRANCH) ->
                     log("B-type instruction");
