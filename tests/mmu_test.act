@@ -329,7 +329,7 @@ defproc ext_backend (
 }
 
 // Main testbench
-defproc test() {
+defproc mmu_test() {
     // Instantiate components
     addr_source asrc;
     read_sink rsink;
@@ -365,3 +365,5 @@ defproc test() {
     ext.wdata = m.wdata_ext;
     m.rdata_ext = ext.rdata;
 }
+
+mmu_test mt;

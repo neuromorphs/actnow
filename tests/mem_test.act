@@ -36,7 +36,7 @@ import "mem.act";
  *   self-checking every read against the expected (post-mask) value.
  *   (A macro-based driver would be cleaner, but is avoided on purpose.)
  */
-defproc test() {
+defproc mem_test() {
     mem m;
 
     // Local channels wired to the memory under test.
@@ -295,3 +295,5 @@ defproc test() {
         log("======== mem test complete (all reads matched) ========")
     }
 }
+
+mem_test mt;

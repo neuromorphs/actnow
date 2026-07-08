@@ -21,10 +21,22 @@ To peripherals:
 sized transfers: only the low BYTE / HALF_WORD / WORD bits are kept. higher bits are 0
 */
 defproc mmu(
-    chan?(addr_t) addr_core; chan?(mode_mem_t) mode_core; chan?(int<WIDTH_DATA>) wdata_core; chan!(int<WIDTH_DATA>) rdata_core;
-    chan!(addr_t) addr_mem; chan!(mode_mem_t) mode_mem; chan!(int<WIDTH_DATA>) wdata_mem; chan?(int<WIDTH_DATA>) rdata_mem;
-    chan!(addr_t) addr_int_ctrl; chan!(mode_mem_t) mode_int_ctrl; chan!(int<WIDTH_DATA>) wdata_int_ctrl; chan?(int<WIDTH_DATA>) rdata_int_ctrl;
-    chan!(addr_t) addr_ext; chan!(mode_mem_t) mode_ext; chan!(int<WIDTH_DATA>) wdata_ext; chan?(int<WIDTH_DATA>) rdata_ext
+    chan?(addr_t) addr_core; 
+    chan?(mode_mem_t) mode_core;
+     chan?(int<WIDTH_DATA>) wdata_core; 
+     chan!(int<WIDTH_DATA>) rdata_core;
+    chan!(addr_t) addr_mem; 
+    chan!(mode_mem_t) mode_mem; 
+    chan!(int<WIDTH_DATA>) wdata_mem; 
+    chan?(int<WIDTH_DATA>) rdata_mem;
+    chan!(addr_t) addr_int_ctrl; 
+    chan!(mode_mem_t) mode_int_ctrl; 
+    chan!(int<WIDTH_DATA>) wdata_int_ctrl; 
+    chan?(int<WIDTH_DATA>) rdata_int_ctrl;
+    chan!(addr_t) addr_ext; 
+    chan!(mode_mem_t) mode_ext; 
+    chan!(int<WIDTH_DATA>) wdata_ext; 
+    chan?(int<WIDTH_DATA>) rdata_ext
 ) {
     addr_t addr;
     mode_mem_t mode;
@@ -39,8 +51,11 @@ defproc mmu(
             addr_core?addr; mode_core?mode;
             op := mode.op;
             size := mode.size;
-            is_write := (op = op_mem_t.W) | (op = op_mem_t.R_AND_W);
-            is_read := (op = op_mem_t.R) | (op = op_mem_t.R_AND_W);
+            // Enum equality works fine as a selection guard, but this toolchain
+            // doesn't support assigning an enum comparison's result directly into
+            // a bool via `:=` -- has to be expressed as a selection instead.
+            [ (op = op_mem_t.W) | (op = op_mem_t.R_AND_W) -> is_write := true [] else -> is_write := false ];
+            [ (op = op_mem_t.R) | (op = op_mem_t.R_AND_W) -> is_read := true [] else -> is_read := false ];
 
             // receive from core
             [
