@@ -1,5 +1,6 @@
 # Top-level orchestrator.
 # Usage: make PROG=application     (builds bootloader + <PROG>, stitches, -> build/rom.mem)
+#        make TEST=addi test      (builds a single riscv-test        -> build/rom.mem)
 #        make clean
 #
 # Each program lives in its own folder with its own Makefile producing
@@ -42,7 +43,13 @@ $(ROM_MEM): $(ROM_BIN)
 $(BUILD):
 	mkdir -p $(BUILD)
 
+.PHONY: test
+test: | $(BUILD)
+	$(MAKE) -C tests TEST=$(TEST)
+	cp tests/build/rom.mem $(ROM_MEM)
+
 clean:
 	$(MAKE) -C bootloader clean
 	$(MAKE) -C $(PROG) clean
+	$(MAKE) -C tests clean
 	rm -rf $(BUILD)
