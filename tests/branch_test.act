@@ -6,51 +6,59 @@ import "soc.act";
 // BLT/BLTU reuse the same operands (x3 = -1, x0 = 0) specifically to prove
 // the signed/unsigned distinction actually matters -- BLT should take the
 // branch while BLTU on the identical bit patterns should not.
+//
+// Instruction fetch now goes through the MMU: soc boots at ADDR_RESET
+// (0x40000, base=4), which routes to the addr_ext/mode_ext/wdata_ext/rdata_ext
+// ports exposed at soc's boundary -- so this test answers fetches there
+// instead of the old raw imem_req/imem_resp ports.
 defproc branch_test() {
 
     soc s;
-    int<32> addr, insn, off;
+    addr_t addr;
+    mode_mem_t mode;
+    int<32> insn, off;
 
     chp {
-        // pc=0: BEQ x1, x2, +8  (x1=x2=0 -> equal -> taken)
+        // pc=ADDR_RESET+0: BEQ x1, x2, +8  (x1=x2=0 -> equal -> taken)
         off := int(8,32);
         insn := (off{12} << 31) | (off{11} << 7) | (off{10..5} << 25) | (off{4..1} << 8)
                 | (int(2,32) << 20) | (int(1,32) << 15) | (0b000 << 12) | 0b1100011;
 
-        s.imem_req?addr;
-        assert(addr = 0, "fetch 1 addr: want 0, got ", addr);
-        s.imem_resp!insn;
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.base = 4, "fetch 1 addr base: want 4, got ", addr.base);
+        assert(addr.offset = 0, "fetch 1 addr offset: want 0, got ", addr.offset);
+        s.rdata_ext!insn;
 
-        // pc=8: BNE x1, x2, +8  (still equal -> BNE not taken -> falls through to pc+4)
-        s.imem_req?addr;
-        assert(addr = 8, "fetch 2 addr (BEQ taken): want 8, got ", addr);
+        // pc=+8: BNE x1, x2, +8  (still equal -> BNE not taken -> falls through to pc+4)
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 8, "fetch 2 addr (BEQ taken): want 8, got ", addr.offset);
         insn := (off{12} << 31) | (off{11} << 7) | (off{10..5} << 25) | (off{4..1} << 8)
                 | (int(2,32) << 20) | (int(1,32) << 15) | (0b001 << 12) | 0b1100011;
-        s.imem_resp!insn;
+        s.rdata_ext!insn;
 
-        // pc=12: ADDI x3, x0, -1  (x3 = 0xFFFFFFFF)
-        s.imem_req?addr;
-        assert(addr = 12, "fetch 3 addr (BNE not taken): want 12, got ", addr);
+        // pc=+12: ADDI x3, x0, -1  (x3 = 0xFFFFFFFF)
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 12, "fetch 3 addr (BNE not taken): want 12, got ", addr.offset);
         insn := (0b111111111111 << 20) | (int(0,32) << 15) | (0b000 << 12) | (int(3,32) << 7) | 0b0010011;
-        s.imem_resp!insn;
+        s.rdata_ext!insn;
 
-        // pc=16: BLT x3, x0, +8  (signed: -1 < 0 -> taken)
-        s.imem_req?addr;
-        assert(addr = 16, "fetch 4 addr: want 16, got ", addr);
+        // pc=+16: BLT x3, x0, +8  (signed: -1 < 0 -> taken)
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 16, "fetch 4 addr: want 16, got ", addr.offset);
         insn := (off{12} << 31) | (off{11} << 7) | (off{10..5} << 25) | (off{4..1} << 8)
                 | (int(0,32) << 20) | (int(3,32) << 15) | (0b100 << 12) | 0b1100011;
-        s.imem_resp!insn;
+        s.rdata_ext!insn;
 
-        // pc=24: BLTU x3, x0, +8  (unsigned: huge < 0 -> not taken, falls through to pc+4)
-        s.imem_req?addr;
-        assert(addr = 24, "fetch 5 addr (BLT taken): want 24, got ", addr);
+        // pc=+24: BLTU x3, x0, +8  (unsigned: huge < 0 -> not taken, falls through to pc+4)
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 24, "fetch 5 addr (BLT taken): want 24, got ", addr.offset);
         insn := (off{12} << 31) | (off{11} << 7) | (off{10..5} << 25) | (off{4..1} << 8)
                 | (int(0,32) << 20) | (int(3,32) << 15) | (0b110 << 12) | 0b1100011;
-        s.imem_resp!insn;
+        s.rdata_ext!insn;
 
-        s.imem_req?addr;
-        assert(addr = 28, "fetch 6 addr (BLTU not taken): want 28, got ", addr);
-        s.imem_resp!(11); // WFI
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 28, "fetch 6 addr (BLTU not taken): want 28, got ", addr.offset);
+        s.rdata_ext!(11); // WFI
 
         log("branch_test: all assertions passed")
     }

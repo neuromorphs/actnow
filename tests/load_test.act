@@ -1,0 +1,106 @@
+import "soc.act";
+
+// Drives soc through LUI (to build a base address in x1) followed by all
+// five LOAD variants (LW, LB, LBU, LH, LHU) against that base, then WFI.
+//
+// LOAD's data address is deliberately kept in the external region (base=4,
+// same as where soc boots and fetches instructions from) rather than
+// internal ram: ram is private to soc (only mmu can reach it) and STORE
+// isn't implemented yet, so there's no way to preload ram with known values
+// from outside soc. Targeting addr_ext lets this test supply known data
+// directly and check both the computed address (rs1+imm) and the selected
+// transfer size on the observable addr_ext/mode_ext channels.
+//
+// Sign/zero-extension of the loaded value (LB/LH vs LBU/LHU) isn't
+// observable from outside soc either -- rd write-back only shows up in
+// regfile's own internal log line, same convention already used by
+// auipc_test.act/branch_test.act for anything that depends on a register
+// value rather than a fetch address.
+defproc load_test() {
+
+    soc s;
+    addr_t addr;
+    mode_mem_t mode;
+    int<32> insn;
+
+    chp {
+        // pc=ADDR_RESET+0: LUI x1, 0x40  -->  x1 = 0x40000 (base address)
+        insn := (int(0x40,32) << 12) | (int(1,32) << 7) | 0b0110111;
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.base = 4, "fetch 0 addr base: want 4, got ", addr.base);
+        assert(addr.offset = 0, "fetch 0 addr offset: want 0, got ", addr.offset);
+        s.rdata_ext!insn;
+
+        // pc=+4: LW x2, 0x400(x1)  -->  addr = 0x40000+0x400 = 0x40400
+        insn := (int(0x400,32) << 20) | (int(1,32) << 15) | (0b010 << 12) | (int(2,32) << 7) | OPCODE_LOAD;
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 4, "fetch 1 (LW insn) addr offset: want 4, got ", addr.offset);
+        s.rdata_ext!insn;
+
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.base = 4, "LW data addr base: want 4, got ", addr.base);
+        assert(addr.offset = 0x400, "LW data addr offset: want 0x400, got ", addr.offset);
+        assert(mode.op = op_mem_t.R, "LW data mode.op: want R");
+        assert(mode.size = size_mem_t.WORD, "LW data mode.size: want WORD");
+        s.rdata_ext!(int(0xdeadbeef,32)); // -> x2 should be 0xdeadbeef
+
+        // pc=+8: LB x3, 0x404(x1)  -->  addr = 0x40404, expect sign-extend
+        // (low byte of 0xdeadbeef is 0xef, bit7 set -> x3 should be 0xffffffef)
+        insn := (int(0x404,32) << 20) | (int(1,32) << 15) | (0b000 << 12) | (int(3,32) << 7) | OPCODE_LOAD;
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 8, "fetch 2 (LB insn) addr offset: want 8, got ", addr.offset);
+        s.rdata_ext!insn;
+
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 0x404, "LB data addr offset: want 0x404, got ", addr.offset);
+        assert(mode.size = size_mem_t.BYTE, "LB data mode.size: want BYTE");
+        s.rdata_ext!(int(0xdeadbeef,32));
+
+        // pc=+12: LBU x4, 0x404(x1)  -->  same addr, expect zero-extend
+        // (x4 should be 0x000000ef)
+        insn := (int(0x404,32) << 20) | (int(1,32) << 15) | (0b100 << 12) | (int(4,32) << 7) | OPCODE_LOAD;
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 12, "fetch 3 (LBU insn) addr offset: want 12, got ", addr.offset);
+        s.rdata_ext!insn;
+
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 0x404, "LBU data addr offset: want 0x404, got ", addr.offset);
+        assert(mode.size = size_mem_t.BYTE, "LBU data mode.size: want BYTE");
+        s.rdata_ext!(int(0xdeadbeef,32));
+
+        // pc=+16: LH x5, 0x408(x1)  -->  addr = 0x40408, expect sign-extend
+        // (low half-word of 0xdeadbeef is 0xbeef, bit15 set -> x5 should be 0xffffbeef)
+        insn := (int(0x408,32) << 20) | (int(1,32) << 15) | (0b001 << 12) | (int(5,32) << 7) | OPCODE_LOAD;
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 16, "fetch 4 (LH insn) addr offset: want 16, got ", addr.offset);
+        s.rdata_ext!insn;
+
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 0x408, "LH data addr offset: want 0x408, got ", addr.offset);
+        assert(mode.size = size_mem_t.HALF_WORD, "LH data mode.size: want HALF_WORD");
+        s.rdata_ext!(int(0xdeadbeef,32));
+
+        // pc=+20: LHU x6, 0x408(x1)  -->  same addr, expect zero-extend
+        // (x6 should be 0x0000beef)
+        insn := (int(0x408,32) << 20) | (int(1,32) << 15) | (0b101 << 12) | (int(6,32) << 7) | OPCODE_LOAD;
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 20, "fetch 5 (LHU insn) addr offset: want 20, got ", addr.offset);
+        s.rdata_ext!insn;
+
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 0x408, "LHU data addr offset: want 0x408, got ", addr.offset);
+        assert(mode.size = size_mem_t.HALF_WORD, "LHU data mode.size: want HALF_WORD");
+        s.rdata_ext!(int(0xdeadbeef,32));
+
+        // pc=+24: WFI
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 24, "fetch 6 (WFI) addr offset: want 24, got ", addr.offset);
+        s.rdata_ext!(11);
+
+        log("load_test: all address/mode assertions passed -- check the");
+        log("regfile log lines above for x2=0xdeadbeef x3=0xffffffef x4=0xef");
+        log("x5=0xffffbeef x6=0xbeef to confirm sign/zero-extension")
+    }
+}
+
+load_test lt;

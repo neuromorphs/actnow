@@ -3,7 +3,8 @@ import "soc.act";
 defproc lui_test() {
 
     soc s;
-    int<32> addr;
+    addr_t addr;
+    mode_mem_t mode;
     int<32> insn;
 
     chp {
@@ -13,13 +14,26 @@ defproc lui_test() {
         insn := (int(0x12345,32) << 12) | (int(5,32) << 7) | int(0b0110111,32);
         assert(insn = 305418935, "encoded LUI insn: want 305418935 / 0x12345037, got ", insn);
 
-        s.imem_req?addr;
-        s.imem_resp!insn;
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.base = 4, "fetch addr base: want 4, got ", addr.base);
+        assert(addr.offset = 0, "fetch addr offset: want 0, got ", addr.offset);
+        s.rdata_ext!insn;
 
-        // wake again with WFI so the core returns to waiting cleanly
+        // core keeps running (LUI wasn't WFI) and immediately fetches pc+4 --
+        // answer with WFI so it goes idle
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 4, "post-LUI fetch addr: want 4, got ", addr.offset);
+        s.rdata_ext!(11);
+
+        // now idle -- wake it again via event_id_0 so it re-vectors to
+        // ADDR_EVENT_0 and confirm that fetch actually happens
         s.event_id_0!(true);
-        s.imem_req?addr;
-        s.imem_resp!(11)
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.base = 4, "event_id_0 fetch addr base: want 4, got ", addr.base);
+        assert(addr.offset = 0x800, "event_id_0 fetch addr offset: want 0x800, got ", addr.offset);
+        s.rdata_ext!(11);
+
+        log("lui_test: all assertions passed")
     }
 }
 

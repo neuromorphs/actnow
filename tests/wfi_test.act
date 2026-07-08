@@ -1,31 +1,45 @@
 import "soc.act";
 
+// Drives soc through two wake/sleep cycles via event_id_1 then event_id_0.
+// Boot always fetches once (from ADDR_RESET, routed through addr_ext) before
+// soc will ever wait on an event -- so the very first fetch must be serviced
+// with a WFI instruction to put the core to sleep, matching real reset
+// behavior, before the test can trigger events and expect the core to wake,
+// fetch, execute WFI, and go back to sleep each time.
 defproc wfi_test() {
 
     soc s;
-    int<32> imem_req_recv;
+    addr_t addr;
+    mode_mem_t mode;
     int<32> delay;
 
     chp {
+        // service the boot fetch with WFI so the core goes idle immediately
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.base = 4, "boot fetch addr base: want 4, got ", addr.base);
+        assert(addr.offset = 0, "boot fetch addr offset: want 0, got ", addr.offset);
+        s.rdata_ext!(11);
 
         delay := 200;
         *[ delay > 0 -> delay := delay - 1];
 
         s.event_id_1!(true);
 
-        s.imem_req?imem_req_recv;
-        s.imem_resp!(11);
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 0x1000, "event_id_1 fetch addr offset: want 0x1000, got ", addr.offset);
+        s.rdata_ext!(11);
 
         delay := 200;
         *[ delay > 0 -> delay := delay - 1];
 
         s.event_id_0!(true);
 
-        s.imem_req?imem_req_recv;
-        s.imem_resp!(11)
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 0x800, "event_id_0 fetch addr offset: want 0x800, got ", addr.offset);
+        s.rdata_ext!(11);
 
+        log("wfi_test: all assertions passed")
     }
-
 }
 
 wfi_test wt;

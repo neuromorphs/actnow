@@ -16,6 +16,28 @@ pint ADDR_MEM = 0,
 
 pint ADDR_RESET = 0x40000;
 
+// Event vector addresses -- base=4, same external region as ADDR_RESET, each
+// spaced 0x800 apart. These used to be full 32-bit placeholders (e.g.
+// 0x10000000), which all silently aliased to base=0 (internal ram) once
+// addr_t only keeps the low 20 bits of pc -- unreachable from an external
+// test harness, since ram has no way to be preloaded from outside soc.
+pint ADDR_EVENT_0  = 0x40800,
+    ADDR_EVENT_1  = 0x41000,
+    ADDR_EVENT_2  = 0x41800,
+    ADDR_EVENT_3  = 0x42000,
+    ADDR_EVENT_4  = 0x42800,
+    ADDR_EVENT_5  = 0x43000,
+    ADDR_EVENT_6  = 0x43800,
+    ADDR_EVENT_7  = 0x44000,
+    ADDR_EVENT_8  = 0x44800,
+    ADDR_EVENT_9  = 0x45000,
+    ADDR_EVENT_10 = 0x45800,
+    ADDR_EVENT_11 = 0x46000,
+    ADDR_EVENT_12 = 0x46800,
+    ADDR_EVENT_13 = 0x47000,
+    ADDR_EVENT_14 = 0x47800,
+    ADDR_EVENT_15 = 0x48000;
+
 // 8 Ki words
 pint SIZE_MEM_WORDS = 8 * 1024;
 
