@@ -21,20 +21,16 @@ BIN2MEM  := common/bin2mem.sh
 all: $(ROM_MEM)
 
 # Delegate to each program's own Makefile (always, so edits are picked up).
+# Pin PROG=bootloader: a command-line PROG=<app> propagates to sub-makes and
+# would otherwise override the bootloader's own PROG, misnaming its output.
 $(BOOT_BIN):
-	$(MAKE) -C bootloader
+	$(MAKE) -C bootloader PROG=bootloader
 
 $(APP_BIN):
-	$(MAKE) -C $(PROG)
+	$(MAKE) -C $(PROG) PROG=$(PROG)
 
 $(ROM_BIN): $(BOOT_BIN) $(APP_BIN) | $(BUILD)
-	cat $(BOOT_BIN) > $@
-	# 4-byte little-endian length header for the application blob.
-	len=$$(wc -c < $(APP_BIN)); \
-	printf '%b' \
-	  "$$(printf '\\%03o' $$((len & 255)) $$((len >> 8 & 255)) \
-	                      $$((len >> 16 & 255)) $$((len >> 24 & 255)))" >> $@
-	cat $(APP_BIN) >> $@
+	sh common/stitch.sh $(BOOT_BIN) $(APP_BIN) $@
 
 $(ROM_MEM): $(ROM_BIN)
 	sh $(BIN2MEM) $< > $@

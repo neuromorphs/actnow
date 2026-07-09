@@ -20,7 +20,10 @@ import std;
 // 0x0000000b at label `mytest_ret`, deliberately reused as riscv-tests'
 // "test finished" marker). Reaching "decoded wfi" in the log below with no
 // crash or hang along the way is what "passing" means here.
-pint ROM_MAX_WORDS = 1024;
+// Sized to hold the largest image served here, including a bootloader-prefixed
+// one ([ bootloader ][ len ][ program ]) when the program is run BOOT-enabled
+// (copied into internal memory before execution) rather than XIP from here.
+pint ROM_MAX_WORDS = 2048;
 
 defproc rom_backend (
     chan?(addr_t) addr; chan?(mode_mem_t) mode;

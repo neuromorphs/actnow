@@ -26,6 +26,13 @@ FILE_REGISTRY_GEN := gen/file_ids.act gen/file_registry.conf
 ROM_TEST  ?= simple
 ROM_IMAGE := software/tests/build/rom_image.mem
 
+# BOOT=1 builds the selected program bootloader-enabled: the bootloader copies it
+# into internal SRAM and runs it there (fast memory) instead of executing in
+# place from external ROM. Works with rom_program_test and software-tests.
+# ROM_TEST=application builds the generic C demo (software/application), which is
+# always bootloader-loaded.
+BOOT ?=
+
 # RISC-V cross-compiler prefix for building program images. Auto-detected from
 # PATH (core is RV32I, so a 32- or 64-bit multilib toolchain both work); falls
 # back to riscv64-unknown-elf-. Override on the command line: make CROSS=...
@@ -54,8 +61,14 @@ test: $(TESTS)
 file-registry: $(FILE_REGISTRY_GEN)
 
 $(ROM_IMAGE): force
-	@rm -f $(ROM_IMAGE) software/tests/build/rom.mem
-	$(MAKE) -C software/tests TEST=$(ROM_TEST) CROSS=$(CROSS)
+	@rm -f $(ROM_IMAGE) software/tests/build/rom.mem software/build/rom.mem
+ifeq ($(ROM_TEST),application)
+	@mkdir -p $(dir $(ROM_IMAGE))
+	$(MAKE) -C software PROG=application CROSS=$(CROSS)
+	sed 's/^/0b/' software/build/rom.mem > $(ROM_IMAGE)
+else
+	$(MAKE) -C software/tests TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS)
+endif
 force:
 
 $(FILE_REGISTRY_GEN): $(FILE_REGISTRY) tools/gen_file_registry.py $(ROM_IMAGE)
@@ -91,7 +104,7 @@ software-tests: $(FILE_REGISTRY_GEN)
 	@pass=0; fail=0; failed=""; \
 	for t in $(SW_TESTS); do \
 		rm -f $(ROM_IMAGE) software/tests/build/rom.mem; \
-		if ! $(MAKE) -s -C software/tests TEST=$$t CROSS=$(CROSS) >/dev/null 2>&1; then \
+		if ! $(MAKE) -s -C software/tests TEST=$$t BOOT=$(BOOT) CROSS=$(CROSS) >/dev/null 2>&1; then \
 			echo "  $$t: BUILD-FAIL"; fail=$$((fail+1)); failed="$$failed $$t"; continue; \
 		fi; \
 		out=$$(printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf tests/rom_program_test.act rom_program_test 2>&1); \
@@ -104,7 +117,7 @@ software-tests: $(FILE_REGISTRY_GEN)
 		fi; \
 	done; \
 	rm -f $(ROM_IMAGE) software/tests/build/rom.mem; \
-	$(MAKE) -s -C software/tests TEST=$(ROM_TEST) CROSS=$(CROSS) >/dev/null 2>&1 || true; \
+	$(MAKE) -s -C software/tests TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) >/dev/null 2>&1 || true; \
 	echo "=== software tests: $$pass passed, $$fail failed ==="; \
 	if [ $$fail -ne 0 ]; then echo "failed:$$failed"; exit 1; fi
 

@@ -64,6 +64,21 @@ make software-tests SW_TESTS="addi sub"   # a subset
 The M-extension tests (`mul*`/`div*`/`rem*`) are skipped — this core decodes
 only base RV32I.
 
+**Run from internal memory (`BOOT=1`).** By default a program executes in place
+from external ROM (`rom_backend`, slow). With `BOOT=1` it is instead prepended
+with a small bootloader that copies it into internal SRAM and jumps there, so it
+runs from fast internal memory. The flag works with either runner:
+
+```
+make BOOT=1 ROM_TEST=addi rom_program_test   # one test, from internal memory
+make BOOT=1 software-tests                    # whole suite, from internal memory
+make BOOT=1 ROM_TEST=application rom_program_test  # the software/application demo
+```
+
+`ROM_TEST=application` builds `software/application/main.c` (a generic C program,
+not a self-checking test); it is always bootloader-loaded. See
+`software/bootloader/` and `software/common/{bootloader,application}.lds`.
+
 Building a program needs an rv32i cross-compiler; the `Makefile` auto-detects a
 `riscv32-`/`riscv64-unknown-elf-` prefix (override with `make CROSS=...`).
 Generating the file registry (below) builds the default program image, so the

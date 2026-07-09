@@ -38,5 +38,9 @@ _start:
 4:
 
     call    main
+
+    # main returned: signal completion to the simulator with our custom WFI
+    # opcode (0b0001011), the same "done" marker test_start.S uses, then park.
+    .word   0x0000000b
 5:
     j       5b
