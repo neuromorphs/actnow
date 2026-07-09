@@ -6,7 +6,7 @@ import std;
 // Loads a real compiled RV32I program image and runs it through the actual
 // soc pipeline (fetch/decode/execute), instead of hand-crafted instruction
 // words like the other tests. The image comes from
-// software/tests/build/rom.actsim.mem, produced by `make TEST=simple` in
+// software/tests/build/rom_image.mem, produced by `make TEST=simple` in
 // software/tests/ (see software/tests/Makefile) -- one 32-bit word per
 // line, "0b"-prefixed so actsim's sim::file::read can parse it. The image is
 // registered as ROM_IMAGE in tests/files/file_registry.txt, which the

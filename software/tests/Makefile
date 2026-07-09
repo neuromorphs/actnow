@@ -1,9 +1,12 @@
-# Build a single riscv-test into build/rom.mem (standalone, no bootloader).
+# Build a single test into build/rom.mem (standalone, no bootloader).
 # Usage: make TEST=addi
 #
-# Assembles ../common/test_start.S + <TEST>.S (cpp #includes resolve from this
-# directory), links with ../common/test.lds, and converts the result to the
-# simulator's memory image with ../common/bin2mem.sh.
+# Tests live in two places: the official RISC-V suite under unit/ (assembly),
+# and our own tests here in this directory (.S or .c). Assembles/compiles
+# ../common/test_start.S + the test source, links with ../common/test.lds, and
+# converts the result to the simulator's memory image with ../common/bin2mem.sh.
+# cpp #includes resolve from the source's own directory, plus -Iunit so a custom
+# test here can reuse the official framework headers (riscv_test.h etc.).
 
 ifeq ($(filter clean,$(MAKECMDGOALS)),)
 ifeq ($(TEST),)
@@ -21,20 +24,25 @@ START    := $(COMMON)/test_start.S
 LDSCRIPT := $(COMMON)/test.lds
 BIN2MEM  := $(COMMON)/bin2mem.sh
 
-CFLAGS := -march=rv32i -mabi=ilp32 -nostdlib -Wl,--build-id=none
+CFLAGS := -march=rv32i -mabi=ilp32 -nostdlib -ffreestanding -O2 -Iunit -Wl,--build-id=none
+
+# A test's source is either <TEST>.S (assembly) or <TEST>.c (C), found either
+# here (our own tests) or under unit/ (the official RISC-V suite). gcc assembles
+# or compiles it and links it with the shared reset glue in the same call.
+SRC := $(firstword $(wildcard $(TEST).S $(TEST).c unit/$(TEST).S unit/$(TEST).c))
 
 BUILD      := build
 ELF        := $(BUILD)/$(TEST).elf
 BIN        := $(BUILD)/$(TEST).bin
 LST        := $(BUILD)/$(TEST).lst
 MEM        := $(BUILD)/rom.mem
-MEM_ACTSIM := $(BUILD)/rom.actsim.mem
+MEM_ACTSIM := $(BUILD)/rom_image.mem
 
 .PHONY: all clean
 all: $(MEM) $(MEM_ACTSIM) $(LST)
 
-$(ELF): $(START) $(TEST).S $(LDSCRIPT) | $(BUILD)
-	$(CC) $(CFLAGS) -T $(LDSCRIPT) -o $@ $(START) $(TEST).S
+$(ELF): $(START) $(SRC) $(LDSCRIPT) | $(BUILD)
+	$(CC) $(CFLAGS) -T $(LDSCRIPT) -o $@ $(START) $(SRC)
 
 $(BIN): $(ELF)
 	$(OBJCOPY) -O binary $< $@

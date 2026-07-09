@@ -24,7 +24,7 @@ FILE_REGISTRY_GEN := gen/file_ids.act gen/file_registry.conf
 # depends on it below. ROM_TEST picks which program under software/tests/ to
 # build (its .S must exist there); override on the command line to run another.
 ROM_TEST  ?= simple
-ROM_IMAGE := software/tests/build/rom.actsim.mem
+ROM_IMAGE := software/tests/build/rom_image.mem
 
 # RISC-V cross-compiler prefix for building program images. Auto-detected from
 # PATH (core is RV32I, so a 32- or 64-bit multilib toolchain both work); falls
@@ -34,14 +34,17 @@ CROSS ?= $(firstword \
         $(if $(shell command -v $(p)gcc 2>/dev/null),$(p))) \
     riscv64-unknown-elf-)
 
-# RV32I assembly tests under software/tests/ run through soc by `make
-# software-tests`. Derived from the .S files, excluding the M-extension ones
-# (mul*/div*/rem*) -- this core decodes only base RV32I, so those cannot pass.
+# RV32I tests run through soc by `make software-tests`: the official RISC-V
+# suite under software/tests/unit/ plus our own tests in software/tests/ (.S or
+# .c compiled with rv32i gcc). Derived from the source files, excluding the
+# M-extension ones (mul*/div*/rem*) -- this core decodes only base RV32I.
 # Override to run a subset, e.g. make software-tests SW_TESTS="addi sub".
 MEXT_TESTS := mul mulh mulhsu mulhu div divu rem remu
-SW_TESTS   := $(filter-out $(MEXT_TESTS),$(basename $(notdir $(wildcard software/tests/*.S))))
+SW_TESTS   := $(filter-out $(MEXT_TESTS),$(basename $(notdir $(wildcard \
+                  software/tests/*.S software/tests/*.c \
+                  software/tests/unit/*.S software/tests/unit/*.c))))
 
-.PHONY: all test list clean file-registry software-tests $(TESTS)
+.PHONY: all test list clean file-registry software-tests force $(TESTS)
 
 all: test
 
@@ -50,8 +53,10 @@ test: $(TESTS)
 
 file-registry: $(FILE_REGISTRY_GEN)
 
-$(ROM_IMAGE):
+$(ROM_IMAGE): force
+	@rm -f $(ROM_IMAGE) software/tests/build/rom.mem
 	$(MAKE) -C software/tests TEST=$(ROM_TEST) CROSS=$(CROSS)
+force:
 
 $(FILE_REGISTRY_GEN): $(FILE_REGISTRY) tools/gen_file_registry.py $(ROM_IMAGE)
 	@python3 tools/gen_file_registry.py $(FILE_REGISTRY) gen
@@ -74,7 +79,7 @@ $(TESTS): $(FILE_REGISTRY_GEN)
 	fi
 
 # Run every RV32I software test through soc's real pipeline. For each test we
-# rebuild the single shared ROM image slot (build/rom.actsim.mem) in place, run
+# rebuild the single shared ROM image slot (build/rom_image.mem) in place, run
 # the (image-agnostic) rom_program_test, and classify from soc's log: reaching
 # WFI = pass, EBREAK / assertion = fail, neither = did-not-complete. Serial, one
 # image at a time. gen/ + rom_program_test are prepared once via the prereq and
