@@ -213,3 +213,6 @@ actsim -cnf=gen/file_registry.conf tests/<name>.act <name>
 ```
 
 At the `actsim` prompt, `cycle` runs to completion, `quit` exits.
+
+## Balloon area 15%
+## Sky130 tech file config
