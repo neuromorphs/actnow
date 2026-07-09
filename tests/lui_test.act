@@ -5,10 +5,10 @@ defproc lui_test() {
     soc s;
     addr_t addr;
     mode_mem_t mode;
-    int<32> insn;
+    int<32> insn, off;
 
     chp {
-        // LUI x5, 0x12345
+        // LUI x5, 0x12345  (the instruction actually under test)
         // opcode = 0b0110111, rd = 5, imm[31:12] = 0x12345
         // insn = (imm[31:12] << 12) | (rd << 7) | opcode
         insn := (int(0x12345,32) << 12) | (int(5,32) << 7) | int(0b0110111,32);
@@ -19,18 +19,44 @@ defproc lui_test() {
         assert(addr.offset = 0, "fetch addr offset: want 0, got ", addr.offset);
         s.rdata_ext!insn;
 
-        // core keeps running (LUI wasn't WFI) and immediately fetches pc+4 --
-        // answer with WFI so it goes idle
+        // core keeps running (LUI wasn't WFI) and immediately fetches pc+4.
+        // The interrupt controller's vector table is real, software-set
+        // state now (interrupt.act) -- event_id_0 has no hardcoded target
+        // address, so before going to sleep, boot code has to actually
+        // store an ISR address into the controller via a real SW
+        // instruction, same as any real program's startup code would.
+        //   LUI x1, 0x41   -- x1 = 0x41000 (chosen ISR address)
+        //   LUI x2, 0x10   -- x2 = 0x10000 (int_ctrl base, base=1)
+        //   SW  x1, 0(x2)  -- vectors[0] = 0x41000
+        //   WFI            -- go to sleep
+
+        insn := (int(0x41,32) << 12) | (int(1,32) << 7) | 0b0110111;
         s.addr_ext?addr; s.mode_ext?mode;
         assert(addr.offset = 4, "post-LUI fetch addr: want 4, got ", addr.offset);
+        s.rdata_ext!insn;
+
+        insn := (int(0x10,32) << 12) | (int(2,32) << 7) | 0b0110111;
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 8, "fetch addr: want 8, got ", addr.offset);
+        s.rdata_ext!insn;
+
+        off := int(0,32);
+        insn := (off{11..5} << 25) | (int(1,32) << 20) | (int(2,32) << 15) | (0b010 << 12) | (off{4..0} << 7) | OPCODE_STORE;
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 12, "fetch addr: want 12, got ", addr.offset);
+        s.rdata_ext!insn;
+
+        // answer with WFI so the core goes idle
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 16, "fetch addr: want 16, got ", addr.offset);
         s.rdata_ext!(11);
 
-        // now idle -- wake it again via event_id_0 so it re-vectors to
-        // ADDR_EVENT_0 and confirm that fetch actually happens
+        // now idle -- wake it again via event_id_0 and confirm it re-vectors
+        // to the address we configured (0x41000)
         s.event_id_0!(true);
         s.addr_ext?addr; s.mode_ext?mode;
         assert(addr.base = 4, "event_id_0 fetch addr base: want 4, got ", addr.base);
-        assert(addr.offset = 0x800, "event_id_0 fetch addr offset: want 0x800, got ", addr.offset);
+        assert(addr.offset = 0x1000, "event_id_0 fetch addr offset: want 0x1000, got ", addr.offset);
         s.rdata_ext!(11);
 
         log("lui_test: all assertions passed")

@@ -19,24 +19,39 @@ To peripherals:
 1. receives rdata from periph, in parallel or/and sends wdata to periph depending on op
 
 sized transfers: only the low BYTE / HALF_WORD / WORD bits are kept. higher bits are 0
+
+Generic address-routed bus: N_EXACT downstream ports (addr_out[0..N_EXACT-1])
+are selected by an exact match against EXACT_BASES[k]. One further downstream
+port, addr_out[N_EXACT] (the last one), catches any address with
+base >= CATCHALL_MIN_BASE that didn't already match an exact entry -- so
+there are N_EXACT+1 downstream ports in total. An address matching neither
+is silently dropped: reads leave rdata untouched (never sent to core), writes
+are absorbed and never forwarded anywhere. That's deliberate -- it's what a
+real reserved/unmapped address should do (nothing answers, but nothing hangs
+waiting for an answer either), and it falls out for free rather than needing
+an explicit "reserved" case: pick EXACT_BASES/CATCHALL_MIN_BASE so nothing
+maps to the gap and it's unreachable by construction.
+
+Two uses of the same template:
+  - soc's own core-to-peripheral MMU: N_EXACT=2 exact routes (internal RAM,
+    interrupt controller) plus a catch-all at base>=4 for soc's own
+    "external" bus -- addresses 2 and 3 fall in the gap and are unreachable,
+    matching the old hardcoded reserved-region behavior.
+  - a plain address demux with no catch-all at all (CATCHALL_MIN_BASE set
+    higher than any real base, e.g. 16, so `addr.base >= CATCHALL_MIN_BASE`
+    can never be true since addr.base is only 4 bits wide) splitting that
+    same external bus further into distinct peripherals (ROM, FIFOs, ...).
 */
+template<pint N_EXACT; pint EXACT_BASES[N_EXACT]; pint CATCHALL_MIN_BASE>
 defproc mmu(
     chan?(addr_t) addr_core;
     chan?(mode_mem_t) mode_core;
-     chan?(int<WIDTH_DATA>) wdata_core;
-     chan!(int<WIDTH_DATA>) rdata_core;
-    chan!(addr_t) addr_mem;
-    chan!(mode_mem_t) mode_mem;
-    chan!(int<WIDTH_DATA>) wdata_mem;
-    chan?(int<WIDTH_DATA>) rdata_mem;
-    chan!(addr_t) addr_int_ctrl;
-    chan!(mode_mem_t) mode_int_ctrl;
-    chan!(int<WIDTH_DATA>) wdata_int_ctrl;
-    chan?(int<WIDTH_DATA>) rdata_int_ctrl;
-    chan!(addr_t) addr_ext;
-    chan!(mode_mem_t) mode_ext;
-    chan!(int<WIDTH_DATA>) wdata_ext;
-    chan?(int<WIDTH_DATA>) rdata_ext
+    chan?(int<WIDTH_DATA>) wdata_core;
+    chan!(int<WIDTH_DATA>) rdata_core;
+    chan!(addr_t) addr_out[N_EXACT+1];
+    chan!(mode_mem_t) mode_out[N_EXACT+1];
+    chan!(int<WIDTH_DATA>) wdata_out[N_EXACT+1];
+    chan?(int<WIDTH_DATA>) rdata_out[N_EXACT+1]
 ) {
     addr_t addr;
     mode_mem_t mode;
@@ -63,31 +78,24 @@ defproc mmu(
                 [] else -> skip
             ];
 
-            // interface with peripherals
+            // route to whichever downstream port claims this base
             [
-                addr.base = ADDR_MEM ->
-                    addr_mem!addr; mode_mem!mode;
+                ([]k:N_EXACT: addr.base = EXACT_BASES[k] ->
+                    addr_out[k]!addr; mode_out[k]!mode;
                     [
-                        op = op_mem_t.W -> wdata_mem!wdata
-                        [] op = op_mem_t.R -> rdata_mem?rdata
-                        [] op = op_mem_t.R_AND_W -> rdata_mem?rdata, wdata_mem!wdata
+                        op = op_mem_t.W -> wdata_out[k]!wdata
+                        [] op = op_mem_t.R -> rdata_out[k]?rdata
+                        [] op = op_mem_t.R_AND_W -> rdata_out[k]?rdata, wdata_out[k]!wdata
                     ]
-                [] addr.base = ADDR_INT_CTRL ->
-                    addr_int_ctrl!addr; mode_int_ctrl!mode;
+                )
+                [] addr.base >= CATCHALL_MIN_BASE ->
+                    addr_out[N_EXACT]!addr; mode_out[N_EXACT]!mode;
                     [
-                        op = op_mem_t.W -> wdata_int_ctrl!wdata
-                        [] op = op_mem_t.R -> rdata_int_ctrl?rdata
-                        [] op = op_mem_t.R_AND_W -> rdata_int_ctrl?rdata, wdata_int_ctrl!wdata
+                        op = op_mem_t.W -> wdata_out[N_EXACT]!wdata
+                        [] op = op_mem_t.R -> rdata_out[N_EXACT]?rdata
+                        [] op = op_mem_t.R_AND_W -> rdata_out[N_EXACT]?rdata, wdata_out[N_EXACT]!wdata
                     ]
-                [] (addr.base = ADDR_INTERNAL_RESERVED_0) | (addr.base = ADDR_INTERNAL_RESERVED_1) ->
-                    skip
-                [] else ->
-                    addr_ext!addr; mode_ext!mode;
-                    [
-                        op = op_mem_t.W -> wdata_ext!wdata
-                        [] op = op_mem_t.R -> rdata_ext?rdata
-                        [] op = op_mem_t.R_AND_W -> rdata_ext?rdata, wdata_ext!wdata
-                    ]
+                [] else -> skip
             ];
 
             // send to core

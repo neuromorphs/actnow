@@ -1,10 +1,41 @@
 #include <stdint.h>
 
-/* Minimal example application. Runs from SRAM at 0x00000 after the bootloader
-   copies it there, then returns -- crt0.S signals completion (WFI) on return.
-   Replace with real work. */
+/* Real-world-style interrupt-driven application, running from SRAM after
+   the bootloader copies it there (see common/crt0.S / common/application.lds).
+
+   Address layout (addr_t base:offset, matching globals.act):
+     base=1 -> interrupt controller (interrupt.act), word-addressed vector
+               table, one register per event_id: offset 4*N -> vectors[N]
+     base=5 -> input FIFO  (fifo_in.act),  single data register
+     base=6 -> output FIFO (fifo_out.act), single data register
+   (base=4, ROM, isn't referenced here -- this program only runs from it.)
+
+   main() registers isr_handler as event_id_0's ISR, then returns; crt0.S
+   executes the WFI opcode right after `call main` returns, putting the core
+   to sleep. Each time event_id_0 later fires, pc jumps straight to
+   isr_handler (not through main() or crt0.S again) -- it reads one word
+   from the input FIFO, adds 1, writes the result to the output FIFO, then
+   goes back to sleep itself. Since &isr_handler is resolved by the linker,
+   this works unmodified whether the image runs XIP from ROM or, as here,
+   copied into SRAM by the bootloader -- nothing here hardcodes an address. */
+
+#define ADDR(base, offset) ((volatile uint32_t *)(((uint32_t)(base) << 16) | (uint32_t)(offset)))
+
+#define INT_CTRL_VECTOR0 ADDR(1, 0)
+#define FIFO_IN          ADDR(5, 0)
+#define FIFO_OUT         ADDR(6, 0)
+
+static inline void wfi(void) {
+    asm volatile (".word 0x0000000b");
+}
+
+static __attribute__((noinline)) void isr_handler(void) {
+    uint32_t v = *FIFO_IN;
+    *FIFO_OUT = v + 1;
+    wfi();
+}
+
 void main(void) {
-  volatile uint32_t sum = 0;
-  for (uint32_t i = 0; i < 100; i++)
-    sum += i;
+    *INT_CTRL_VECTOR0 = (uint32_t)&isr_handler;
+    /* crt0.S executes wfi() for us when main() returns. */
 }

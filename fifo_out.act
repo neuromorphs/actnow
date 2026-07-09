@@ -1,0 +1,53 @@
+import std;
+
+import "globals.act";
+
+// Output FIFO peripheral: the CPU pushes data in on every write (there's
+// only one meaningful register, so the address offset is ignored); the
+// testbench pops the oldest entry via `pop` to observe what the CPU
+// produced. CPU reads are rejected via assert -- there's no legitimate way
+// to read from an output-only FIFO from the core side.
+//
+// Both the CPU-write-side overflow guard (count<DEPTH) and the testbench
+// pop-side underflow guard (count>0) are top-level alternatives in the same
+// probed selection, re-evaluated every loop iteration -- unlike a guard
+// nested inside an already-committed branch, this can't deadlock: whichever
+// side needs to wait just leaves the other free to run and eventually
+// change count out from under it.
+template<pint DEPTH>
+defproc fifo_out(
+    chan?(addr_t) addr; chan?(mode_mem_t) mode;
+    chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata;
+    chan!(int<WIDTH_DATA>) pop
+) {
+    pint IDX_BITS = std::ceil_log2(DEPTH);
+    int<WIDTH_DATA> buf[DEPTH];
+    int<IDX_BITS> head, tail;
+    int<32> count;
+
+    addr_t a;
+    mode_mem_t md;
+
+    chp {
+        head := 0; tail := 0; count := 0;
+        *[
+            [|
+                #addr ->
+                    addr?a; mode?md;
+                    [
+                        md.op = op_mem_t.W ->
+                            assert(count < DEPTH, "fifo_out: CPU write to a full FIFO");
+                            wdata?buf[tail];
+                            tail := (tail + 1 = DEPTH) ? 0 : tail + 1;
+                            count := count + 1
+                        [] else ->
+                            assert(false, "fifo_out: read attempted from output-only FIFO")
+                    ]
+                [] (count > 0) & #pop ->
+                    pop!buf[head];
+                    head := (head + 1 = DEPTH) ? 0 : head + 1;
+                    count := count - 1
+            |]
+        ]
+    }
+}

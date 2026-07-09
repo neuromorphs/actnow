@@ -1,0 +1,101 @@
+import "soc.act";
+import "fifo_in.act";
+import "fifo_out.act";
+import "gen/file_ids.act";
+
+// End-to-end testbench modeling how this chip actually operates: bootload a
+// real compiled program (software/application/main.c, built BOOT=1-style --
+// see the top-level Makefile's `ROM_TEST=application` handling), let it
+// configure its own interrupt vector and go to sleep (WFI), then fire two
+// separate interrupts (with a delay between them, modeling real-world
+// latency), each carrying one word of data through a real input FIFO,
+// processed by the program's own ISR, and observed on a real output FIFO.
+//
+// Address layout once the bootloader hands off to the application (which
+// runs from internal SRAM, base=0 -- see soc.act's own internal MMU routes
+// for base 0/1, both handled entirely inside soc):
+//   base=4 -> ROM (only used by the bootloader itself, briefly, before it
+//             jumps to SRAM -- nothing after that ever touches it again)
+//   base=5 -> input FIFO (fifo_in.act)
+//   base=6 -> output FIFO (fifo_out.act)
+// This external bus is a plain N-way address demux -- mmu.act's generic
+// router reused with no catch-all (ADDR_NO_CATCHALL disables it, since
+// every address out here is one of the three exact bases above).
+defproc e2e_fifo_test() {
+    soc s;
+
+    pint DEMUX_N = 3;
+    pint DEMUX_BASES[DEMUX_N];
+    DEMUX_BASES = {4, 5, 6};
+    mmu<DEMUX_N, DEMUX_BASES, ADDR_NO_CATCHALL> demux;
+
+    demux.addr_core = s.addr_ext;
+    demux.mode_core = s.mode_ext;
+    demux.wdata_core = s.wdata_ext;
+    demux.rdata_core = s.rdata_ext;
+
+    mem<true, ROM_IMAGE> rom;
+    demux.addr_out[0] = rom.addr;
+    demux.mode_out[0] = rom.mode;
+    demux.wdata_out[0] = rom.wdata;
+    demux.rdata_out[0] = rom.rdata;
+
+    fifo_in<4> fin;
+    demux.addr_out[1] = fin.addr;
+    demux.mode_out[1] = fin.mode;
+    demux.wdata_out[1] = fin.wdata;
+    demux.rdata_out[1] = fin.rdata;
+
+    fifo_out<4> fout;
+    demux.addr_out[2] = fout.addr;
+    demux.mode_out[2] = fout.mode;
+    demux.wdata_out[2] = fout.wdata;
+    demux.rdata_out[2] = fout.rdata;
+
+    int<WIDTH_DATA> result;
+    int<32> delay;
+
+    chp {
+        log("======== end-to-end interrupt/FIFO test start ========");
+
+        // Let the bootloader + main() run to completion on their own (copy
+        // the application into SRAM, jump there, configure the vector
+        // table, return into crt0.S's post-main WFI). Nothing to drive --
+        // the ROM backend answers every fetch/copy-read on its own.
+        //
+        // This has to comfortably clear real boot time (~606,090 simulated
+        // time units, measured via rom_program_test.act against the same
+        // image) -- firing event_id_0 before the vector is configured
+        // doesn't fail loudly, it just sends pc to 0 (unconfigured
+        // vectors[0]'s default value), which happens to be _start's own
+        // address, so the core silently reboots instead of running the ISR.
+        delay := 0;
+        *[ delay < 40000 -> delay := delay + 1 ];
+
+        // --- Event 1: push 41 in, ISR computes +1, expect 42 out ---
+        log("--- event 1: pushing 41 into the input FIFO ---");
+        fin.push!int(41, WIDTH_DATA);
+        s.event_id_0!(true);
+        fout.pop?result;
+        assert(result = 42, "event 1: want 42, got ", result);
+        log("event 1: got ", result, " back from the output FIFO");
+
+        // Model some real-world latency between events.
+        delay := 0;
+        *[ delay < 3000 -> delay := delay + 1 ];
+
+        // --- Event 2: push 99 in, expect 100 out. Same ISR, same vector --
+        // the program never reconfigures anything between events, exactly
+        // like a real interrupt handler that just keeps running.
+        log("--- event 2: pushing 99 into the input FIFO ---");
+        fin.push!int(99, WIDTH_DATA);
+        s.event_id_0!(true);
+        fout.pop?result;
+        assert(result = 100, "event 2: want 100, got ", result);
+        log("event 2: got ", result, " back from the output FIFO");
+
+        log("======== end-to-end interrupt/FIFO test complete ========")
+    }
+}
+
+e2e_fifo_test e2e;

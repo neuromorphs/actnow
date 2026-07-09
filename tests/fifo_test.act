@@ -1,0 +1,94 @@
+import "globals.act";
+import "fifo_in.act";
+import "fifo_out.act";
+
+// Drives fifo_in and fifo_out directly (no soc involved) to check the
+// peripherals' own push/pop/CPU-side semantics in isolation: FIFO ordering,
+// CPU write rejection on fifo_in, CPU read rejection on fifo_out, and that
+// a pop correctly blocks until a push actually lands (rather than racing
+// ahead with stale/garbage data).
+defproc fifo_test() {
+    fifo_in<4> fin;
+    fifo_out<4> fout;
+
+    chan(addr_t) addr_in;
+    chan(mode_mem_t) mode_in;
+    chan(int<WIDTH_DATA>) wdata_in;
+    chan(int<WIDTH_DATA>) rdata_in;
+    chan(int<WIDTH_DATA>) push;
+
+    chan(addr_t) addr_out;
+    chan(mode_mem_t) mode_out;
+    chan(int<WIDTH_DATA>) wdata_out;
+    chan(int<WIDTH_DATA>) rdata_out;
+    chan(int<WIDTH_DATA>) pop;
+
+    fin.addr = addr_in; fin.mode = mode_in; fin.wdata = wdata_in; fin.rdata = rdata_in;
+    fin.push = push;
+
+    fout.addr = addr_out; fout.mode = mode_out; fout.wdata = wdata_out; fout.rdata = rdata_out;
+    fout.pop = pop;
+
+    addr_t a;
+    mode_mem_t md;
+    int<WIDTH_DATA> r;
+
+    chp {
+        log("======== fifo test start ========");
+        a.base := 5; a.offset := 0; // address is ignored by both FIFOs
+
+        // --- fifo_in: push 3 values, CPU-read them back in FIFO order ---
+        log("--- push 10, 20, 30 into fifo_in ---");
+        push!int(10, WIDTH_DATA);
+        push!int(20, WIDTH_DATA);
+        push!int(30, WIDTH_DATA);
+
+        md.op := op_mem_t.R; md.size := size_mem_t.WORD;
+
+        addr_in!a; mode_in!md; rdata_in?r;
+        assert(r = 10, "fifo_in: want 10 first, got ", r);
+
+        addr_in!a; mode_in!md; rdata_in?r;
+        assert(r = 20, "fifo_in: want 20 second, got ", r);
+
+        addr_in!a; mode_in!md; rdata_in?r;
+        assert(r = 30, "fifo_in: want 30 third, got ", r);
+
+        // --- fifo_in: push-then-read interleaved, still in order ---
+        log("--- interleaved push/read on fifo_in ---");
+        push!int(100, WIDTH_DATA);
+        addr_in!a; mode_in!md; rdata_in?r;
+        assert(r = 100, "fifo_in interleaved: want 100, got ", r);
+
+        // --- fifo_out: CPU-write 3 values, pop them back in FIFO order ---
+        log("--- CPU-write 1, 2, 3 into fifo_out ---");
+        md.op := op_mem_t.W; md.size := size_mem_t.WORD;
+
+        addr_out!a; mode_out!md; wdata_out!int(1, WIDTH_DATA);
+        addr_out!a; mode_out!md; wdata_out!int(2, WIDTH_DATA);
+        addr_out!a; mode_out!md; wdata_out!int(3, WIDTH_DATA);
+
+        pop?r;
+        assert(r = 1, "fifo_out: want 1 first, got ", r);
+        pop?r;
+        assert(r = 2, "fifo_out: want 2 second, got ", r);
+        pop?r;
+        assert(r = 3, "fifo_out: want 3 third, got ", r);
+
+        // --- fifo_out: pop correctly blocks until a write actually lands ---
+        // (if this deadlocked or raced ahead with garbage, the assert below
+        // would fail or the simulation would hang instead of completing)
+        log("--- pop-then-write on fifo_out (pop must block for the write) ---");
+        (
+            pop?r
+        ),
+        (
+            addr_out!a; mode_out!md; wdata_out!int(999, WIDTH_DATA)
+        );
+        assert(r = 999, "fifo_out: pop should have waited for the write, got ", r);
+
+        log("======== fifo test complete ========")
+    }
+}
+
+fifo_test ft;

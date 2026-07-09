@@ -15,6 +15,75 @@ The full RV32I base integer set is implemented in `soc.act`, including loads
 value down to the requested size before it reaches the peripheral. The
 M-extension (multiply/divide) is not implemented.
 
+## Address-routed bus (`mmu.act`)
+
+`mmu.act`'s `mmu` is a generic template, `mmu<N_EXACT; EXACT_BASES[N_EXACT];
+CATCHALL_MIN_BASE>`: `N_EXACT` downstream ports are selected by an exact
+match against `EXACT_BASES[k]`, and one further downstream port (index
+`N_EXACT`, the last one) catches any address with `base >=
+CATCHALL_MIN_BASE` that didn't already match. An address matching neither is
+silently dropped — reads are never answered, writes are absorbed — which is
+what a real reserved/unmapped address should do (undefined, but doesn't hang
+waiting on a response). Two instantiations of the same template are used:
+
+- **soc's own core-to-peripheral MMU** (inside `soc.act`): 2 exact routes
+  (`ADDR_MEM`=0 → internal RAM, `ADDR_INT_CTRL`=1 → interrupt controller)
+  plus a catch-all at `base >= ADDR_EXT_MIN` (4) → soc's own
+  `addr_ext`/`mode_ext`/`wdata_ext`/`rdata_ext` ports. Bases 2 and 3 fall in
+  the gap and are unreachable by construction.
+- **a plain address demux** with no catch-all at all (pass `ADDR_NO_CATCHALL`
+  for `CATCHALL_MIN_BASE`, which — since `addr_t`'s base field is only
+  `WIDTH_ADDR_BASE` bits wide — can never actually match, so the router's
+  last downstream port just goes unused). `tests/e2e_fifo_test.act` reuses
+  the same `mmu` this way to split soc's external bus further into distinct
+  peripherals: ROM at base=4, input FIFO at base=5, output FIFO at base=6.
+
+## Interrupt controller (`interrupt.act`)
+
+16 maskable event lines (`event_id_0`..`15`), each with its own
+software-configured vector register: a real, memory-mapped table at
+`base=ADDR_INT_CTRL`, word-addressed (offset `4*N` → the vector for
+`event_id_N`). Software writes the address of its own ISR into `vectors[N]`
+once — typically during startup, before ever going to sleep — and when
+`event_id_N` later fires, `pc` jumps to whatever was last written there. This
+is what makes interrupt vectoring work regardless of where the running
+program actually lives (XIP from ROM, or copied into internal SRAM by the
+bootloader under `BOOT=1`) — the address is a runtime value the program
+supplies itself, not a constant baked into the hardware. The reset vector is
+the one exception: fixed at `ADDR_RESET`, since it fires before software has
+had any chance to configure anything (matching real hardware, where the
+reset vector is fixed in silicon).
+
+## FIFO peripherals (`fifo_in.act` / `fifo_out.act`)
+
+Fixed-depth circular-buffer FIFOs, each memory-mapped as a single data
+register (the address offset is ignored — there's only one meaningful
+register). `fifo_in<DEPTH>`: an external `push` port feeds it (e.g. a
+testbench simulating an external device); the CPU pops the oldest entry on
+every read; CPU writes are rejected via `assert`. `fifo_out<DEPTH>`: the CPU
+pushes on every write; an external `pop` port drains it (e.g. for a
+testbench to observe what the CPU produced); CPU reads are rejected. Both
+guard their external port (`push`/`pop`) on the queue's fill count as a
+top-level, re-evaluated-every-iteration alternative in a probed selection —
+safe from deadlock, unlike gating the CPU-facing port the same way would be
+(see the comments in both files). `tests/fifo_test.act` is a standalone unit
+test for both, independent of `soc`.
+
+## End-to-end testbench (`tests/e2e_fifo_test.act`)
+
+Models how the chip actually operates: bootloads a real compiled program
+(`software/application/main.c`, built `BOOT=1`-style), lets it configure its
+own interrupt vector and go to sleep, then fires two separate interrupts
+(with a delay between them, modeling real-world latency), each carrying one
+word of data through a real input FIFO, processed by the program's own ISR
+(reads the input FIFO, adds 1, writes the output FIFO), and observed on a
+real output FIFO. Run it with `make e2e_fifo_test` (or as part of `make
+test`) — it has its own dedicated Makefile rule, since it needs the
+`application` ROM image specifically and the shared
+`$(FILE_REGISTRY_GEN)`/`$(ROM_IMAGE)` prerequisite (which only rebuilds once
+per `make` invocation) can't guarantee that against an arbitrary `ROM_TEST`
+default.
+
 ## Running tests
 
 Everything is driven by `make` from the project root (`actnow/`). There are two
@@ -65,9 +134,10 @@ The M-extension tests (`mul*`/`div*`/`rem*`) are skipped — this core decodes
 only base RV32I.
 
 **Run from internal memory (`BOOT=1`).** By default a program executes in place
-from external ROM (`rom_backend`, slow). With `BOOT=1` it is instead prepended
-with a small bootloader that copies it into internal SRAM and jumps there, so it
-runs from fast internal memory. The flag works with either runner:
+from external ROM (a read-only `mem<true, ROM_IMAGE>` instance, slow). With
+`BOOT=1` it is instead prepended with a small bootloader that copies it into
+internal SRAM and jumps there, so it runs from fast internal memory. The flag
+works with either runner:
 
 ```
 make BOOT=1 ROM_TEST=addi rom_program_test   # one test, from internal memory

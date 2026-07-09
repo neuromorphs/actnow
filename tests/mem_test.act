@@ -37,7 +37,7 @@ import "mem.act";
  *   (A macro-based driver would be cleaner, but is avoided on purpose.)
  */
 defproc mem_test() {
-    mem m;
+    mem<false, 0> m;
 
     // Local channels wired to the memory under test.
     chan(addr_t)            addr;

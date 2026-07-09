@@ -1,0 +1,55 @@
+import std;
+
+import "globals.act";
+
+// Input FIFO peripheral: the outside world pushes data in via `push` (e.g. a
+// testbench simulating an external device or DMA source); the CPU pops the
+// oldest entry on every read (there's only one meaningful register, so the
+// address offset is ignored). CPU writes are rejected via assert -- there's
+// no legitimate way to write into an input-only FIFO from the core side.
+//
+// A push blocks (via the count<DEPTH guard) until there's room -- that's
+// safe because it's a top-level alternative re-evaluated every loop
+// iteration, not nested inside a committed branch. A CPU read of an empty
+// FIFO can't be handled the same way without risking deadlock (once the
+// addr/mode transaction is accepted there's no way back out to let a
+// concurrent push land and unblock it), so it's asserted instead: the
+// contract is that whoever drives the interrupt that wakes the CPU to read
+// this FIFO must push first, exactly like a real FIFO's "data ready" IRQ.
+template<pint DEPTH>
+defproc fifo_in(
+    chan?(addr_t) addr; chan?(mode_mem_t) mode;
+    chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata;
+    chan?(int<WIDTH_DATA>) push
+) {
+    pint IDX_BITS = std::ceil_log2(DEPTH);
+    int<WIDTH_DATA> buf[DEPTH];
+    int<IDX_BITS> head, tail;
+    int<32> count;
+
+    addr_t a;
+    mode_mem_t md;
+
+    chp {
+        head := 0; tail := 0; count := 0;
+        *[
+            [|
+                #addr ->
+                    addr?a; mode?md;
+                    [
+                        md.op = op_mem_t.R ->
+                            assert(count > 0, "fifo_in: CPU read from empty FIFO");
+                            rdata!buf[head];
+                            head := (head + 1 = DEPTH) ? 0 : head + 1;
+                            count := count - 1
+                        [] else ->
+                            assert(false, "fifo_in: write attempted to input-only FIFO")
+                    ]
+                [] (count < DEPTH) & #push ->
+                    push?buf[tail];
+                    tail := (tail + 1 = DEPTH) ? 0 : tail + 1;
+                    count := count + 1
+            |]
+        ]
+    }
+}

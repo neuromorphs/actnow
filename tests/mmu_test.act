@@ -333,7 +333,16 @@ defproc mmu_test() {
     // Instantiate components
     addr_source asrc;
     read_sink rsink;
-    mmu m;
+
+    // 2 exact routes (internal SRAM=base0, interrupt controller=base1) + 1
+    // catch-all for external (base>=ADDR_EXT_MIN=4) -- see mmu.act's own
+    // comment for why bases 2/3 are unreachable by construction rather than
+    // needing an explicit reserved case.
+    pint N_EXACT = 2;
+    pint EXACT_BASES[N_EXACT];
+    EXACT_BASES = {ADDR_MEM, ADDR_INT_CTRL};
+    mmu<N_EXACT, EXACT_BASES, ADDR_EXT_MIN> m;
+
     mem_backend mem;
     intctrl_backend intctrl;
     ext_backend ext;
@@ -347,23 +356,23 @@ defproc mmu_test() {
     rsink.rdata = m.rdata_core;
     asrc.exp = rsink.exp;
 
-    // Wire MMU internal SRAM ports to memory backend
-    mem.addr = m.addr_mem;
-    mem.mode = m.mode_mem;
-    mem.wdata = m.wdata_mem;
-    m.rdata_mem = mem.rdata;
+    // Wire MMU internal SRAM ports (index 0) to memory backend
+    mem.addr = m.addr_out[0];
+    mem.mode = m.mode_out[0];
+    mem.wdata = m.wdata_out[0];
+    m.rdata_out[0] = mem.rdata;
 
-    // Wire MMU interrupt controller ports to intctrl backend
-    intctrl.addr = m.addr_int_ctrl;
-    intctrl.mode = m.mode_int_ctrl;
-    intctrl.wdata = m.wdata_int_ctrl;
-    m.rdata_int_ctrl = intctrl.rdata;
+    // Wire MMU interrupt controller ports (index 1) to intctrl backend
+    intctrl.addr = m.addr_out[1];
+    intctrl.mode = m.mode_out[1];
+    intctrl.wdata = m.wdata_out[1];
+    m.rdata_out[1] = intctrl.rdata;
 
-    // Wire MMU external memory ports to ext backend
-    ext.addr = m.addr_ext;
-    ext.mode = m.mode_ext;
-    ext.wdata = m.wdata_ext;
-    m.rdata_ext = ext.rdata;
+    // Wire MMU external memory ports (index 2, the catch-all) to ext backend
+    ext.addr = m.addr_out[2];
+    ext.mode = m.mode_out[2];
+    ext.wdata = m.wdata_out[2];
+    m.rdata_out[2] = ext.rdata;
 }
 
 mmu_test mt;

@@ -1,5 +1,20 @@
 import "globals.act";
 
+// Real interrupt controller: 16 maskable event lines, each with its own
+// software-configured vector register (word-addressed at
+// ADDR_INT_CTRL:offset 0, 4, 8, ... 60 -- one per event_id). Software
+// writes the address of its own ISR into vectors[N] once (typically during
+// startup, before ever going to sleep); when event_id_N later fires, pc
+// jumps to whatever was last written there. This is what makes event
+// vectoring work regardless of where the running program actually lives
+// (XIP from ROM, or copied into internal SRAM by the bootloader under
+// BOOT=1) -- the address is a runtime value the program supplies itself,
+// not a hardcoded constant baked into this file.
+//
+// The reset vector is the one exception: it's unconditional and fires
+// before software has had any chance to configure anything, so it stays a
+// fixed constant (ADDR_RESET) -- matching real hardware, where the reset
+// vector is fixed in silicon, not software-configurable.
 defproc interrupt(
     chan?(bool) event_id_0;
     chan?(bool) event_id_1;
@@ -17,14 +32,30 @@ defproc interrupt(
     chan?(bool) event_id_13;
     chan?(bool) event_id_14;
     chan?(bool) event_id_15;
+    // MMU-facing port group (base=ADDR_INT_CTRL) -- lets the CPU configure
+    // (and read back) the vector table via ordinary LOAD/STORE.
+    chan?(addr_t) addr;
+    chan?(mode_mem_t) mode;
+    chan?(int<WIDTH_DATA>) wdata;
+    chan!(int<WIDTH_DATA>) rdata;
     chan!(int<32>) event_pc
 )
 
 {
     bool event_id_recv;
     bool is_reset;
+    int<WIDTH_DATA> vectors[16];
+
+    addr_t a;
+    mode_mem_t md;
+    int<WIDTH_DATA> w;
+    int<4> vidx;
+    int<5> init_i;
 
     chp {
+
+        init_i := 0;
+        *[ init_i < 16 -> vectors[int(init_i,4)] := 0; init_i := init_i + 1 ];
 
         // RESET VECTOR: fires exactly once, unconditionally, independent of
         // the 16 maskable event lines below -- this is not "an event", it's
@@ -38,22 +69,32 @@ defproc interrupt(
             is_reset := false;
 
             [|
-            #event_id_0 -> event_id_0?event_id_recv; log("event 0 pc: ", ADDR_EVENT_0); event_pc!ADDR_EVENT_0
-            [] #event_id_1 -> event_id_1?event_id_recv; log("event 1 pc: ", ADDR_EVENT_1); event_pc!ADDR_EVENT_1
-            [] #event_id_2 -> event_id_2?event_id_recv; event_pc!ADDR_EVENT_2
-            [] #event_id_3 -> event_id_3?event_id_recv; event_pc!ADDR_EVENT_3
-            [] #event_id_4 -> event_id_4?event_id_recv; event_pc!ADDR_EVENT_4
-            [] #event_id_5 -> event_id_5?event_id_recv; event_pc!ADDR_EVENT_5
-            [] #event_id_6 -> event_id_6?event_id_recv; event_pc!ADDR_EVENT_6
-            [] #event_id_7 -> event_id_7?event_id_recv; event_pc!ADDR_EVENT_7
-            [] #event_id_8 -> event_id_8?event_id_recv; event_pc!ADDR_EVENT_8
-            [] #event_id_9 -> event_id_9?event_id_recv; event_pc!ADDR_EVENT_9
-            [] #event_id_10 -> event_id_10?event_id_recv; event_pc!ADDR_EVENT_10
-            [] #event_id_11 -> event_id_11?event_id_recv; event_pc!ADDR_EVENT_11
-            [] #event_id_12 -> event_id_12?event_id_recv; event_pc!ADDR_EVENT_12
-            [] #event_id_13 -> event_id_13?event_id_recv; event_pc!ADDR_EVENT_13
-            [] #event_id_14 -> event_id_14?event_id_recv; event_pc!ADDR_EVENT_14
-            [] #event_id_15 -> event_id_15?event_id_recv; event_pc!ADDR_EVENT_15
+            #addr ->
+                addr?a; mode?md;
+                vidx := int(a.offset >> 2, 4);
+                [
+                    md.op = op_mem_t.W ->
+                        wdata?w;
+                        vectors[vidx] := w
+                    [] else ->
+                        rdata!vectors[vidx]
+                ]
+            [] #event_id_0 -> event_id_0?event_id_recv; log("event 0 pc: ", vectors[0]); event_pc!vectors[0]
+            [] #event_id_1 -> event_id_1?event_id_recv; log("event 1 pc: ", vectors[1]); event_pc!vectors[1]
+            [] #event_id_2 -> event_id_2?event_id_recv; event_pc!vectors[2]
+            [] #event_id_3 -> event_id_3?event_id_recv; event_pc!vectors[3]
+            [] #event_id_4 -> event_id_4?event_id_recv; event_pc!vectors[4]
+            [] #event_id_5 -> event_id_5?event_id_recv; event_pc!vectors[5]
+            [] #event_id_6 -> event_id_6?event_id_recv; event_pc!vectors[6]
+            [] #event_id_7 -> event_id_7?event_id_recv; event_pc!vectors[7]
+            [] #event_id_8 -> event_id_8?event_id_recv; event_pc!vectors[8]
+            [] #event_id_9 -> event_id_9?event_id_recv; event_pc!vectors[9]
+            [] #event_id_10 -> event_id_10?event_id_recv; event_pc!vectors[10]
+            [] #event_id_11 -> event_id_11?event_id_recv; event_pc!vectors[11]
+            [] #event_id_12 -> event_id_12?event_id_recv; event_pc!vectors[12]
+            [] #event_id_13 -> event_id_13?event_id_recv; event_pc!vectors[13]
+            [] #event_id_14 -> event_id_14?event_id_recv; event_pc!vectors[14]
+            [] #event_id_15 -> event_id_15?event_id_recv; event_pc!vectors[15]
             |]
         ]
     }

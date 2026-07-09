@@ -14,7 +14,11 @@
 AFLAT  := aflat
 ACTSIM := actsim
 
-TESTS := $(basename $(notdir $(wildcard tests/*.act)))
+# e2e_fifo_test.act is excluded here and given its own rule below -- it
+# needs a specific ROM image (software/application/main.c) that the shared
+# $(FILE_REGISTRY_GEN)/$(ROM_IMAGE) prerequisite chain can't guarantee (see
+# that rule's own comment for why).
+TESTS := $(filter-out e2e_fifo_test,$(basename $(notdir $(wildcard tests/*.act))))
 FILE_REGISTRY     := tests/files/file_registry.txt
 FILE_REGISTRY_GEN := gen/file_ids.act gen/file_registry.conf
 
@@ -51,11 +55,11 @@ SW_TESTS   := $(filter-out $(MEXT_TESTS),$(basename $(notdir $(wildcard \
                   software/tests/*.S software/tests/*.c \
                   software/tests/unit/*.S software/tests/unit/*.c))))
 
-.PHONY: all test list clean file-registry software-tests force $(TESTS)
+.PHONY: all test list clean file-registry software-tests force e2e_fifo_test $(TESTS)
 
 all: test
 
-test: $(TESTS)
+test: $(TESTS) e2e_fifo_test
 	@echo "=== all tests passed ==="
 
 file-registry: $(FILE_REGISTRY_GEN)
@@ -89,6 +93,41 @@ $(TESTS): $(FILE_REGISTRY_GEN)
 		echo "$@: FAIL"; exit 1; \
 	else \
 		echo "$@: PASS"; \
+	fi
+
+# e2e_fifo_test.act exercises software/application/main.c's real
+# interrupt/FIFO flow specifically -- it needs that exact ROM image, not
+# whatever ROM_TEST happens to default to. $(ROM_IMAGE) is a shared file
+# target that make only rebuilds once per invocation (the first time
+# anything needs it) -- a plain prerequisite or target-specific variable
+# can't force a *second* rebuild here if some earlier test in the same
+# `make test` sweep already claimed it with a different ROM_TEST. And
+# against a mismatched image, this doesn't fail loudly: the unconfigured
+# interrupt vector just sends pc back to that image's own _start instead of
+# a real ISR, this test's own fout.pop blocks forever, and actsim quiesces
+# -- a false PASS from the assertion-grep, since nothing ever actually
+# asserts. So: force a fresh image via an explicit sub-make (a genuinely
+# separate invocation, unaffected by whatever the outer one already built),
+# exactly like software-tests already does per test, then restore the
+# default afterward so a later `make rom_program_test` stays deterministic.
+e2e_fifo_test:
+	@echo "--- e2e_fifo_test ---"
+	@rm -f $(ROM_IMAGE) software/tests/build/rom.mem software/build/rom.mem
+	@$(MAKE) -s ROM_TEST=application CROSS=$(CROSS) file-registry
+	@$(AFLAT) tests/e2e_fifo_test.act
+	@out=$$(printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf tests/e2e_fifo_test.act e2e_fifo_test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	rm -f $(ROM_IMAGE) software/tests/build/rom.mem software/build/rom.mem; \
+	$(MAKE) -s ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
+	if [ $$status -ne 0 ]; then \
+		echo "e2e_fifo_test: FAIL"; exit $$status; \
+	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+		echo "e2e_fifo_test: FAIL"; exit 1; \
+	elif ! echo "$$out" | grep -qi "test complete"; then \
+		echo "e2e_fifo_test: FAIL (no completion)"; exit 1; \
+	else \
+		echo "e2e_fifo_test: PASS"; \
 	fi
 
 # Run every RV32I software test through soc's real pipeline. For each test we
