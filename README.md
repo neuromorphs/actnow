@@ -48,6 +48,17 @@ program image on its own via the `Makefile`'s `ROM_IMAGE` rule
 rom_program_test`), since the registry generator requires every registered
 input to exist — this couples the test suite to the RISC-V toolchain.
 
+### Running the whole RV32I suite
+
+`make software-tests` runs every RV32I assembly test under `software/tests/`
+through `soc`'s real pipeline. For each test it rebuilds the shared
+`build/rom.actsim.mem` image in place, re-runs `rom_program_test`, and
+classifies from `soc`'s log (WFI = pass, `EBREAK`/assertion = fail); it prints
+a per-test line and a `N passed, M failed` summary, exiting non-zero if any
+fail. The M-extension tests (`mul*`/`div*`/`rem*`) are excluded — this core
+decodes only base RV32I. Run a subset with `make software-tests
+SW_TESTS="addi sub"`.
+
 `software/tests/Makefile`'s `rom.actsim.mem` target derives from `rom.mem`
 (itself already used for a Verilog-`$readmemb`-style flow, one bitstring per
 line) by adding the `0b` prefix actsim's file reader needs to parse binary;

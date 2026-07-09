@@ -34,7 +34,14 @@ CROSS ?= $(firstword \
         $(if $(shell command -v $(p)gcc 2>/dev/null),$(p))) \
     riscv64-unknown-elf-)
 
-.PHONY: all test list clean file-registry $(TESTS)
+# RV32I assembly tests under software/tests/ run through soc by `make
+# software-tests`. Derived from the .S files, excluding the M-extension ones
+# (mul*/div*/rem*) -- this core decodes only base RV32I, so those cannot pass.
+# Override to run a subset, e.g. make software-tests SW_TESTS="addi sub".
+MEXT_TESTS := mul mulh mulhsu mulhu div divu rem remu
+SW_TESTS   := $(filter-out $(MEXT_TESTS),$(basename $(notdir $(wildcard software/tests/*.S))))
+
+.PHONY: all test list clean file-registry software-tests $(TESTS)
 
 all: test
 
@@ -65,6 +72,36 @@ $(TESTS): $(FILE_REGISTRY_GEN)
 	else \
 		echo "$@: PASS"; \
 	fi
+
+# Run every RV32I software test through soc's real pipeline. For each test we
+# rebuild the single shared ROM image slot (build/rom.actsim.mem) in place, run
+# the (image-agnostic) rom_program_test, and classify from soc's log: reaching
+# WFI = pass, EBREAK / assertion = fail, neither = did-not-complete. Serial, one
+# image at a time. gen/ + rom_program_test are prepared once via the prereq and
+# the single aflat; only actsim re-runs per test. The default ROM_TEST image is
+# rebuilt at the end so a later `make rom_program_test` stays deterministic.
+software-tests: $(FILE_REGISTRY_GEN)
+	@echo "=== running $(words $(SW_TESTS)) RV32I software tests through soc ==="
+	@$(AFLAT) tests/rom_program_test.act
+	@pass=0; fail=0; failed=""; \
+	for t in $(SW_TESTS); do \
+		rm -f $(ROM_IMAGE) software/tests/build/rom.mem; \
+		if ! $(MAKE) -s -C software/tests TEST=$$t CROSS=$(CROSS) >/dev/null 2>&1; then \
+			echo "  $$t: BUILD-FAIL"; fail=$$((fail+1)); failed="$$failed $$t"; continue; \
+		fi; \
+		out=$$(printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf tests/rom_program_test.act rom_program_test 2>&1); \
+		if echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+			echo "  $$t: FAIL"; fail=$$((fail+1)); failed="$$failed $$t"; \
+		elif echo "$$out" | grep -qi "decoded wfi"; then \
+			echo "  $$t: PASS"; pass=$$((pass+1)); \
+		else \
+			echo "  $$t: FAIL (no completion)"; fail=$$((fail+1)); failed="$$failed $$t"; \
+		fi; \
+	done; \
+	rm -f $(ROM_IMAGE) software/tests/build/rom.mem; \
+	$(MAKE) -s -C software/tests TEST=$(ROM_TEST) CROSS=$(CROSS) >/dev/null 2>&1 || true; \
+	echo "=== software tests: $$pass passed, $$fail failed ==="; \
+	if [ $$fail -ne 0 ]; then echo "failed:$$failed"; exit 1; fi
 
 clean:
 	rm -f .actsim_history
