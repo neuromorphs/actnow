@@ -25,10 +25,13 @@ defproc lui_test() {
         // address, so before going to sleep, boot code has to actually
         // store an ISR address into the controller via a real SW
         // instruction, same as any real program's startup code would.
-        //   LUI x1, 0x41   -- x1 = 0x41000 (chosen ISR address)
-        //   LUI x2, 0x10   -- x2 = 0x10000 (int_ctrl base, base=1)
-        //   SW  x1, 0(x2)  -- vectors[0] = 0x41000
-        //   WFI            -- go to sleep
+        //   LUI  x1, 0x41   -- x1 = 0x41000 (chosen ISR address)
+        //   LUI  x2, 0x10   -- x2 = 0x10000 (int_ctrl base, base=1)
+        //   SW   x1, 0(x2)  -- vectors[0] = 0x41000
+        //   ADDI x3, x0, 1  -- x3 = 1 (enable bit for event_id_0)
+        //   SW   x3, 64(x2) -- enable_mask = 1 -- interrupt.act won't accept
+        //                      event_id_0 at all until this is set
+        //   WFI             -- go to sleep
 
         insn := (int(0x41,32) << 12) | (int(1,32) << 7) | 0b0110111;
         s.addr_ext?addr; s.mode_ext?mode;
@@ -46,9 +49,20 @@ defproc lui_test() {
         assert(addr.offset = 12, "fetch addr: want 12, got ", addr.offset);
         s.rdata_ext!insn;
 
-        // answer with WFI so the core goes idle
+        insn := (0b000000000001 << 20) | (int(0,32) << 15) | (0b000 << 12) | (int(3,32) << 7) | OPCODE_OP_IMM;
         s.addr_ext?addr; s.mode_ext?mode;
         assert(addr.offset = 16, "fetch addr: want 16, got ", addr.offset);
+        s.rdata_ext!insn;
+
+        off := int(64,32);
+        insn := (off{11..5} << 25) | (int(3,32) << 20) | (int(2,32) << 15) | (0b010 << 12) | (off{4..0} << 7) | OPCODE_STORE;
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 20, "fetch addr: want 20, got ", addr.offset);
+        s.rdata_ext!insn;
+
+        // answer with WFI so the core goes idle
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 24, "fetch addr: want 24, got ", addr.offset);
         s.rdata_ext!(11);
 
         // now idle -- wake it again via event_id_0 and confirm it re-vectors

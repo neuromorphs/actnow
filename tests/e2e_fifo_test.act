@@ -58,19 +58,15 @@ defproc e2e_fifo_test() {
     chp {
         log("======== end-to-end interrupt/FIFO test start ========");
 
-        // Let the bootloader + main() run to completion on their own (copy
-        // the application into SRAM, jump there, configure the vector
-        // table, return into crt0.S's post-main WFI). Nothing to drive --
-        // the ROM backend answers every fetch/copy-read on its own.
-        //
-        // This has to comfortably clear real boot time (~606,090 simulated
-        // time units, measured via rom_program_test.act against the same
-        // image) -- firing event_id_0 before the vector is configured
-        // doesn't fail loudly, it just sends pc to 0 (unconfigured
-        // vectors[0]'s default value), which happens to be _start's own
-        // address, so the core silently reboots instead of running the ISR.
-        delay := 0;
-        *[ delay < 40000 -> delay := delay + 1 ];
+        // No boot-completion delay needed here: interrupt.act now gates
+        // event_id_0's delivery on an enable bit that main() only sets
+        // after configuring the vector (see interrupt.act / main.c). Until
+        // then it doesn't even offer to receive on that channel, so this
+        // send below just blocks at the rendezvous -- self-managed
+        // synchronization, not a guessed delay. (Bootloader + main() still
+        // take ~600,000+ simulated time units to run; this just means we no
+        // longer have to know or care how long, and we can't accidentally
+        // fire too early into an unconfigured vector.)
 
         // --- Event 1: push 41 in, ISR computes +1, expect 42 out ---
         log("--- event 1: pushing 41 into the input FIFO ---");

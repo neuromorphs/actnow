@@ -36,6 +36,19 @@ pint ADDR_RESET = 0x40000;
 // event can ever be meaningfully triggered; this is what lets the same
 // vectoring mechanism work regardless of where the running program actually
 // lives (XIP from ROM, or copied into internal SRAM by BOOT=1).
+//
+// interrupt controller register map (base=ADDR_INT_CTRL), byte offsets:
+//   0, 4, 8, ..., 60 -> vectors[0..15], one word each (ISR address)
+//   ADDR_INT_CTRL_ENABLE -> enable mask, bit N gates event_id_N's delivery.
+//     event_id_N isn't just ignored while its bit is clear -- interrupt.act
+//     doesn't even offer to receive on that channel until it's set, so a
+//     device asserting it blocks at the rendezvous rather than being
+//     dropped, and delivers the instant software enables it. This is what
+//     makes "wait for the program to finish booting before firing an
+//     interrupt" self-managed instead of needing a guessed delay: fire it
+//     any time, and it'll naturally wait for the program's own `enable`
+//     write, exactly like real hardware.
+pint ADDR_INT_CTRL_ENABLE = 64;
 
 // 8 Ki words
 pint SIZE_MEM_WORDS = 8 * 1024;

@@ -11,12 +11,16 @@ import "soc.act";
 // SW instruction, exactly like a real program's startup code would.
 //
 // Boot sequence fetched from ADDR_RESET:
-//   LUI x1, 0x41   -- x1 = 0x41000 (chosen ISR address for event_id_0)
-//   LUI x2, 0x42   -- x2 = 0x42000 (chosen ISR address for event_id_1)
-//   LUI x3, 0x10   -- x3 = 0x10000 (int_ctrl base, i.e. base=1 in addr_t)
-//   SW  x1, 0(x3)  -- vectors[0] = 0x41000
-//   SW  x2, 4(x3)  -- vectors[1] = 0x42000
-//   WFI            -- go to sleep
+//   LUI  x1, 0x41    -- x1 = 0x41000 (chosen ISR address for event_id_0)
+//   LUI  x2, 0x42    -- x2 = 0x42000 (chosen ISR address for event_id_1)
+//   LUI  x3, 0x10    -- x3 = 0x10000 (int_ctrl base, i.e. base=1 in addr_t)
+//   SW   x1, 0(x3)   -- vectors[0] = 0x41000
+//   SW   x2, 4(x3)   -- vectors[1] = 0x42000
+//   ADDI x4, x0, 3   -- x4 = 0b11 (enable bits for event_id_0 and event_id_1)
+//   SW   x4, 64(x3)  -- enable_mask = 3 -- must come after the vectors above,
+//                       since interrupt.act won't even accept event_id_N
+//                       until its bit here is set
+//   WFI              -- go to sleep
 // The SW instructions are serviced entirely inside soc (interrupt.act is a
 // real wired-up peripheral now) -- this test only needs to keep answering
 // instruction fetches on addr_ext, same as always.
@@ -62,9 +66,22 @@ defproc wfi_test() {
         assert(addr.offset = 16, "boot fetch 4 addr offset: want 16, got ", addr.offset);
         s.rdata_ext!insn;
 
+        // ADDI x4, x0, 3  -- x4 = 0b11 (enable event_id_0 and event_id_1)
+        insn := (0b000000000011 << 20) | (int(0,32) << 15) | (0b000 << 12) | (int(4,32) << 7) | OPCODE_OP_IMM;
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 20, "boot fetch 5 addr offset: want 20, got ", addr.offset);
+        s.rdata_ext!insn;
+
+        // SW x4, 64(x3)  -- enable_mask = 3
+        off := int(64,32);
+        insn := (off{11..5} << 25) | (int(4,32) << 20) | (int(3,32) << 15) | (0b010 << 12) | (off{4..0} << 7) | OPCODE_STORE;
+        s.addr_ext?addr; s.mode_ext?mode;
+        assert(addr.offset = 24, "boot fetch 6 addr offset: want 24, got ", addr.offset);
+        s.rdata_ext!insn;
+
         // WFI -- go to sleep
         s.addr_ext?addr; s.mode_ext?mode;
-        assert(addr.offset = 20, "boot fetch 5 (WFI) addr offset: want 20, got ", addr.offset);
+        assert(addr.offset = 28, "boot fetch 7 (WFI) addr offset: want 28, got ", addr.offset);
         s.rdata_ext!(11);
 
         delay := 200;

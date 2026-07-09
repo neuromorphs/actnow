@@ -54,6 +54,16 @@ the one exception: fixed at `ADDR_RESET`, since it fires before software has
 had any chance to configure anything (matching real hardware, where the
 reset vector is fixed in silicon).
 
+Each event line also has an **enable bit** (a 32-bit mask register at
+`ADDR_INT_CTRL_ENABLE`, offset 64, bit N gates `event_id_N`). Until software
+sets it, `interrupt.act` doesn't even offer to receive on that channel — so
+whatever's driving it (a real device, or a testbench) just blocks at the
+rendezvous rather than being serviced with a not-yet-configured vector. This
+is what makes "wait for the program to finish booting" self-managed instead
+of needing a guessed delay: fire the interrupt any time, even at simulated
+time 0, and it'll naturally wait for the program's own vector-then-enable
+sequence — see `tests/e2e_fifo_test.act`, which does exactly that.
+
 ## FIFO peripherals (`fifo_in.act` / `fifo_out.act`)
 
 Fixed-depth circular-buffer FIFOs, each memory-mapped as a single data

@@ -4,24 +4,30 @@
    the bootloader copies it there (see common/crt0.S / common/application.lds).
 
    Address layout (addr_t base:offset, matching globals.act):
-     base=1 -> interrupt controller (interrupt.act), word-addressed vector
-               table, one register per event_id: offset 4*N -> vectors[N]
+     base=1 -> interrupt controller (interrupt.act):
+                 offset 4*N            -> vectors[N] (ISR address, word-addressed)
+                 offset ADDR_INT_CTRL_ENABLE (64) -> enable mask, bit N gates event_id_N
      base=5 -> input FIFO  (fifo_in.act),  single data register
      base=6 -> output FIFO (fifo_out.act), single data register
    (base=4, ROM, isn't referenced here -- this program only runs from it.)
 
-   main() registers isr_handler as event_id_0's ISR, then returns; crt0.S
-   executes the WFI opcode right after `call main` returns, putting the core
-   to sleep. Each time event_id_0 later fires, pc jumps straight to
-   isr_handler (not through main() or crt0.S again) -- it reads one word
-   from the input FIFO, adds 1, writes the result to the output FIFO, then
-   goes back to sleep itself. Since &isr_handler is resolved by the linker,
-   this works unmodified whether the image runs XIP from ROM or, as here,
-   copied into SRAM by the bootloader -- nothing here hardcodes an address. */
+   main() registers isr_handler as event_id_0's ISR, enables event_id_0, then
+   returns; crt0.S executes the WFI opcode right after `call main` returns,
+   putting the core to sleep. Until that enable write, interrupt.act doesn't
+   even offer to receive on event_id_0 -- so whoever drives it (a real
+   device, or a testbench) just blocks at the rendezvous until this program
+   is actually ready, no arbitrary "wait for boot" delay needed on their
+   side. Each time event_id_0 later fires, pc jumps straight to isr_handler
+   (not through main() or crt0.S again) -- it reads one word from the input
+   FIFO, adds 1, writes the result to the output FIFO, then goes back to
+   sleep itself. Since &isr_handler is resolved by the linker, this works
+   unmodified whether the image runs XIP from ROM or, as here, copied into
+   SRAM by the bootloader -- nothing here hardcodes an address. */
 
 #define ADDR(base, offset) ((volatile uint32_t *)(((uint32_t)(base) << 16) | (uint32_t)(offset)))
 
 #define INT_CTRL_VECTOR0 ADDR(1, 0)
+#define INT_CTRL_ENABLE  ADDR(1, 64)
 #define FIFO_IN          ADDR(5, 0)
 #define FIFO_OUT         ADDR(6, 0)
 
@@ -37,5 +43,6 @@ static __attribute__((noinline)) void isr_handler(void) {
 
 void main(void) {
     *INT_CTRL_VECTOR0 = (uint32_t)&isr_handler;
+    *INT_CTRL_ENABLE = 0x1;  /* enable event_id_0 -- must come after the vector is set */
     /* crt0.S executes wfi() for us when main() returns. */
 }

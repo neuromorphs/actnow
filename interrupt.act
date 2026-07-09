@@ -15,6 +15,13 @@ import "globals.act";
 // before software has had any chance to configure anything, so it stays a
 // fixed constant (ADDR_RESET) -- matching real hardware, where the reset
 // vector is fixed in silicon, not software-configurable.
+//
+// Each event_id_N also has an enable bit (see globals.act's register-map
+// comment): until software sets it, this process doesn't even offer to
+// receive on that channel, so a device asserting it just blocks at the
+// rendezvous instead of being silently dropped or acted on with a
+// not-yet-configured vector -- self-managed synchronization, no guessed
+// delay needed anywhere upstream.
 defproc interrupt(
     chan?(bool) event_id_0;
     chan?(bool) event_id_1;
@@ -45,6 +52,7 @@ defproc interrupt(
     bool event_id_recv;
     bool is_reset;
     int<WIDTH_DATA> vectors[16];
+    int<WIDTH_DATA> enable_mask;
 
     addr_t a;
     mode_mem_t md;
@@ -56,6 +64,7 @@ defproc interrupt(
 
         init_i := 0;
         *[ init_i < 16 -> vectors[int(init_i,4)] := 0; init_i := init_i + 1 ];
+        enable_mask := 0;
 
         // RESET VECTOR: fires exactly once, unconditionally, independent of
         // the 16 maskable event lines below -- this is not "an event", it's
@@ -71,30 +80,38 @@ defproc interrupt(
             [|
             #addr ->
                 addr?a; mode?md;
-                vidx := int(a.offset >> 2, 4);
                 [
-                    md.op = op_mem_t.W ->
-                        wdata?w;
-                        vectors[vidx] := w
+                    a.offset = ADDR_INT_CTRL_ENABLE ->
+                        [
+                            md.op = op_mem_t.W -> wdata?w; enable_mask := w
+                            [] else -> rdata!enable_mask
+                        ]
                     [] else ->
-                        rdata!vectors[vidx]
+                        vidx := int(a.offset >> 2, 4);
+                        [
+                            md.op = op_mem_t.W ->
+                                wdata?w;
+                                vectors[vidx] := w
+                            [] else ->
+                                rdata!vectors[vidx]
+                        ]
                 ]
-            [] #event_id_0 -> event_id_0?event_id_recv; log("event 0 pc: ", vectors[0]); event_pc!vectors[0]
-            [] #event_id_1 -> event_id_1?event_id_recv; log("event 1 pc: ", vectors[1]); event_pc!vectors[1]
-            [] #event_id_2 -> event_id_2?event_id_recv; event_pc!vectors[2]
-            [] #event_id_3 -> event_id_3?event_id_recv; event_pc!vectors[3]
-            [] #event_id_4 -> event_id_4?event_id_recv; event_pc!vectors[4]
-            [] #event_id_5 -> event_id_5?event_id_recv; event_pc!vectors[5]
-            [] #event_id_6 -> event_id_6?event_id_recv; event_pc!vectors[6]
-            [] #event_id_7 -> event_id_7?event_id_recv; event_pc!vectors[7]
-            [] #event_id_8 -> event_id_8?event_id_recv; event_pc!vectors[8]
-            [] #event_id_9 -> event_id_9?event_id_recv; event_pc!vectors[9]
-            [] #event_id_10 -> event_id_10?event_id_recv; event_pc!vectors[10]
-            [] #event_id_11 -> event_id_11?event_id_recv; event_pc!vectors[11]
-            [] #event_id_12 -> event_id_12?event_id_recv; event_pc!vectors[12]
-            [] #event_id_13 -> event_id_13?event_id_recv; event_pc!vectors[13]
-            [] #event_id_14 -> event_id_14?event_id_recv; event_pc!vectors[14]
-            [] #event_id_15 -> event_id_15?event_id_recv; event_pc!vectors[15]
+            [] (enable_mask{0} = 1) & #event_id_0 -> event_id_0?event_id_recv; log("event 0 pc: ", vectors[0]); event_pc!vectors[0]
+            [] (enable_mask{1} = 1) & #event_id_1 -> event_id_1?event_id_recv; log("event 1 pc: ", vectors[1]); event_pc!vectors[1]
+            [] (enable_mask{2} = 1) & #event_id_2 -> event_id_2?event_id_recv; event_pc!vectors[2]
+            [] (enable_mask{3} = 1) & #event_id_3 -> event_id_3?event_id_recv; event_pc!vectors[3]
+            [] (enable_mask{4} = 1) & #event_id_4 -> event_id_4?event_id_recv; event_pc!vectors[4]
+            [] (enable_mask{5} = 1) & #event_id_5 -> event_id_5?event_id_recv; event_pc!vectors[5]
+            [] (enable_mask{6} = 1) & #event_id_6 -> event_id_6?event_id_recv; event_pc!vectors[6]
+            [] (enable_mask{7} = 1) & #event_id_7 -> event_id_7?event_id_recv; event_pc!vectors[7]
+            [] (enable_mask{8} = 1) & #event_id_8 -> event_id_8?event_id_recv; event_pc!vectors[8]
+            [] (enable_mask{9} = 1) & #event_id_9 -> event_id_9?event_id_recv; event_pc!vectors[9]
+            [] (enable_mask{10} = 1) & #event_id_10 -> event_id_10?event_id_recv; event_pc!vectors[10]
+            [] (enable_mask{11} = 1) & #event_id_11 -> event_id_11?event_id_recv; event_pc!vectors[11]
+            [] (enable_mask{12} = 1) & #event_id_12 -> event_id_12?event_id_recv; event_pc!vectors[12]
+            [] (enable_mask{13} = 1) & #event_id_13 -> event_id_13?event_id_recv; event_pc!vectors[13]
+            [] (enable_mask{14} = 1) & #event_id_14 -> event_id_14?event_id_recv; event_pc!vectors[14]
+            [] (enable_mask{15} = 1) & #event_id_15 -> event_id_15?event_id_recv; event_pc!vectors[15]
             |]
         ]
     }
