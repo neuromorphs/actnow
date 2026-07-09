@@ -1,0 +1,103 @@
+import std;
+import sim;
+
+import "globals.act";
+
+template<pint file_id>
+defproc file_mem (chan?(addr_t) addr; chan?(mode_mem_t) mode; chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata) {
+    pint WORD_BITS = std::ceil_log2(SIZE_MEM_WORDS);
+    std::ram<SIZE_MEM_WORDS, 8> bank[4];
+
+    addr_t ad;
+    mode_mem_t md;
+    op_mem_t op;
+    size_mem_t size;
+
+    int<2> off;
+    int<WORD_BITS> widx;
+    int<3> nbytes;
+    int<WIDTH_DATA> wd;
+    int<WIDTH_DATA> word;
+    int<8> bo[4];
+
+    int idx;
+    int reader_id;
+    bool success;
+
+    chp {
+        idx := 0;
+        *[ idx < SIZE_MEM_WORDS ->
+            widx := int(idx, WORD_BITS);
+            (, i : 4 :
+                bank[i].addr!widx,
+                bank[i].rd!int(0, 2),
+                bank[i].din!int(0, 8)
+            );
+            idx := idx + 1
+        ];
+
+        reader_id := sim::file::openr(file_id);
+        assert(reader_id != 0, "file_mem: failed to open image file");
+
+        idx := 0;
+        *[ ~sim::file::eof(reader_id) ->
+            assert(idx < SIZE_MEM_WORDS, "file_mem: input file is larger than SIZE_MEM_WORDS");
+            word := int(sim::file::read(reader_id), WIDTH_DATA);
+            widx := int(idx, WORD_BITS);
+            (, i : 4 :
+                bank[i].addr!widx,
+                bank[i].rd!int(0, 2),
+                bank[i].din!int(word >> (8 * i), 8)
+            );
+            idx := idx + 1
+        ];
+
+        success := sim::file::closer(reader_id);
+        assert(success, "file_mem: failed to close image file");
+
+        *[
+            addr?ad, mode?md;
+            op   := md.op,
+            size := md.size,
+            off  := ad.offset{1..0},
+            widx := int(ad.offset >> 2, WORD_BITS);
+            [
+                size = size_mem_t.BYTE -> nbytes := 1
+                [] size = size_mem_t.HALF_WORD -> nbytes := 2
+                [] else -> nbytes := 4
+            ];
+
+            [
+                op = op_mem_t.R -> skip
+                [] else -> wdata?wd
+            ];
+
+            (, i : 4 :
+                [
+                    (i >= off) & (i < off + nbytes) -> bank[i].addr!widx, bank[i].rd!int(1, 2)
+                    [] else -> skip
+                ]
+            );
+
+            (, i : 4 :
+                [
+                    (i >= off) & (i < off + nbytes) -> bank[i].dout?bo[i]
+                    [] else -> skip
+                ]
+            );
+
+            [
+                op = op_mem_t.W -> assert(false, "file_mem: write attempted to ROM")
+                [] else -> [
+                    size = size_mem_t.BYTE -> rdata!{int(0, 24), bo[off]}
+                    [] size = size_mem_t.HALF_WORD -> rdata!{int(0, 16), bo[off + 1], bo[off]}
+                    [] else -> rdata!{bo[3], bo[2], bo[1], bo[0]}
+                ];
+                [
+                    op = op_mem_t.R_AND_W -> assert(false, "file_mem: read-modify-write attempted to ROM")
+                    [] else -> skip
+                ]
+            ]
+        ]
+    }
+}

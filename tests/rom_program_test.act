@@ -1,4 +1,5 @@
 import "soc.act";
+import "gen/file_ids.act";
 import sim;
 import std;
 
@@ -7,8 +8,9 @@ import std;
 // words like the other tests. The image comes from
 // software/tests/build/rom.actsim.mem, produced by `make TEST=simple` in
 // software/tests/ (see software/tests/Makefile) -- one 32-bit word per
-// line, "0b"-prefixed so actsim's sim::file_private::read can parse it.
-// actnow/actsim.conf maps file ID 0 to that path.
+// line, "0b"-prefixed so actsim's sim::file::read can parse it. The image is
+// registered as ROM_IMAGE in tests/files/file_registry.txt, which the
+// generated gen/file_registry.conf maps to that path (loaded via -cnf).
 //
 // The program under test is software/tests/simple.S, riscv-tests' most
 // basic self-checking test. It has no real pass/fail assertion of its own
@@ -18,7 +20,6 @@ import std;
 // 0x0000000b at label `mytest_ret`, deliberately reused as riscv-tests'
 // "test finished" marker). Reaching "decoded wfi" in the log below with no
 // crash or hang along the way is what "passing" means here.
-pint ROM_ID = 0;
 pint ROM_MAX_WORDS = 1024;
 
 defproc rom_backend (
@@ -39,15 +40,15 @@ defproc rom_backend (
         // preload the whole image up front -- the program contains a
         // backward jump, so addresses aren't accessed in strictly
         // increasing order and the file can't just be streamed on demand
-        reader_id := sim::file_private::openr(ROM_ID);
-        assert(reader_id != 0, "rom_backend: failed to open ROM image (check actsim.conf's sim.file.name_table)");
+        reader_id := sim::file::openr(ROM_IMAGE);
+        assert(reader_id != 0, "rom_backend: failed to open ROM image (is ROM_IMAGE registered in tests/files/file_registry.txt and built?)");
         i := 0;
-        *[ (~sim::file_private::eof(reader_id)) & (i < ROM_MAX_WORDS) ->
-            m[i] := int(sim::file_private::read(reader_id), WIDTH_DATA);
+        *[ (~sim::file::eof(reader_id)) & (i < ROM_MAX_WORDS) ->
+            m[i] := int(sim::file::read(reader_id), WIDTH_DATA);
             i := i + 1
         ];
         nwords := i;
-        assert(sim::file_private::closer(reader_id), "rom_backend: failed to close ROM image");
+        assert(sim::file::closer(reader_id), "rom_backend: failed to close ROM image");
         log("rom_backend: loaded ", nwords, " words from ROM image");
 
         *[

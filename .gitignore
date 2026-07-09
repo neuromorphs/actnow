@@ -4,3 +4,7 @@
 
 # C build artifacts
 software/**/build/
+
+# test suite artifacts
+/gen/
+__pycache__/

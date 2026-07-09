@@ -7,8 +7,6 @@ returns to waiting.
 
 ## Instructions
 
-Google suite of tests????
-
 The full RV32I base integer set is implemented in `soc.act`, including
 loads (LB/LH/LW/LBU/LHU) and stores (SB/SH/SW), both routed through the MMU
 (`mmu.act`) to either internal RAM (`mem.act`) or external memory
@@ -21,15 +19,21 @@ value down to the requested size before it reaches the peripheral. See
 
 `tests/rom_program_test.act` runs an actual compiled RV32I program through
 `soc`'s real fetch/decode/execute pipeline, instead of hand-crafted
-instruction words. It streams the program image from disk at simulation
-time via actsim's `sim::file_private` file API (see `actsim.conf`'s
-`sim.file.name_table`, which maps file ID 0 to
-`software/tests/build/rom.actsim.mem`), and serves it as `soc`'s external
-memory.
+instruction words. It reads the program image from disk at simulation time
+via actsim's `sim::file` API and serves it as `soc`'s external memory.
+
+The image path is managed by the **file registry** (see
+`tests/files/file_registry.txt` and `tools/gen_file_registry.py`): it's
+registered there as `ROM_IMAGE`, which the generator turns into the
+`ROM_IMAGE` file-id constant (`gen/file_ids.act`) and a matching
+`name_table` entry (`gen/file_registry.conf`, passed to `actsim` via
+`-cnf`). The test opens it with `sim::file::openr(ROM_IMAGE)` — no
+hand-edited config.
 
 To point it at a different program, build one under `software/tests/`
-(riscv-tests style — see `software/tests/README`) and copy/regenerate
-`rom.actsim.mem`:
+(riscv-tests style — see `software/tests/README`), which produces
+`software/tests/build/rom.actsim.mem` (the path `ROM_IMAGE` is registered
+to):
 
 ```
 cd software/tests
@@ -37,6 +41,12 @@ make TEST=<name>          # -> build/rom.mem, build/rom.actsim.mem, build/<name>
 cd ../..
 make rom_program_test
 ```
+
+`make rom_program_test` (and `make test`) will also build the default
+program image on its own via the `Makefile`'s `ROM_IMAGE` rule
+(`ROM_TEST ?= simple`, override with e.g. `make ROM_TEST=addi
+rom_program_test`), since the registry generator requires every registered
+input to exist — this couples the test suite to the RISC-V toolchain.
 
 `software/tests/Makefile`'s `rom.actsim.mem` target derives from `rom.mem`
 (itself already used for a Verilog-`$readmemb`-style flow, one bitstring per

@@ -1,0 +1,83 @@
+import "globals.act";
+import "gen/file_ids.act";
+import "file_mem.act";
+
+defproc file_mem_test() {
+    file_mem<FILE_MEM_TEST_IMAGE> m;
+
+    chan(addr_t) addr;
+    chan(mode_mem_t) mode;
+    chan(int<WIDTH_DATA>) wdata;
+    chan(int<WIDTH_DATA>) rdata;
+
+    addr = m.addr;
+    mode = m.mode;
+    wdata = m.wdata;
+    rdata = m.rdata;
+
+    addr_t a;
+    mode_mem_t md;
+    int<WIDTH_DATA> r;
+
+    chp {
+        log("======== file_mem test start ========");
+
+        a.base := 4;
+
+        md.op := op_mem_t.R;
+        md.size := size_mem_t.WORD;
+
+        a.offset := 0;
+        addr!a; mode!md; rdata?r;
+        log("%xfile_mem WORD[0] got=0x", r);
+        assert(r = 0x12345678, "file_mem word 0 mismatch");
+
+        a.offset := 4;
+        addr!a; mode!md; rdata?r;
+        log("%xfile_mem WORD[1] got=0x", r);
+        assert(r = 0xCAFEBABE, "file_mem word 1 mismatch");
+
+        a.offset := 8;
+        addr!a; mode!md; rdata?r;
+        log("%xfile_mem WORD[2] got=0x", r);
+        assert(r = 0x0BADF00D, "file_mem word 2 mismatch");
+
+        md.size := size_mem_t.BYTE;
+
+        a.offset := 0;
+        addr!a; mode!md; rdata?r;
+        assert(r = 0x78, "file_mem byte lane 0 mismatch");
+
+        a.offset := 1;
+        addr!a; mode!md; rdata?r;
+        assert(r = 0x56, "file_mem byte lane 1 mismatch");
+
+        a.offset := 2;
+        addr!a; mode!md; rdata?r;
+        assert(r = 0x34, "file_mem byte lane 2 mismatch");
+
+        a.offset := 3;
+        addr!a; mode!md; rdata?r;
+        assert(r = 0x12, "file_mem byte lane 3 mismatch");
+
+        md.size := size_mem_t.HALF_WORD;
+
+        a.offset := 0;
+        addr!a; mode!md; rdata?r;
+        assert(r = 0x5678, "file_mem low half-word mismatch");
+
+        a.offset := 2;
+        addr!a; mode!md; rdata?r;
+        assert(r = 0x1234, "file_mem high half-word mismatch");
+
+        md.size := size_mem_t.WORD;
+
+        a.offset := 12;
+        addr!a; mode!md; rdata?r;
+        assert(r = 0x00000000, "file_mem unloaded word should read as zero");
+
+        log("======== file_mem test complete ========")
+    }
+}
+
+file_mem_test ft;
