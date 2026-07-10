@@ -8,12 +8,18 @@ import "globals.act";
 // produced. CPU reads are rejected via assert -- there's no legitimate way
 // to read from an output-only FIFO from the core side.
 //
-// Both the CPU-write-side overflow guard (count<DEPTH) and the testbench
-// pop-side underflow guard (count>0) are top-level alternatives in the same
-// probed selection, re-evaluated every loop iteration -- unlike a guard
-// nested inside an already-committed branch, this can't deadlock: whichever
-// side needs to wait just leaves the other free to run and eventually
-// change count out from under it.
+// A CPU write to a full FIFO blocks (real backpressure, like a real
+// hardware FIFO stalling the bus) rather than asserting -- fifo_out simply
+// doesn't accept the addr/mode transaction at all while count=DEPTH, so the
+// CPU's SW instruction just stalls until `pop` drains room. This is safe
+// from deadlock because (count<DEPTH)&#addr is a top-level alternative,
+// re-evaluated every loop iteration alongside (count>0)&#pop -- unlike a
+// guard nested inside an already-committed branch, whichever side needs to
+// wait just leaves the other free to run and eventually change count out
+// from under it. (One trade-off: an illegal CPU *read* attempt also has to
+// wait for room before it can be accepted and then rejected, since which
+// op it is isn't known until mode is received -- harmless in practice,
+// since that path is already a programming-bug case, not a normal one.)
 template<pint DEPTH>
 defproc fifo_out(
     chan?(addr_t) addr; chan?(mode_mem_t) mode;
@@ -32,11 +38,10 @@ defproc fifo_out(
         head := 0; tail := 0; count := 0;
         *[
             [|
-                #addr ->
+                (count < DEPTH) & #addr ->
                     addr?a; mode?md;
                     [
                         md.op = op_mem_t.W ->
-                            assert(count < DEPTH, "fifo_out: CPU write to a full FIFO");
                             wdata?buf[tail];
                             tail := (tail + 1 = DEPTH) ? 0 : tail + 1;
                             count := count + 1

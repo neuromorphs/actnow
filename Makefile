@@ -14,11 +14,12 @@
 AFLAT  := aflat
 ACTSIM := actsim
 
-# e2e_fifo_test.act is excluded here and given its own rule below -- it
-# needs a specific ROM image (software/application/main.c) that the shared
-# $(FILE_REGISTRY_GEN)/$(ROM_IMAGE) prerequisite chain can't guarantee (see
-# that rule's own comment for why).
-TESTS := $(filter-out e2e_fifo_test,$(basename $(notdir $(wildcard tests/*.act))))
+# e2e_fifo_test.act and e2e_multi_event_test.act are excluded here and given
+# their own rules below -- each needs a specific ROM image (a different
+# software/<name>/ program) that the shared $(FILE_REGISTRY_GEN)/$(ROM_IMAGE)
+# prerequisite chain can't guarantee (see e2e_fifo_test's own rule comment
+# for why).
+TESTS := $(filter-out e2e_fifo_test e2e_multi_event_test,$(basename $(notdir $(wildcard tests/*.act))))
 FILE_REGISTRY     := tests/files/file_registry.txt
 FILE_REGISTRY_GEN := gen/file_ids.act gen/file_registry.conf
 
@@ -33,8 +34,9 @@ ROM_IMAGE := software/tests/build/rom_image.mem
 # BOOT=1 builds the selected program bootloader-enabled: the bootloader copies it
 # into internal SRAM and runs it there (fast memory) instead of executing in
 # place from external ROM. Works with rom_program_test and software-tests.
-# ROM_TEST=application builds the generic C demo (software/application), which is
-# always bootloader-loaded.
+# An app-style program under software/<name>/ (its own Makefile, crt0.S +
+# application.lds -- see software/application/ or software/multi_event/) is
+# always bootloader-loaded, regardless of this flag.
 BOOT ?=
 
 # RISC-V cross-compiler prefix for building program images. Auto-detected from
@@ -55,20 +57,20 @@ SW_TESTS   := $(filter-out $(MEXT_TESTS),$(basename $(notdir $(wildcard \
                   software/tests/*.S software/tests/*.c \
                   software/tests/unit/*.S software/tests/unit/*.c))))
 
-.PHONY: all test list clean file-registry software-tests force e2e_fifo_test $(TESTS)
+.PHONY: all test list clean file-registry software-tests force e2e_fifo_test e2e_multi_event_test $(TESTS)
 
 all: test
 
-test: $(TESTS) e2e_fifo_test
+test: $(TESTS) e2e_fifo_test e2e_multi_event_test
 	@echo "=== all tests passed ==="
 
 file-registry: $(FILE_REGISTRY_GEN)
 
 $(ROM_IMAGE): force
 	@rm -f $(ROM_IMAGE) software/tests/build/rom.mem software/build/rom.mem
-ifeq ($(ROM_TEST),application)
+ifneq ($(wildcard software/$(ROM_TEST)/Makefile),)
 	@mkdir -p $(dir $(ROM_IMAGE))
-	$(MAKE) -C software PROG=application CROSS=$(CROSS)
+	$(MAKE) -C software PROG=$(ROM_TEST) CROSS=$(CROSS)
 	sed 's/^/0b/' software/build/rom.mem > $(ROM_IMAGE)
 else
 	$(MAKE) -C software/tests TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS)
@@ -128,6 +130,28 @@ e2e_fifo_test:
 		echo "e2e_fifo_test: FAIL (no completion)"; exit 1; \
 	else \
 		echo "e2e_fifo_test: PASS"; \
+	fi
+
+# Same rationale and pattern as e2e_fifo_test above, pinned to
+# software/multi_event/main.c instead.
+e2e_multi_event_test:
+	@echo "--- e2e_multi_event_test ---"
+	@rm -f $(ROM_IMAGE) software/tests/build/rom.mem software/build/rom.mem
+	@$(MAKE) -s ROM_TEST=multi_event CROSS=$(CROSS) file-registry
+	@$(AFLAT) tests/e2e_multi_event_test.act
+	@out=$$(printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf tests/e2e_multi_event_test.act e2e_multi_event_test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	rm -f $(ROM_IMAGE) software/tests/build/rom.mem software/build/rom.mem; \
+	$(MAKE) -s ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
+	if [ $$status -ne 0 ]; then \
+		echo "e2e_multi_event_test: FAIL"; exit $$status; \
+	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+		echo "e2e_multi_event_test: FAIL"; exit 1; \
+	elif ! echo "$$out" | grep -qi "test complete"; then \
+		echo "e2e_multi_event_test: FAIL (no completion)"; exit 1; \
+	else \
+		echo "e2e_multi_event_test: PASS"; \
 	fi
 
 # Run every RV32I software test through soc's real pipeline. For each test we

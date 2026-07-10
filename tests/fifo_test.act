@@ -4,9 +4,10 @@ import "fifo_out.act";
 
 // Drives fifo_in and fifo_out directly (no soc involved) to check the
 // peripherals' own push/pop/CPU-side semantics in isolation: FIFO ordering,
-// CPU write rejection on fifo_in, CPU read rejection on fifo_out, and that
-// a pop correctly blocks until a push actually lands (rather than racing
-// ahead with stale/garbage data).
+// the programmable trigger level on fifo_in (event_out fires exactly on the
+// push that reaches it), that a pop correctly blocks until a push actually
+// lands (rather than racing ahead with stale/garbage data), and that a
+// CPU write to a full fifo_out blocks for room rather than crashing.
 defproc fifo_test() {
     fifo_in<4> fin;
     fifo_out<4> fout;
@@ -16,6 +17,7 @@ defproc fifo_test() {
     chan(int<WIDTH_DATA>) wdata_in;
     chan(int<WIDTH_DATA>) rdata_in;
     chan(int<WIDTH_DATA>) push;
+    chan(bool) fin_event;
 
     chan(addr_t) addr_out;
     chan(mode_mem_t) mode_out;
@@ -25,6 +27,7 @@ defproc fifo_test() {
 
     fin.addr = addr_in; fin.mode = mode_in; fin.wdata = wdata_in; fin.rdata = rdata_in;
     fin.push = push;
+    fin.event_out = fin_event;
 
     fout.addr = addr_out; fout.mode = mode_out; fout.wdata = wdata_out; fout.rdata = rdata_out;
     fout.pop = pop;
@@ -32,10 +35,19 @@ defproc fifo_test() {
     addr_t a;
     mode_mem_t md;
     int<WIDTH_DATA> r;
+    bool got_event;
 
     chp {
         log("======== fifo test start ========");
         a.base := 5; a.offset := 0; // address is ignored by both FIFOs
+
+        // fifo_in gates push acceptance on its trigger level having been
+        // explicitly configured at least once -- a real program would do
+        // this during its own startup, before anything can push. Set it to
+        // DEPTH (matching the pre-configured default) since these early
+        // pushes don't exercise the trigger feature itself.
+        md.op := op_mem_t.W; md.size := size_mem_t.WORD;
+        addr_in!a; mode_in!md; wdata_in!int(4, WIDTH_DATA);
 
         // --- fifo_in: push 3 values, CPU-read them back in FIFO order ---
         log("--- push 10, 20, 30 into fifo_in ---");
@@ -59,6 +71,28 @@ defproc fifo_test() {
         push!int(100, WIDTH_DATA);
         addr_in!a; mode_in!md; rdata_in?r;
         assert(r = 100, "fifo_in interleaved: want 100, got ", r);
+
+        // --- fifo_in: programmable trigger level, event_out fires exactly
+        // on the push that reaches it (not before, not on every push after) ---
+        log("--- fifo_in: configure trigger level 2, expect event_out on the 2nd push ---");
+        md.op := op_mem_t.W; md.size := size_mem_t.WORD;
+        addr_in!a; mode_in!md; wdata_in!int(2, WIDTH_DATA);  // CPU write configures trigger_level
+
+        (
+            push!int(200, WIDTH_DATA);
+            push!int(201, WIDTH_DATA)
+        ),
+        (
+            fin_event?got_event
+        );
+        assert(got_event, "fifo_in: event_out should have fired after reaching trigger level");
+        log("fifo_in: event_out fired as expected");
+
+        md.op := op_mem_t.R; md.size := size_mem_t.WORD;
+        addr_in!a; mode_in!md; rdata_in?r;
+        assert(r = 200, "fifo_in trigger test: want 200 first, got ", r);
+        addr_in!a; mode_in!md; rdata_in?r;
+        assert(r = 201, "fifo_in trigger test: want 201 second, got ", r);
 
         // --- fifo_out: CPU-write 3 values, pop them back in FIFO order ---
         log("--- CPU-write 1, 2, 3 into fifo_out ---");
@@ -86,6 +120,34 @@ defproc fifo_test() {
             addr_out!a; mode_out!md; wdata_out!int(999, WIDTH_DATA)
         );
         assert(r = 999, "fifo_out: pop should have waited for the write, got ", r);
+
+        // --- fifo_out: a CPU write to a full FIFO blocks for room instead
+        // of crashing -- fill it to DEPTH=4, then write a 5th value
+        // concurrently with a pop; the write can't complete until the pop
+        // makes room, so if it raced ahead or deadlocked instead of
+        // blocking, the ordering checks below would catch it ---
+        log("--- fifo_out: write to a full FIFO blocks until room is made ---");
+        addr_out!a; mode_out!md; wdata_out!int(11, WIDTH_DATA);
+        addr_out!a; mode_out!md; wdata_out!int(12, WIDTH_DATA);
+        addr_out!a; mode_out!md; wdata_out!int(13, WIDTH_DATA);
+        addr_out!a; mode_out!md; wdata_out!int(14, WIDTH_DATA);
+        // fifo_out is now full (count = DEPTH = 4)
+
+        (
+            addr_out!a; mode_out!md; wdata_out!int(15, WIDTH_DATA)
+        ),
+        (
+            pop?r;
+            assert(r = 11, "fifo_out full-then-drain: want 11 first, got ", r)
+        );
+        pop?r;
+        assert(r = 12, "fifo_out full-then-drain: want 12 second, got ", r);
+        pop?r;
+        assert(r = 13, "fifo_out full-then-drain: want 13 third, got ", r);
+        pop?r;
+        assert(r = 14, "fifo_out full-then-drain: want 14 fourth, got ", r);
+        pop?r;
+        assert(r = 15, "fifo_out full-then-drain: want 15 (the blocked write), got ", r);
 
         log("======== fifo test complete ========")
     }

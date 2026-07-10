@@ -68,16 +68,39 @@ sequence — see `tests/e2e_fifo_test.act`, which does exactly that.
 
 Fixed-depth circular-buffer FIFOs, each memory-mapped as a single data
 register (the address offset is ignored — there's only one meaningful
-register). `fifo_in<DEPTH>`: an external `push` port feeds it (e.g. a
-testbench simulating an external device); the CPU pops the oldest entry on
-every read; CPU writes are rejected via `assert`. `fifo_out<DEPTH>`: the CPU
-pushes on every write; an external `pop` port drains it (e.g. for a
-testbench to observe what the CPU produced); CPU reads are rejected. Both
-guard their external port (`push`/`pop`) on the queue's fill count as a
-top-level, re-evaluated-every-iteration alternative in a probed selection —
-safe from deadlock, unlike gating the CPU-facing port the same way would be
-(see the comments in both files). `tests/fifo_test.act` is a standalone unit
-test for both, independent of `soc`.
+register). Both guard their external port (`push`/`pop`) on the queue's fill
+count as a top-level, re-evaluated-every-iteration alternative in a probed
+selection — safe from deadlock, unlike gating the CPU-facing port the same
+way would be (see the comments in both files). `tests/fifo_test.act` is a
+standalone unit test for both, independent of `soc`.
+
+**`fifo_in<DEPTH>`**: an external `push` port feeds it (e.g. a testbench
+simulating an external device); the CPU pops the oldest entry on every read
+(`assert`s if empty — see the file for why blocking isn't safe here).
+CPU writes configure a **trigger level** instead of being rejected: once
+`count` reaches it, `fifo_in` fires its own `event_out` port — wired
+directly to one of `soc`'s `event_id_N` inputs, so filling the FIFO to the
+configured level *is* what raises the interrupt, no separate triggering
+needed anywhere. Pushes are gated on the trigger level having been
+explicitly configured at least once, so a producer pushing before software
+configures it genuinely blocks (rather than silently counting against a
+default it doesn't know about) — the same self-managed-synchronization
+pattern as the interrupt controller's enable bit.
+
+**Pitfall:** `event_out!true` is a plain blocking send. If `count` ever
+reaches `trigger_level` and nothing is wired to `event_out`, that send blocks
+forever — silently deadlocking `fifo_in` entirely (stuck mid-push, unable to
+service any further transaction, CPU or testbench). Anything that doesn't
+wire `event_out` up (e.g. because it's firing events manually instead, like
+`tests/e2e_multi_event_test.act`) must configure `trigger_level` to something
+unreachable (larger than `DEPTH`) — see `software/multi_event/main.c`'s
+comment for a real example of getting this wrong and the fix.
+
+**`fifo_out<DEPTH>`**: the CPU pushes on every write; an external `pop` port
+drains it (e.g. for a testbench to observe what the CPU produced); CPU reads
+are rejected via `assert`. A write to a full FIFO **blocks** (real
+backpressure, like a hardware FIFO stalling the bus) rather than crashing —
+it simply doesn't accept the transaction until `pop` makes room.
 
 ## End-to-end testbench (`tests/e2e_fifo_test.act`)
 
@@ -93,6 +116,33 @@ test`) — it has its own dedicated Makefile rule, since it needs the
 `$(FILE_REGISTRY_GEN)`/`$(ROM_IMAGE)` prerequisite (which only rebuilds once
 per `make` invocation) can't guarantee that against an arbitrary `ROM_TEST`
 default.
+
+## Generality testbench (`tests/e2e_multi_event_test.act`)
+
+Same shape as `e2e_fifo_test.act` (boot a real program, fire interrupts,
+check FIFO output) but maxed out across the interrupt controller's full
+width: `software/multi_event/main.c` registers a **distinct** ISR for every
+one of the 16 maskable event lines (ISR N: `out = in + (N+1)`), then enables
+all 16 via the enable mask in one write. The testbench fires all 16 events
+in turn — one at a time, matching this architecture's lack of
+preemption/concurrency — pushing a different value each time and checking
+each ISR's distinct, correct response, to build confidence that vector
+configuration, the enable mask, and dispatch genuinely work across the whole
+controller, not just the one or two lines the other demos exercise.
+
+Since `soc`'s `event_id_N` ports are individually named rather than an array,
+the testbench wires each one into a local `chan(bool) event_ch[16]` so its
+driving loop can index into it with a runtime variable — indexing a channel
+array directly with a runtime value (`event_ch[int(i,4)]!(true)`) doesn't
+compile ("dynamic channel arrays are unsupported"), so it goes through a
+replicated selection instead: `[ ([]k:16: i = k -> event_ch[k]!(true)) ]`
+(the outer `[...]` is required — a bare `(...)` around the replicated
+selection fails to parse).
+
+Run it with `make e2e_multi_event_test` (or as part of `make test`) — it has
+its own dedicated Makefile rule for the same reason `e2e_fifo_test` does
+(needs the `multi_event` ROM image specifically, and the shared
+`$(ROM_IMAGE)` prerequisite only rebuilds once per `make` invocation).
 
 ## Running tests
 
@@ -158,6 +208,12 @@ make BOOT=1 ROM_TEST=application rom_program_test  # the software/application de
 `ROM_TEST=application` builds `software/application/main.c` (a generic C program,
 not a self-checking test); it is always bootloader-loaded. See
 `software/bootloader/` and `software/common/{bootloader,application}.lds`.
+
+**Adding a new app-style program.** Any `software/<name>/` directory with its
+own two-line Makefile (`PROG := <name>; include ../common/program.mk`) is
+automatically treated as an app-style, bootloader-driven build with
+`ROM_TEST=<name>` — no top-level `Makefile` changes needed. `application` and
+`multi_event` are both just instances of this convention.
 
 Building a program needs an rv32i cross-compiler; the `Makefile` auto-detects a
 `riscv32-`/`riscv64-unknown-elf-` prefix (override with `make CROSS=...`).

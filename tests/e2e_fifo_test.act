@@ -6,10 +6,13 @@ import "gen/file_ids.act";
 // End-to-end testbench modeling how this chip actually operates: bootload a
 // real compiled program (software/application/main.c, built BOOT=1-style --
 // see the top-level Makefile's `ROM_TEST=application` handling), let it
-// configure its own interrupt vector and go to sleep (WFI), then fire two
-// separate interrupts (with a delay between them, modeling real-world
-// latency), each carrying one word of data through a real input FIFO,
-// processed by the program's own ISR, and observed on a real output FIFO.
+// configure its own interrupt vector, its input FIFO's trigger level
+// (BATCH=3, see main.c), and go to sleep (WFI). Then push two separate
+// 3-word batches into the input FIFO (with a delay between them, modeling
+// real-world latency) -- fifo_in fires the interrupt *itself* once each
+// batch is fully pushed, no manual triggering from this testbench at all.
+// Each batch is processed by the program's own ISR and observed as 3
+// results on a real output FIFO.
 //
 // Address layout once the bootloader hands off to the application (which
 // runs from internal SRAM, base=0 -- see soc.act's own internal MMU routes
@@ -45,6 +48,7 @@ defproc e2e_fifo_test() {
     demux.mode_out[1] = fin.mode;
     demux.wdata_out[1] = fin.wdata;
     demux.rdata_out[1] = fin.rdata;
+    fin.event_out = s.event_id_0;
 
     fifo_out<4> fout;
     demux.addr_out[2] = fout.addr;
@@ -58,37 +62,52 @@ defproc e2e_fifo_test() {
     chp {
         log("======== end-to-end interrupt/FIFO test start ========");
 
-        // No boot-completion delay needed here: interrupt.act now gates
+        // No boot-completion delay needed here: interrupt.act gates
         // event_id_0's delivery on an enable bit that main() only sets
-        // after configuring the vector (see interrupt.act / main.c). Until
-        // then it doesn't even offer to receive on that channel, so this
-        // send below just blocks at the rendezvous -- self-managed
-        // synchronization, not a guessed delay. (Bootloader + main() still
-        // take ~600,000+ simulated time units to run; this just means we no
-        // longer have to know or care how long, and we can't accidentally
-        // fire too early into an unconfigured vector.)
+        // after configuring the vector and fifo_in's trigger level (see
+        // interrupt.act / main.c). And fifo_in itself won't fire event_out
+        // until it's actually received BATCH pushes. So each push below
+        // just blocks at fifo_in's own rendezvous until the program is
+        // ready, and the interrupt fires itself once the batch lands --
+        // self-managed synchronization the whole way, no guessed delay.
 
-        // --- Event 1: push 41 in, ISR computes +1, expect 42 out ---
-        log("--- event 1: pushing 41 into the input FIFO ---");
+        // --- Batch 1: push 41, 42, 43 -- ISR computes +1 on each, expect
+        // 42, 43, 44 out. The 3rd push is what triggers fifo_in's
+        // event_out (BATCH=3, configured by main()) -- nothing here fires
+        // an interrupt directly.
+        log("--- batch 1: pushing 41, 42, 43 into the input FIFO ---");
         fin.push!int(41, WIDTH_DATA);
-        s.event_id_0!(true);
+        fin.push!int(42, WIDTH_DATA);
+        fin.push!int(43, WIDTH_DATA);
+
         fout.pop?result;
-        assert(result = 42, "event 1: want 42, got ", result);
-        log("event 1: got ", result, " back from the output FIFO");
+        assert(result = 42, "batch 1 result 1: want 42, got ", result);
+        fout.pop?result;
+        assert(result = 43, "batch 1 result 2: want 43, got ", result);
+        fout.pop?result;
+        assert(result = 44, "batch 1 result 3: want 44, got ", result);
+        log("batch 1: got 42, 43, 44 back from the output FIFO");
 
         // Model some real-world latency between events.
         delay := 0;
         *[ delay < 3000 -> delay := delay + 1 ];
 
-        // --- Event 2: push 99 in, expect 100 out. Same ISR, same vector --
-        // the program never reconfigures anything between events, exactly
-        // like a real interrupt handler that just keeps running.
-        log("--- event 2: pushing 99 into the input FIFO ---");
-        fin.push!int(99, WIDTH_DATA);
-        s.event_id_0!(true);
+        // --- Batch 2: push 100, 200, 300, expect 101, 201, 301 out. Same
+        // ISR, same vector, same trigger level -- the program never
+        // reconfigures anything between events, exactly like a real
+        // interrupt handler that just keeps running.
+        log("--- batch 2: pushing 100, 200, 300 into the input FIFO ---");
+        fin.push!int(100, WIDTH_DATA);
+        fin.push!int(200, WIDTH_DATA);
+        fin.push!int(300, WIDTH_DATA);
+
         fout.pop?result;
-        assert(result = 100, "event 2: want 100, got ", result);
-        log("event 2: got ", result, " back from the output FIFO");
+        assert(result = 101, "batch 2 result 1: want 101, got ", result);
+        fout.pop?result;
+        assert(result = 201, "batch 2 result 2: want 201, got ", result);
+        fout.pop?result;
+        assert(result = 301, "batch 2 result 3: want 301, got ", result);
+        log("batch 2: got 101, 201, 301 back from the output FIFO");
 
         log("======== end-to-end interrupt/FIFO test complete ========")
     }
