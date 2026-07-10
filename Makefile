@@ -14,16 +14,25 @@
 AFLAT  := aflat
 ACTSIM := actsim
 
-# e2e_fifo_test.act and e2e_multi_event_test.act are excluded here and given
-# their own rules below -- each needs a specific ROM image (a different
-# software/<name>/ program) that the shared $(FILE_REGISTRY_GEN)/$(ROM_IMAGE)
-# prerequisite chain can't guarantee (see e2e_fifo_test's own rule comment
-# for why).
-TESTS := $(filter-out e2e_fifo_test e2e_multi_event_test,$(basename $(notdir $(wildcard tests/*.act))))
+# Tests live under tests/core (CPU/ISA datapath unit tests), tests/peripherals
+# (standalone peripheral/infra unit tests), tests/sw (the generic
+# real-program-through-soc runner), and tests/e2e (full boot + real compiled
+# program + real peripheral interaction). e2e tests are discovered separately
+# and given their own rules below -- each needs a specific ROM image (a
+# different software/<name>/ program) that the shared
+# $(FILE_REGISTRY_GEN)/$(ROM_IMAGE) prerequisite chain can't guarantee (see
+# e2e_fifo_test's own rule comment for why).
+TESTS := $(basename $(notdir $(wildcard tests/core/*.act tests/peripherals/*.act tests/sw/*.act)))
 FILE_REGISTRY     := tests/files/file_registry.txt
 FILE_REGISTRY_GEN := gen/file_ids.act gen/file_registry.conf
 
-# Compiled program image consumed by tests/rom_program_test.act, registered as
+# Resolves a bare test name (e.g. "alu_test") to its actual path under
+# tests/core, tests/peripherals, tests/sw, or tests/e2e -- lets the generic
+# per-test rule and the dedicated e2e rules work by name regardless of which
+# subdirectory a test lives in.
+TEST_SRC = $(firstword $(wildcard tests/core/$(1).act tests/peripherals/$(1).act tests/sw/$(1).act tests/e2e/$(1).act))
+
+# Compiled program image consumed by tests/sw/rom_program_test.act, registered as
 # ROM_IMAGE in $(FILE_REGISTRY). It's a build artifact (see software/tests/), so
 # the registry generator -- which requires every registered input to exist --
 # depends on it below. ROM_TEST picks which program under software/tests/ to
@@ -85,8 +94,8 @@ list:
 
 $(TESTS): $(FILE_REGISTRY_GEN)
 	@echo "--- $@ ---"
-	@$(AFLAT) tests/$@.act
-	@out=$$(printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf tests/$@.act $@ 2>&1); \
+	@$(AFLAT) $(call TEST_SRC,$@)
+	@out=$$(printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf $(call TEST_SRC,$@) $@ 2>&1); \
 	status=$$?; \
 	echo "$$out"; \
 	if [ $$status -ne 0 ]; then \
@@ -116,8 +125,8 @@ e2e_fifo_test:
 	@echo "--- e2e_fifo_test ---"
 	@rm -f $(ROM_IMAGE) software/tests/build/rom.mem software/build/rom.mem
 	@$(MAKE) -s ROM_TEST=application CROSS=$(CROSS) file-registry
-	@$(AFLAT) tests/e2e_fifo_test.act
-	@out=$$(printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf tests/e2e_fifo_test.act e2e_fifo_test 2>&1); \
+	@$(AFLAT) tests/e2e/e2e_fifo_test.act
+	@out=$$(printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf tests/e2e/e2e_fifo_test.act e2e_fifo_test 2>&1); \
 	status=$$?; \
 	echo "$$out"; \
 	rm -f $(ROM_IMAGE) software/tests/build/rom.mem software/build/rom.mem; \
@@ -138,8 +147,8 @@ e2e_multi_event_test:
 	@echo "--- e2e_multi_event_test ---"
 	@rm -f $(ROM_IMAGE) software/tests/build/rom.mem software/build/rom.mem
 	@$(MAKE) -s ROM_TEST=multi_event CROSS=$(CROSS) file-registry
-	@$(AFLAT) tests/e2e_multi_event_test.act
-	@out=$$(printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf tests/e2e_multi_event_test.act e2e_multi_event_test 2>&1); \
+	@$(AFLAT) tests/e2e/e2e_multi_event_test.act
+	@out=$$(printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf tests/e2e/e2e_multi_event_test.act e2e_multi_event_test 2>&1); \
 	status=$$?; \
 	echo "$$out"; \
 	rm -f $(ROM_IMAGE) software/tests/build/rom.mem software/build/rom.mem; \
@@ -163,14 +172,14 @@ e2e_multi_event_test:
 # rebuilt at the end so a later `make rom_program_test` stays deterministic.
 software-tests: $(FILE_REGISTRY_GEN)
 	@echo "=== running $(words $(SW_TESTS)) RV32I software tests through soc ==="
-	@$(AFLAT) tests/rom_program_test.act
+	@$(AFLAT) tests/sw/rom_program_test.act
 	@pass=0; fail=0; failed=""; \
 	for t in $(SW_TESTS); do \
 		rm -f $(ROM_IMAGE) software/tests/build/rom.mem; \
 		if ! $(MAKE) -s -C software/tests TEST=$$t BOOT=$(BOOT) CROSS=$(CROSS) >/dev/null 2>&1; then \
 			echo "  $$t: BUILD-FAIL"; fail=$$((fail+1)); failed="$$failed $$t"; continue; \
 		fi; \
-		out=$$(printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf tests/rom_program_test.act rom_program_test 2>&1); \
+		out=$$(printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf tests/sw/rom_program_test.act rom_program_test 2>&1); \
 		if echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
 			echo "  $$t: FAIL"; fail=$$((fail+1)); failed="$$failed $$t"; \
 		elif echo "$$out" | grep -qi "decoded wfi"; then \

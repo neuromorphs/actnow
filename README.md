@@ -34,7 +34,7 @@ waiting on a response). Two instantiations of the same template are used:
 - **a plain address demux** with no catch-all at all (pass `ADDR_NO_CATCHALL`
   for `CATCHALL_MIN_BASE`, which — since `addr_t`'s base field is only
   `WIDTH_ADDR_BASE` bits wide — can never actually match, so the router's
-  last downstream port just goes unused). `tests/e2e_fifo_test.act` reuses
+  last downstream port just goes unused). `tests/e2e/e2e_fifo_test.act` reuses
   the same `mmu` this way to split soc's external bus further into distinct
   peripherals: ROM at base=4, input FIFO at base=5, output FIFO at base=6.
 
@@ -62,7 +62,7 @@ rendezvous rather than being serviced with a not-yet-configured vector. This
 is what makes "wait for the program to finish booting" self-managed instead
 of needing a guessed delay: fire the interrupt any time, even at simulated
 time 0, and it'll naturally wait for the program's own vector-then-enable
-sequence — see `tests/e2e_fifo_test.act`, which does exactly that.
+sequence — see `tests/e2e/e2e_fifo_test.act`, which does exactly that.
 
 ## FIFO peripherals (`fifo_in.act` / `fifo_out.act`)
 
@@ -71,7 +71,7 @@ register (the address offset is ignored — there's only one meaningful
 register). Both guard their external port (`push`/`pop`) on the queue's fill
 count as a top-level, re-evaluated-every-iteration alternative in a probed
 selection — safe from deadlock, unlike gating the CPU-facing port the same
-way would be (see the comments in both files). `tests/fifo_test.act` is a
+way would be (see the comments in both files). `tests/peripherals/fifo_test.act` is a
 standalone unit test for both, independent of `soc`.
 
 **`fifo_in<DEPTH>`**: an external `push` port feeds it (e.g. a testbench
@@ -92,7 +92,7 @@ reaches `trigger_level` and nothing is wired to `event_out`, that send blocks
 forever — silently deadlocking `fifo_in` entirely (stuck mid-push, unable to
 service any further transaction, CPU or testbench). Anything that doesn't
 wire `event_out` up (e.g. because it's firing events manually instead, like
-`tests/e2e_multi_event_test.act`) must configure `trigger_level` to something
+`tests/e2e/e2e_multi_event_test.act`) must configure `trigger_level` to something
 unreachable (larger than `DEPTH`) — see `software/multi_event/main.c`'s
 comment for a real example of getting this wrong and the fix.
 
@@ -102,7 +102,7 @@ are rejected via `assert`. A write to a full FIFO **blocks** (real
 backpressure, like a hardware FIFO stalling the bus) rather than crashing —
 it simply doesn't accept the transaction until `pop` makes room.
 
-## End-to-end testbench (`tests/e2e_fifo_test.act`)
+## End-to-end testbench (`tests/e2e/e2e_fifo_test.act`)
 
 Models how the chip actually operates: bootloads a real compiled program
 (`software/application/main.c`, built `BOOT=1`-style), lets it configure its
@@ -117,7 +117,7 @@ test`) — it has its own dedicated Makefile rule, since it needs the
 per `make` invocation) can't guarantee that against an arbitrary `ROM_TEST`
 default.
 
-## Generality testbench (`tests/e2e_multi_event_test.act`)
+## Generality testbench (`tests/e2e/e2e_multi_event_test.act`)
 
 Same shape as `e2e_fifo_test.act` (boot a real program, fire interrupts,
 check FIFO output) but maxed out across the interrupt controller's full
@@ -151,19 +151,23 @@ layers of tests.
 
 ### Hardware testbenches (ACT/CHP)
 
-The CHP testbenches under `tests/*.act` exercise the individual blocks (ALU,
-MMU, register file, memory) and the assembled `soc`. Each reports
-`<name>: PASS` or `FAIL`.
+The CHP testbenches are split by kind: `tests/core/` (CPU/ISA datapath —
+hand-crafted instruction words, e.g. ALU, register file), `tests/peripherals/`
+(standalone peripheral/infra unit tests — MMU, memory, FIFOs), and
+`tests/e2e/` (full boot + real compiled program + real peripheral
+interaction). Each reports `<name>: PASS` or `FAIL`; `make` finds a test by
+name regardless of which subdirectory it lives in.
 
 ```
-make                 # build + run every tests/*.act  (alias: make test)
+make                 # build + run every test under tests/core, tests/peripherals, tests/sw
+                      # (alias: make test -- also runs tests/e2e/* via their own rules)
 make alu_test        # run a single testbench by name
 make list            # list the discovered testbench names
 ```
 
 ### RV32I software tests (real programs through soc)
 
-`tests/rom_program_test.act` runs a *compiled* RV32I program through `soc`'s
+`tests/sw/rom_program_test.act` runs a *compiled* RV32I program through `soc`'s
 real fetch/decode/execute pipeline (instead of hand-crafted instruction words),
 serving the program image as external memory. Programs live in two places:
 
@@ -202,8 +206,21 @@ works with either runner:
 ```
 make BOOT=1 ROM_TEST=addi rom_program_test   # one test, from internal memory
 make BOOT=1 software-tests                    # whole suite, from internal memory
-make BOOT=1 ROM_TEST=application rom_program_test  # the software/application demo
 ```
+
+**`rom_program_test` only works for programs with no real MMIO.** It wires
+`soc`'s entire external bus straight to one read-only `mem<true, ROM_IMAGE>`
+instance (see `tests/sw/rom_program_test.act`) -- correct for plain
+riscv-tests-style code (internal RAM + code fetch only), but any program that
+writes to a real peripheral address (base >= 4) will hit
+`ASSERTION failed: mem: write attempted to read-only memory`, since there's no
+demux there to route base=5/6 to an actual FIFO. `application` and
+`multi_event` (`software/application/`, `software/multi_event/`) both do real
+`FIFO_IN`/`FIFO_OUT` writes, so **don't** run them via `ROM_TEST=<name>
+rom_program_test` -- use `make e2e_fifo_test` / `make e2e_multi_event_test`
+instead, which wire up the real ROM@4 / FIFO_IN@5 / FIFO_OUT@6 demux these
+programs actually need (see `tests/e2e/e2e_fifo_test.act`). Both are always
+bootloader-loaded regardless of `BOOT` -- see below.
 
 `ROM_TEST=application` builds `software/application/main.c` (a generic C program,
 not a self-checking test); it is always bootloader-loaded. See
@@ -250,7 +267,7 @@ user-defined enums") or later — earlier versions crash (`Assertion: pos ==
 nvals` in `state.cc`) the instant a `deftype` struct with an enum-typed field
 (e.g. this project's `mode_mem_t`) is sent over a channel, which
 `mmu.act`/`mem.act` do on every memory transaction.
-`tests/mode_mem_t_enum_bug_test.act` is a standalone regression test for it. If
+`tests/peripherals/mode_mem_t_enum_bug_test.act` is a standalone regression test for it. If
 your `actsim` predates the fix, update the `actsim` submodule in your
 `act`/`actflow` checkout to `origin/master` and rebuild just `act` + `actsim`.
 
@@ -259,13 +276,15 @@ your `actsim` predates the fix, update the `actsim` submodule in your
 directory, not the importing file — so `soc.act`'s own `import "interrupt.act"`
 only resolves when the whole compilation runs with `actnow/` as the working
 directory. `make` handles this; to drive a testbench by hand (what
-`make <name>` does under the hood):
+`make <name>` does under the hood) -- substitute the right subdirectory
+(`tests/core/`, `tests/peripherals/`, `tests/sw/`, or `tests/e2e/`) for `<name>`'s
+actual location:
 
 ```
 cd actnow
-make file-registry                                    # once: generate gen/
-aflat tests/<name>.act
-actsim -cnf=gen/file_registry.conf tests/<name>.act <name>
+make file-registry                                              # once: generate gen/
+aflat tests/peripherals/<name>.act
+actsim -cnf=gen/file_registry.conf tests/peripherals/<name>.act <name>
 ```
 
 At the `actsim` prompt, `cycle` runs to completion, `quit` exits.
