@@ -589,40 +589,123 @@ split, `gpio.act`, `chips/bench/` pattern all exist and are stable).
       (`chips/bench/harness.act`, `tests/peripherals/fifo_test.act`,
       `chips/bench/tests/e2e/e2e_reset_reload_test.act`) updated to
       `fifo_in<4, WIDTH_DATA>`, preserving today's behavior exactly.
-- [ ] 3 events total: `event_id_0` driven directly by `fifo_in<DEPTH,
-      WIDTH_ADDR>`'s `event_out` (replacing `chips/bench`'s fifo_in-role);
-      `event_id_1`/`event_id_2` externally driven, same as
-      `chips/bench/core.act`'s spare interrupt lines. Lands in
-      `chips/dvs/harness.act` (2.5) — nothing to wire yet, since
-      `chips/dvs/` doesn't exist until GPIO reuse (2.2) and the SPI
-      peripherals (2.3) are also in place.
-- [ ] Remove `fifo_out` entirely — any chip-to-outside data path goes
-      through the bidirectional program/data SPI instead (2.3). Same as
-      above: a `chips/dvs/harness.act` decision, not yet implementable.
+- [x] 3 events total: new `chips/dvs/harness.act` + `chips/dvs/core.act`
+      (built incrementally starting here, rather than in one shot at 2.5 --
+      2.2/2.3/2.4 will extend these same two files rather than assembling
+      fresh ones). `chips/dvs/harness.act` is a demux with exactly one
+      route so far (`base=ADDR_AER=5`, `fifo_in<AER_DEPTH, WIDTH_ADDR>` --
+      the AER input, taking fifo_in's old base=5 slot from `chips/bench`).
+      `chips/dvs/core.act` wires `soc` + that harness together:
+      `event_id_0` is hardwired directly to the AER input's `event_out`
+      (unlike `chips/bench/core.act`'s `fifo_event`, left as an
+      independent, optionally-connected port -- dvs has no equivalent of
+      `e2e_multi_event_test.act`'s need to fire that line manually, so
+      there's no reason to expose the choice); `event_id_1`/`event_id_2`
+      are generic externally-driven pass-through lines, the dvs equivalent
+      of `chips/bench/core.act`'s spare interrupt lines (and where its two
+      GPIO input pins will come from -- 2.2). `event_id_3..15` are simply
+      never connected. Compile-checked by fully elaborating `core<8>`
+      (`aflat` on a throwaway instantiating file) -- clean, only the
+      pre-existing unrelated `mem.act` write-conflict warning that appears
+      on every `soc`-based compile. `make test`/`make software-tests` both
+      still pass (nothing here is reachable from the existing suite).
+- [x] Remove `fifo_out` entirely — satisfied by omission: `chips/dvs/
+      harness.act` never imports or instantiates `fifo_out.act`. Any
+      chip-to-outside data path will go through spi_prog instead (2.3, base
+      reserved at `ADDR_AER+1`, i.e. 6 -- fifo_out's old slot).
 - [x] **Gate:** `make test`/`make software-tests` both still pass with
       `fifo_in`'s new signature — verified end to end.
 
 ### 2.2 GPIO reuse
 
-- [ ] Reuse `core/peripherals/gpio.act` and the same 4-in/4-out pin
-      allocation from 1.6 unchanged; SWD's 2 pins stay stubbed/no-op.
+- [x] **Confirmed:** `core/peripherals/gpio.act` is fully chip-agnostic — a
+      generic MMIO register + 4 output pins, no `soc`/`chips/bench`-specific
+      coupling — so it's reused for `chips/dvs` with zero code changes.
+      The 4-in/4-out pin allocation from 1.6 carries over unchanged in
+      role, just re-targeted to dvs's own (smaller) event set: `gpio_in_0`/
+      `gpio_in_1` will wire onto `event_id_1`/`event_id_2` (dvs's two spare
+      lines, per 2.1 — the dvs equivalent of `chips/bench`'s
+      `event_id_14`/`event_id_15`), `swd_0`/`swd_1` stay stubbed/no-op, and
+      `gpio_out_0`..`gpio_out_3` pass through a `gpio` instance exactly like
+      `chips/bench/harness.act`'s does. Not wired yet -- `chips/dvs/
+      harness.act`/`core.act` now exist (started in 2.1) and will gain
+      these ports as an incremental extension when this stage is actually
+      implemented, the same way 2.3/2.4 will extend them further rather
+      than a one-shot assembly in 2.5.
 
 ### 2.3 SPI peripherals
 
-Transaction framing (both interfaces): 1 bit read(0)/write(1), 20-bit
-address, 32-bit data — one "transmission" per chip-select-low pulse.
+**Reworked mid-stage** — the first pass (both peripherals receiving `cs`/
+`mosi` as `chan?(bool)`, using each bit rendezvous as an implicit clock
+edge) was wrong: it modeled the dvs chip as the SPI *slave* on both
+interfaces, but both `spi_boot` and `spi_prog` are SPI **masters** —
+`spi_boot` actively reads its own boot image from an external flash;
+`spi_prog` actively streams RAM contents to an external device. A real SPI
+master always drives `cs`/`sclk`/`mosi` itself and only listens on `miso` —
+there's no external device handshaking back to synchronize against, so
+"one channel rendezvous per bit" doesn't correspond to anything a real SPI
+slave device would do. Fixed by making `cs`/`sclk`/`mosi`/`miso` plain
+`bool` wires (not `chan`) — real signal lines, not rendezvous channels —
+with the master side generating its own clock.
 
-- [ ] `core/peripherals/spi_boot.act` — unidirectional, read-only from the
-      chip's perspective: loads the bootloader image into RAM once at
-      boot, does nothing thereafter.
-- [ ] `core/peripherals/spi_prog.act` — bidirectional: implements the
-      transaction framing above, used both to push programs into memory
-      and to read/write data through the demux (replacing `fifo_out`'s old
-      role).
-- [ ] New unit tests: `tests/peripherals/spi_boot_test.act` and
-      `tests/peripherals/spi_prog_test.act`, each driving raw SPI-shaped
-      transactions and asserting the correct addr/mode/wdata/rdata sequence
-      comes out on the memory-facing side.
+**Async clock generation:** the textbook mechanism is request-attached-to-
+acknowledge through a delay line (`std::delay_lines::chain_delay_buffer`,
+`~/.local/act/act/std/delay_lines.act`) — a real `prs`-level circuit,
+confirmed mixable with `chp` at the language level. It works in isolation
+(verified standalone: `req := ~req; [ dl.out = req ]` produces correctly-
+paced self-timed edges). But actsim crashes — `Assertion failed, file
+core.cc, line 2814: offset >= 0`, in its multi-driver-conflict detection
+pass — on *any* `chp`-only process that both exposes a plain `bool` port to
+its parent and has a local variable connected (at any depth, even through
+a clean single-purpose wrapper process) to real `prs` circuitry. Minimally
+reproduced outside this project's files; looks like a genuine gap in this
+actsim build's support for hybrid `chp`/`prs` *port-level* boundaries,
+not a language issue. Decision: keep the real delay line as the intended
+mechanism (documented in both files' header comments) but simulate with a
+`SPI_CLOCK_DELAY_N`-bounded busy-wait loop (`core/globals.act`) as a
+CHP-behavioral stand-in for now — swap it back once the actsim issue is
+understood/fixed; nothing else about either peripheral needs to change
+when that happens.
+
+**spi_boot** (confirmed unchanged in role): answers `soc.act`'s hardcoded
+`pc := ADDR_RESET` fetch (base=4). Now actively pulls `IMAGE_WORDS`
+sequential words from an external SPI flash into its `mem<false, 0>`
+backing store at boot (sending each word's address out over `mosi`,
+reading the word back over `miso`) — a bounded loop, not a probed select
+on `cs`, since `cs` is a wire now, not a channel. After the boot load,
+falls into the same infinite CPU-read-servicing loop as before. No R/W bit
+needed (spi_boot only ever reads).
+
+**spi_prog** (role narrowed after explicit confirmation): stays a
+**RAM-facing bus master** exactly as before (`addr`/`mode`/`wdata`/`rdata`
+outward-facing, arbitrated into RAM alongside `spi_boot` in 2.4) — *not*
+flipped into a CPU-facing slave, even though "replacing `fifo_out`'s role"
+no longer quite applies, since a real SPI master can't also passively
+receive commands over `mosi` telling it what a CPU wants. Instead it
+decides its own address/data autonomously: a placeholder policy (walk a
+`WORD_COUNT`-word window of RAM starting at `BASE_OFFSET` once, read each
+word, push it out over SPI) stands in until the real triggering/addressing
+policy is defined. Bounded to one pass, like `spi_boot`'s boot load — an
+unbounded loop would keep generating events forever and never let
+`actsim`'s `cycle` command (run to quiescence) return, hanging `make`.
+Direction is fixed (RAM → external), so no `miso`/R-W-bit needed either.
+
+- [x] `core/peripherals/spi_boot.act` — as above.
+- [x] `core/peripherals/spi_prog.act` — as above.
+- [x] `core/globals.act`: added `SPI_CLOCK_DELAY_N` (busy-wait bound,
+      documented as a stand-in for the real delay line).
+- [x] Rewrote unit tests to match: `tests/peripherals/spi_boot_test.act`
+      now wires `spi_boot<2>` to a new `external_flash` process playing the
+      slave role (gated purely by observing `cs`/`sclk`/`mosi` transitions,
+      never rendezvousing with `spi_boot`), then checks the two words come
+      back correctly via the CPU-facing port. `tests/peripherals/
+      spi_prog_test.act` wires `spi_prog<8, 2>` to a `backend` (answers its
+      RAM reads) and a new `external_sink` process (checks what gets pushed
+      out over SPI matches expectations — since `spi_prog` never receives
+      anything back, verification now lives entirely in `external_sink`'s
+      asserts, not the top-level test driver).
+- [x] **Gate:** `make test` (still 26 testbenches, both SPI tests rewritten
+      in place) and `make software-tests` (38/38) both pass.
 
 ### 2.4 New demux wiring for dvs
 
@@ -637,10 +720,11 @@ address, 32-bit data — one "transmission" per chip-select-low pulse.
 
 ### 2.5 Assemble `chips/dvs/core.act`
 
-- [ ] `chips/dvs/harness.act` (3 events + AER input + GPIO + both SPIs +
-      the dvs demux, mirroring `chips/bench/harness.act`'s role) and `soc`
-      instantiated together into `chips/dvs/core.act` (mirroring
-      `chips/bench/core.act`).
+- [ ] `chips/dvs/harness.act` and `chips/dvs/core.act` already exist
+      (started in 2.1, with just the AER input + 3-event topology, no
+      `fifo_out`); this stage is "add the remaining pieces" (GPIO from 2.2,
+      both SPI peripherals + the dvs demux from 2.3/2.4), not a from-scratch
+      assembly.
 - [ ] New `chips/dvs/Makefile` (+ supporting scripts as needed), modeled on
       `chips/bench/Makefile` from 1.5, reusing existing test-running logic
       where practical.
@@ -675,5 +759,13 @@ actionable tasks until these are answered:
       both (e.g. forcing `pc`, halting the `chp` loop from outside)?
 - [ ] Is this needed on `chips/bench`, `chips/dvs`, or both?
 
+## Backlog
+
+- [ ] Configuring the SPI protocol with registers
+
+- [ ] Implement UART equivalent implementation in place of SI
+
 Once these are answered, expand this section into the same
 checkbox/Gate structure as Stages 1 and 2 before starting implementation.
+
+

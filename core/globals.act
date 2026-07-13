@@ -40,7 +40,27 @@ pint ADDR_INT_CTRL_ENABLE = 64;
 
 // GPIO output register (core/peripherals/gpio.act), routed by
 // chips/bench/harness.act's demux alongside ROM(4)/fifo_in(5)/fifo_out(6).
+// Reused unchanged by chips/dvs/harness.act (robustness.md Stage 2.2).
 pint ADDR_GPIO = 7;
+
+// AER (address-event) input, routed by chips/dvs/harness.act's demux --
+// takes fifo_in's old base=5 slot, since it replaces fifo_in's role there
+// (robustness.md Stage 2.1). Bases 4 and 6 are reserved for that harness's
+// two SPI peripherals (Stage 2.3: spi_boot at 4, taking over ROM's old
+// reset-vector-fetch role; spi_prog at 6).
+pint ADDR_AER = 5;
+
+// Busy-wait bound spi_boot/spi_prog use to self-time each sclk edge (both
+// are SPI *masters* -- a real external SPI device never hands back an
+// acknowledge of its own, so the clock has to pace itself, not wait on
+// rendezvous with anything downstream). This is a CHP-behavioral stand-in
+// for a real request-attached-to-acknowledge-through-a-delay-line clock
+// (std::delay_lines::chain_delay_buffer models that circuit for real, but
+// actsim currently crashes -- core.cc:2814, an internal multi-driver-
+// detection assertion -- on any chp process that mixes a plain bool port
+// with prs-connected circuitry, even through a clean wrapper process).
+// Swap this loop for the real delay line once that's resolved.
+pint SPI_CLOCK_DELAY_N = 4;
 
 // 8 Ki words
 pint SIZE_MEM_WORDS = 8 * 1024;

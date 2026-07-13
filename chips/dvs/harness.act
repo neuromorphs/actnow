@@ -1,0 +1,51 @@
+import "core/globals.act";
+import "core/peripherals/fifo_in.act";
+import "core/peripherals/demux.act";
+
+// dvs's off-chip periphery -- so far just the AER (address-event) input,
+// behind a demux (base=ADDR_AER, no catch-all), wired to whatever soc
+// instance's addr_ext/mode_ext/wdata_ext/rdata_ext boundary is connected to
+// addr_in/mode_in/wdata_in/rdata_in below.
+//
+// The AER input is fifo_in<AER_DEPTH, WIDTH_ADDR> -- core/peripherals/
+// fifo_in.act's own buffer/push element width was genericized specifically
+// so this chip variant could reuse it directly instead of needing its own
+// peripheral file (robustness.md Stage 2.1); WIDTH_ADDR (20 bits) is this
+// project's own address width, which an AER pixel-event payload naturally
+// matches.
+//
+// No fifo_out here or anywhere else in this chip variant -- any
+// chip-to-outside data path goes through spi_prog instead (Stage 2.3, not
+// yet added). spi_boot (base=ADDR_AER-1) and spi_prog (base=ADDR_AER+1)
+// will become two more demux routes here once they exist; GPIO
+// (core/peripherals/gpio.act, unchanged from chips/bench, Stage 2.2) will
+// become a fourth. Kept to just the one route for now rather than adding
+// placeholder ports for peripherals that don't exist yet.
+template<pint AER_DEPTH>
+defproc harness(
+    chan?(addr_t) addr_in;
+    chan?(mode_mem_t) mode_in;
+    chan?(int<WIDTH_DATA>) wdata_in;
+    chan!(int<WIDTH_DATA>) rdata_in;
+
+    chan?(int<WIDTH_ADDR>) aer_in;
+    chan!(bool) aer_event
+) {
+    pint DEMUX_N = 1;
+    pint DEMUX_BASES[DEMUX_N];
+    DEMUX_BASES = {ADDR_AER};
+    demux<DEMUX_N, DEMUX_BASES, ADDR_NO_CATCHALL> demux;
+
+    demux.addr_in = addr_in;
+    demux.mode_in = mode_in;
+    demux.wdata_in = wdata_in;
+    demux.rdata_in = rdata_in;
+
+    fifo_in<AER_DEPTH, WIDTH_ADDR> aer;
+    demux.addr_out[0] = aer.addr;
+    demux.mode_out[0] = aer.mode;
+    demux.wdata_out[0] = aer.wdata;
+    demux.rdata_out[0] = aer.rdata;
+    aer.push = aer_in;
+    aer.event_out = aer_event;
+}

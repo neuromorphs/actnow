@@ -1,0 +1,71 @@
+import "core/globals.act";
+
+// SPI data-streaming interface: a bus *master* toward RAM (addr/mode/wdata/
+// rdata are outward-facing, arbitrated into RAM alongside spi_boot's own
+// writes and the CPU's own accesses -- chips/dvs's own demux wiring,
+// robustness.md Stage 2.4) that is *also* an SPI master on its external
+// side, exactly like spi_boot: a real SPI master always drives cs/sclk/
+// mosi and only listens on miso, so there's no external commander left to
+// tell spi_prog what address/data to use the way the old (incorrect)
+// design assumed -- it decides for itself, autonomously.
+//
+// Placeholder policy (simplest protocol possible, easy to redirect if the
+// intended use is different): spi_prog walks a WORD_COUNT-word window of
+// RAM starting at BASE_OFFSET once, reads each word, and pushes it out
+// over SPI to an external device -- a one-shot RAM-to-external dump, the
+// mirror image of spi_boot's one-shot external-to-RAM boot load (and, like
+// it, bounded rather than free-running: an unbounded loop here would never
+// let the simulator reach quiescence). No R/W bit is needed since the
+// direction is fixed, and no miso either, since this direction never reads
+// anything back.
+//
+// Clock generation matches spi_boot: each sclk edge is self-timed by a
+// fixed busy-wait (SPI_CLOCK_DELAY_N, core/globals.act) -- a CHP-
+// behavioral stand-in for the real request-attached-to-acknowledge-
+// through-a-delay-line circuit (std::delay_lines::chain_delay_buffer),
+// which actsim can't currently simulate here (core.cc:2814 -- see
+// spi_boot.act's header comment for the full explanation).
+template<pint BASE_OFFSET; pint WORD_COUNT>
+defproc spi_prog(
+    chan!(addr_t) addr; chan!(mode_mem_t) mode;
+    chan!(int<WIDTH_DATA>) wdata; chan?(int<WIDTH_DATA>) rdata;
+
+    bool! cs; bool! sclk; bool! mosi
+) {
+    addr_t a;
+    mode_mem_t rd_mode;
+    int<WIDTH_DATA> shift, val;
+    int i, w, k;
+
+    chp {
+        cs := false; sclk := false; mosi := false;
+        rd_mode.op := op_mem_t.R; rd_mode.size := size_mem_t.WORD;
+
+        w := 0;
+        *[ w < WORD_COUNT ->
+            a.base := 0; a.offset := int(BASE_OFFSET + w * 4, WIDTH_ADDR_OFFSET);
+            addr!a; mode!rd_mode; rdata?val;
+
+            cs := true;
+
+            shift := int(BASE_OFFSET + w * 4, WIDTH_DATA) << (WIDTH_DATA - WIDTH_ADDR); i := 0;
+            *[ i < WIDTH_ADDR ->
+                mosi := (shift{31} = 1); shift := shift << 1;
+                sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                i := i + 1
+            ];
+
+            shift := val; i := 0;
+            *[ i < WIDTH_DATA ->
+                mosi := (shift{31} = 1); shift := shift << 1;
+                sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                i := i + 1
+            ];
+
+            cs := false;
+            w := w + 1
+        ]
+    }
+}

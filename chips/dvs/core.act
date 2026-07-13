@@ -1,0 +1,45 @@
+import "core/globals.act";
+import "core/soc.act";
+import "chips/dvs/harness.act";
+
+// dvs's whole chip so far: soc + its off-chip periphery (chips/dvs/
+// harness.act) wired together. Only 3 of soc's 16 event lines are used
+// (robustness.md Stage 2.1's dvs event topology):
+//   - event_id_0 is hardwired directly to the AER input's own event_out --
+//     unlike chips/bench/core.act's fifo_event (left as an independent,
+//     optionally-connected port), dvs has no equivalent of
+//     e2e_multi_event_test.act's need to fire that line manually instead,
+//     so there's no reason to expose the choice.
+//   - event_id_1/event_id_2 are generic externally-driven pass-through
+//     lines, the dvs equivalent of chips/bench/core.act's spare interrupt
+//     lines (which is also where its two GPIO input pins will come from --
+//     robustness.md Stage 2.2, not wired here yet).
+// event_id_3..15 are simply never connected -- dvs has no use for them.
+//
+// GPIO and the two SPI peripherals aren't wired up yet (Stages 2.2/2.3);
+// this exposes only what Stage 2.1 needs.
+template<pint AER_DEPTH>
+defproc core(
+    chan?(bool) event_id_1;
+    chan?(bool) event_id_2;
+    chan?(bool) reset_ext;
+
+    chan?(int<WIDTH_ADDR>) aer_in
+) {
+    soc s;
+    harness<AER_DEPTH> h;
+
+    h.addr_in = s.addr_ext;
+    h.mode_in = s.mode_ext;
+    h.wdata_in = s.wdata_ext;
+    h.rdata_in = s.rdata_ext;
+    h.aer_in = aer_in;
+
+    chan(bool) aer_event;
+    h.aer_event = aer_event;
+    s.event_id_0 = aer_event;
+
+    s.event_id_1 = event_id_1;
+    s.event_id_2 = event_id_2;
+    s.reset_ext = reset_ext;
+}

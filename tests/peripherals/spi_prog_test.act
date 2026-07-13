@@ -1,0 +1,103 @@
+import "core/globals.act";
+import "core/peripherals/spi_prog.act";
+
+// RAM-facing stub: answers spi_prog's own read requests (spi_prog is the
+// bus master toward RAM here, not the CPU) with fixed known values at the
+// two offsets this test's spi_prog<8, 2> instance will read.
+defproc backend(
+    chan?(addr_t) addr; chan?(mode_mem_t) mode;
+    chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata
+) {
+    addr_t a;
+    mode_mem_t md;
+
+    chp {
+        *[
+            addr?a; mode?md;
+            assert(md.op = op_mem_t.R, "backend: spi_prog should only ever read RAM");
+            [
+                a.offset = 8 -> rdata!int(0x11223344, WIDTH_DATA)
+                [] a.offset = 12 -> rdata!int(0xCAFEBABE, WIDTH_DATA)
+                [] else -> assert(false, "backend: unexpected offset ", a.offset)
+            ]
+        ]
+    }
+}
+
+// Plays the external SPI device's role that spi_prog (the master) streams
+// RAM contents out to: a slave gated purely by observing cs/sclk/mosi
+// transitions, matching a real (non-ACT) external SPI memory/logger --
+// spi_prog never hands anything back to check against, so this is where
+// the actual verification of what got sent lives.
+defproc external_sink(
+    bool? cs; bool? sclk; bool? mosi
+) {
+    int<WIDTH_DATA> expect_addr[2], expect_data[2];
+    int<WIDTH_DATA> addr_shift, data_shift, exp_addr, exp_data;
+    int i, w;
+    bool bit;
+
+    chp {
+        expect_addr[0] := int(8, WIDTH_DATA);  expect_data[0] := int(0x11223344, WIDTH_DATA);
+        expect_addr[1] := int(12, WIDTH_DATA); expect_data[1] := int(0xCAFEBABE, WIDTH_DATA);
+
+        w := 0;
+        *[ w < 2 ->
+            [cs];
+            exp_addr := expect_addr[w]; exp_data := expect_data[w];
+
+            addr_shift := 0; i := 0;
+            *[ i < WIDTH_ADDR ->
+                [sclk];
+                bit := mosi;
+                addr_shift := (addr_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+                [~sclk];
+                i := i + 1
+            ];
+            assert(addr_shift = exp_addr, "external_sink: addr mismatch, want ", exp_addr);
+
+            data_shift := 0; i := 0;
+            *[ i < WIDTH_DATA ->
+                [sclk];
+                bit := mosi;
+                data_shift := (data_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+                [~sclk];
+                i := i + 1
+            ];
+            assert(data_shift = exp_data, "external_sink: data mismatch, want ", exp_data);
+            log("external_sink: word ", w, " matched"); log("%xexternal_sink: data=0x", data_shift);
+
+            [~cs];
+            w := w + 1
+        ]
+    }
+}
+
+// Wires spi_prog (as the SPI master, and separately as a RAM-facing bus
+// master) to backend (RAM) and external_sink (the SPI device it streams
+// to). spi_prog<8, 2> reads offsets 8 and 12 from backend once, at
+// startup, and pushes both out over SPI -- external_sink's asserts are
+// the actual pass/fail check.
+defproc spi_prog_test() {
+    spi_prog<8, 2> sp;
+    backend be;
+    external_sink es;
+
+    chan(addr_t) addr;
+    chan(mode_mem_t) mode;
+    chan(int<WIDTH_DATA>) wdata;
+    chan(int<WIDTH_DATA>) rdata;
+    bool cs, sclk, mosi;
+
+    sp.addr = addr; sp.mode = mode; sp.wdata = wdata; sp.rdata = rdata;
+    be.addr = addr; be.mode = mode; be.wdata = wdata; be.rdata = rdata;
+
+    sp.cs = cs; sp.sclk = sclk; sp.mosi = mosi;
+    es.cs = cs; es.sclk = sclk; es.mosi = mosi;
+
+    chp {
+        log("======== spi_prog test start ========")
+    }
+}
+
+spi_prog_test spt;
