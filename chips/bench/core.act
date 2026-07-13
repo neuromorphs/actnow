@@ -1,0 +1,68 @@
+import "core/globals.act";
+import "core/soc.act";
+import "chips/bench/harness.act";
+
+// chips/bench's whole chip: soc (core/soc.act) + its off-chip periphery
+// (chips/bench/harness.act) wired together, exposing exactly what a
+// chips/bench testbench needs to drive it -- all 16 event lines (pass-
+// through to soc, uniform and undifferentiated: which one, if any, ends up
+// carrying fifo_in's auto-fire is decided by the caller via `fifo_event`,
+// not baked in here -- see harness.act), `reset_ext` (core/soc.act,
+// robustness.md Stage 1.4), `fifo_event` (fifo_in's auto-fire, left for the
+// caller to route into one of the event lines or ignore), and the input/
+// output FIFO's push/pop ports. GPIO (robustness.md Stage 1.6) will extend
+// this port list once it lands.
+template<pint ROM_IMAGE>
+defproc core(
+    chan?(bool) event_id_0;
+    chan?(bool) event_id_1;
+    chan?(bool) event_id_2;
+    chan?(bool) event_id_3;
+    chan?(bool) event_id_4;
+    chan?(bool) event_id_5;
+    chan?(bool) event_id_6;
+    chan?(bool) event_id_7;
+    chan?(bool) event_id_8;
+    chan?(bool) event_id_9;
+    chan?(bool) event_id_10;
+    chan?(bool) event_id_11;
+    chan?(bool) event_id_12;
+    chan?(bool) event_id_13;
+    chan?(bool) event_id_14;
+    chan?(bool) event_id_15;
+    chan?(bool) reset_ext;
+
+    chan!(bool) fifo_event;
+
+    chan?(int<WIDTH_DATA>) push;
+    chan!(int<WIDTH_DATA>) pop
+) {
+    soc s;
+    harness<ROM_IMAGE> h;
+
+    h.addr_in = s.addr_ext;
+    h.mode_in = s.mode_ext;
+    h.wdata_in = s.wdata_ext;
+    h.rdata_in = s.rdata_ext;
+    h.fifo_event = fifo_event;
+    h.push = push;
+    h.pop = pop;
+
+    s.event_id_0 = event_id_0;
+    s.event_id_1 = event_id_1;
+    s.event_id_2 = event_id_2;
+    s.event_id_3 = event_id_3;
+    s.event_id_4 = event_id_4;
+    s.event_id_5 = event_id_5;
+    s.event_id_6 = event_id_6;
+    s.event_id_7 = event_id_7;
+    s.event_id_8 = event_id_8;
+    s.event_id_9 = event_id_9;
+    s.event_id_10 = event_id_10;
+    s.event_id_11 = event_id_11;
+    s.event_id_12 = event_id_12;
+    s.event_id_13 = event_id_13;
+    s.event_id_14 = event_id_14;
+    s.event_id_15 = event_id_15;
+    s.reset_ext = reset_ext;
+}

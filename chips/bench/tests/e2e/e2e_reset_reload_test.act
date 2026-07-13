@@ -10,6 +10,14 @@ import "gen/file_ids.act";
 // reset can recover from a genuinely different, broken program by rebooting
 // into a genuinely different, corrected one.
 //
+// Doesn't use chips/bench/core.act -- core.act's periphery (chips/bench/
+// harness.act) is parameterized on a single ROM_IMAGE, but this scenario
+// needs two independent backing ROMs (ROM_IMAGE_HANG/ROM_IMAGE_APPLICATION)
+// behind a rom_selector mux, which is exactly the piece harness.act doesn't
+// (and shouldn't) know about -- so this test hand-rolls soc + demux +
+// rom_selector + fifo_in/fifo_out directly instead, same shape as before
+// robustness.md Stage 1.5's harness extraction.
+//
 // software/hang/main.c is deliberately erroneous: a real infinite loop that
 // never configures or services any peripheral (see tests/e2e/hang_repro_test
 // history in robustness.md -- confirmed via a standalone repro that this

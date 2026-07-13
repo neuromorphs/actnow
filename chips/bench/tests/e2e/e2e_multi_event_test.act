@@ -1,11 +1,8 @@
-import "core/soc.act";
-import "core/peripherals/fifo_in.act";
-import "core/peripherals/fifo_out.act";
-import "core/peripherals/demux.act";
+import "chips/bench/core.act";
 import "gen/file_ids.act";
 
 // Generality/stress testbench: boots a real compiled program
-// (software/multi_event/main.c, built BOOT=1-style -- see the top-level
+// (software/multi_event/main.c, built BOOT=1-style -- see chips/bench/
 // Makefile's software/<name>/ handling) that registers a DISTINCT ISR for
 // every one of the 16 maskable event lines, each computing a different,
 // easy-to-verify transform (ISR N: out = in + (N+1)). This testbench fires
@@ -16,64 +13,39 @@ import "gen/file_ids.act";
 // *full* width of the interrupt controller (interrupt.act), not just the
 // one or two lines the other demos exercise.
 //
-// soc's event_id_N ports are individually named (not an array), so this
+// core's event_id_N ports are individually named (not an array), so this
 // wires each one to a slot in a local channel array (event_ch) purely so
 // the driving loop below can index into it with a runtime variable --
-// soc/interrupt.act themselves are unchanged from every other test.
+// soc/interrupt.act themselves are unchanged from every other test. Unlike
+// e2e_fifo_test.act / e2e_reset_test.act, `c.fifo_event` is deliberately
+// left unconnected here -- fifo_in can only ever auto-fire one event line,
+// and this test's whole point is exercising all sixteen manually and
+// uniformly instead (see software/multi_event/main.c's own comment on why
+// its trigger_level is configured unreachable).
 //
 // Address layout matches e2e_fifo_test.act: base=4 ROM (bootloader only),
-// base=5/6 the input/output FIFOs. fifo_in's auto-fire (event_out) isn't
-// used here -- every event is fired manually, uniformly, since fifo_in can
-// only ever be wired to one event line and this test's whole point is
-// exercising all sixteen.
+// base=5/6 the input/output FIFOs, via chips/bench/core.act's standard
+// periphery.
 defproc e2e_multi_event_test() {
-    soc s;
-
-    pint DEMUX_N = 3;
-    pint DEMUX_BASES[DEMUX_N];
-    DEMUX_BASES = {4, 5, 6};
-    demux<DEMUX_N, DEMUX_BASES, ADDR_NO_CATCHALL> demux;
-
-    demux.addr_in = s.addr_ext;
-    demux.mode_in = s.mode_ext;
-    demux.wdata_in = s.wdata_ext;
-    demux.rdata_in = s.rdata_ext;
-
-    mem<true, ROM_IMAGE> rom;
-    demux.addr_out[0] = rom.addr;
-    demux.mode_out[0] = rom.mode;
-    demux.wdata_out[0] = rom.wdata;
-    demux.rdata_out[0] = rom.rdata;
-
-    fifo_in<4> fin;
-    demux.addr_out[1] = fin.addr;
-    demux.mode_out[1] = fin.mode;
-    demux.wdata_out[1] = fin.wdata;
-    demux.rdata_out[1] = fin.rdata;
-
-    fifo_out<4> fout;
-    demux.addr_out[2] = fout.addr;
-    demux.mode_out[2] = fout.mode;
-    demux.wdata_out[2] = fout.wdata;
-    demux.rdata_out[2] = fout.rdata;
+    core<ROM_IMAGE> c;
 
     chan(bool) event_ch[16];
-    event_ch[0] = s.event_id_0;
-    event_ch[1] = s.event_id_1;
-    event_ch[2] = s.event_id_2;
-    event_ch[3] = s.event_id_3;
-    event_ch[4] = s.event_id_4;
-    event_ch[5] = s.event_id_5;
-    event_ch[6] = s.event_id_6;
-    event_ch[7] = s.event_id_7;
-    event_ch[8] = s.event_id_8;
-    event_ch[9] = s.event_id_9;
-    event_ch[10] = s.event_id_10;
-    event_ch[11] = s.event_id_11;
-    event_ch[12] = s.event_id_12;
-    event_ch[13] = s.event_id_13;
-    event_ch[14] = s.event_id_14;
-    event_ch[15] = s.event_id_15;
+    event_ch[0] = c.event_id_0;
+    event_ch[1] = c.event_id_1;
+    event_ch[2] = c.event_id_2;
+    event_ch[3] = c.event_id_3;
+    event_ch[4] = c.event_id_4;
+    event_ch[5] = c.event_id_5;
+    event_ch[6] = c.event_id_6;
+    event_ch[7] = c.event_id_7;
+    event_ch[8] = c.event_id_8;
+    event_ch[9] = c.event_id_9;
+    event_ch[10] = c.event_id_10;
+    event_ch[11] = c.event_id_11;
+    event_ch[12] = c.event_id_12;
+    event_ch[13] = c.event_id_13;
+    event_ch[14] = c.event_id_14;
+    event_ch[15] = c.event_id_15;
 
     int<WIDTH_DATA> pushed, result, expected;
     int<5> i;
@@ -93,10 +65,10 @@ defproc e2e_multi_event_test() {
             pushed := int(100, WIDTH_DATA) + int(i, WIDTH_DATA);
             expected := pushed + int(i, WIDTH_DATA) + 1;
 
-            fin.push!pushed;
+            c.push!pushed;
             [ ([]k:16: i = k -> event_ch[k]!(true)) ];
 
-            fout.pop?result;
+            c.pop?result;
             assert(result = expected, "event ", i, ": want ", expected, ", got ", result);
             log("event ", i, ": pushed ", pushed, ", got ", result, " (correct)");
 

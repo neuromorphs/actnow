@@ -1,12 +1,9 @@
-import "core/soc.act";
-import "core/peripherals/fifo_in.act";
-import "core/peripherals/fifo_out.act";
-import "core/peripherals/demux.act";
+import "chips/bench/core.act";
 import "gen/file_ids.act";
 
 // End-to-end testbench modeling how this chip actually operates: bootload a
 // real compiled program (software/application/main.c, built BOOT=1-style --
-// see the top-level Makefile's `ROM_TEST=application` handling), let it
+// see chips/bench/Makefile's `ROM_TEST=application` handling), let it
 // configure its own interrupt vector, its input FIFO's trigger level
 // (BATCH=3, see main.c), and go to sleep (WFI). Then push two separate
 // 3-word batches into the input FIFO (with a delay between them, modeling
@@ -22,40 +19,14 @@ import "gen/file_ids.act";
 //             jumps to SRAM -- nothing after that ever touches it again)
 //   base=5 -> input FIFO (fifo_in.act)
 //   base=6 -> output FIFO (fifo_out.act)
-// This external bus is a plain N-way address demux -- demux.act's generic
-// router reused with no catch-all (ADDR_NO_CATCHALL disables it, since
-// every address out here is one of the three exact bases above).
+// This is chips/bench/core.act's standard periphery (chips/bench/
+// harness.act) -- fifo_in's auto-fire is routed to event_id_0, matching
+// real chips/bench wiring, since this test relies on it (unlike
+// e2e_multi_event_test.act, which drives all 16 event lines manually
+// instead and leaves fifo_event disconnected).
 defproc e2e_fifo_test() {
-    soc s;
-
-    pint DEMUX_N = 3;
-    pint DEMUX_BASES[DEMUX_N];
-    DEMUX_BASES = {4, 5, 6};
-    demux<DEMUX_N, DEMUX_BASES, ADDR_NO_CATCHALL> demux;
-
-    demux.addr_in = s.addr_ext;
-    demux.mode_in = s.mode_ext;
-    demux.wdata_in = s.wdata_ext;
-    demux.rdata_in = s.rdata_ext;
-
-    mem<true, ROM_IMAGE> rom;
-    demux.addr_out[0] = rom.addr;
-    demux.mode_out[0] = rom.mode;
-    demux.wdata_out[0] = rom.wdata;
-    demux.rdata_out[0] = rom.rdata;
-
-    fifo_in<4> fin;
-    demux.addr_out[1] = fin.addr;
-    demux.mode_out[1] = fin.mode;
-    demux.wdata_out[1] = fin.wdata;
-    demux.rdata_out[1] = fin.rdata;
-    fin.event_out = s.event_id_0;
-
-    fifo_out<4> fout;
-    demux.addr_out[2] = fout.addr;
-    demux.mode_out[2] = fout.mode;
-    demux.wdata_out[2] = fout.wdata;
-    demux.rdata_out[2] = fout.rdata;
+    core<ROM_IMAGE> c;
+    c.event_id_0 = c.fifo_event;
 
     int<WIDTH_DATA> result;
     int<32> delay;
@@ -77,15 +48,15 @@ defproc e2e_fifo_test() {
         // event_out (BATCH=3, configured by main()) -- nothing here fires
         // an interrupt directly.
         log("--- batch 1: pushing 41, 42, 43 into the input FIFO ---");
-        fin.push!int(41, WIDTH_DATA);
-        fin.push!int(42, WIDTH_DATA);
-        fin.push!int(43, WIDTH_DATA);
+        c.push!int(41, WIDTH_DATA);
+        c.push!int(42, WIDTH_DATA);
+        c.push!int(43, WIDTH_DATA);
 
-        fout.pop?result;
+        c.pop?result;
         assert(result = 42, "batch 1 result 1: want 42, got ", result);
-        fout.pop?result;
+        c.pop?result;
         assert(result = 43, "batch 1 result 2: want 43, got ", result);
-        fout.pop?result;
+        c.pop?result;
         assert(result = 44, "batch 1 result 3: want 44, got ", result);
         log("batch 1: got 42, 43, 44 back from the output FIFO");
 
@@ -98,15 +69,15 @@ defproc e2e_fifo_test() {
         // reconfigures anything between events, exactly like a real
         // interrupt handler that just keeps running.
         log("--- batch 2: pushing 100, 200, 300 into the input FIFO ---");
-        fin.push!int(100, WIDTH_DATA);
-        fin.push!int(200, WIDTH_DATA);
-        fin.push!int(300, WIDTH_DATA);
+        c.push!int(100, WIDTH_DATA);
+        c.push!int(200, WIDTH_DATA);
+        c.push!int(300, WIDTH_DATA);
 
-        fout.pop?result;
+        c.pop?result;
         assert(result = 101, "batch 2 result 1: want 101, got ", result);
-        fout.pop?result;
+        c.pop?result;
         assert(result = 201, "batch 2 result 2: want 201, got ", result);
-        fout.pop?result;
+        c.pop?result;
         assert(result = 301, "batch 2 result 3: want 301, got ", result);
         log("batch 2: got 101, 201, 301 back from the output FIFO");
 

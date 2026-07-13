@@ -9,4 +9,4 @@ software/**/build/
 /gen/
 __pycache__/
 
-.claude
+.claude/*

@@ -1,0 +1,68 @@
+import "core/globals.act";
+import "core/peripherals/mem.act";
+import "core/peripherals/fifo_in.act";
+import "core/peripherals/fifo_out.act";
+import "core/peripherals/demux.act";
+
+// chips/bench's off-chip periphery: ROM + input FIFO + output FIFO behind a
+// 3-way demux (base=4/5/6, no catch-all -- see demux.act), wired to whatever
+// soc instance's addr_ext/mode_ext/wdata_ext/rdata_ext boundary is connected
+// to addr_in/mode_in/wdata_in/rdata_in below. Previously hand-rolled
+// identically inline in tests/e2e/e2e_fifo_test.act,
+// tests/e2e/e2e_multi_event_test.act, and tests/e2e/e2e_reset_test.act --
+// extracted here (robustness.md Stage 1.5) as the one shared definition of
+// "what chips/bench's periphery actually looks like".
+//
+// fifo_in's auto-fire (event_out) is exposed as `fifo_event` rather than
+// hardwired to any particular soc event line here -- real hardware wires it
+// directly to one of soc's event_id_N ports (see core/peripherals/
+// fifo_in.act / the README), but which one, and whether it's used at all, is
+// a wiring decision made one level up in chips/bench/core.act, not something
+// this process should bake in. e2e_multi_event_test.act deliberately leaves
+// it unconnected (it drives all 16 event lines manually instead); an
+// unconnected chan port is safe here as long as it's never sent on, which
+// holds as long as fifo_in's trigger_level stays configured unreachable in
+// that scenario (see fifo_in.act's own comment).
+template<pint ROM_IMAGE>
+defproc harness(
+    chan?(addr_t) addr_in;
+    chan?(mode_mem_t) mode_in;
+    chan?(int<WIDTH_DATA>) wdata_in;
+    chan!(int<WIDTH_DATA>) rdata_in;
+
+    chan!(bool) fifo_event;
+
+    chan?(int<WIDTH_DATA>) push;
+    chan!(int<WIDTH_DATA>) pop
+) {
+    pint DEMUX_N = 3;
+    pint DEMUX_BASES[DEMUX_N];
+    DEMUX_BASES = {4, 5, 6};
+    demux<DEMUX_N, DEMUX_BASES, ADDR_NO_CATCHALL> demux;
+
+    demux.addr_in = addr_in;
+    demux.mode_in = mode_in;
+    demux.wdata_in = wdata_in;
+    demux.rdata_in = rdata_in;
+
+    mem<true, ROM_IMAGE> rom;
+    demux.addr_out[0] = rom.addr;
+    demux.mode_out[0] = rom.mode;
+    demux.wdata_out[0] = rom.wdata;
+    demux.rdata_out[0] = rom.rdata;
+
+    fifo_in<4> fin;
+    demux.addr_out[1] = fin.addr;
+    demux.mode_out[1] = fin.mode;
+    demux.wdata_out[1] = fin.wdata;
+    demux.rdata_out[1] = fin.rdata;
+    fin.event_out = fifo_event;
+    fin.push = push;
+
+    fifo_out<4> fout;
+    demux.addr_out[2] = fout.addr;
+    demux.mode_out[2] = fout.mode;
+    demux.wdata_out[2] = fout.wdata;
+    demux.rdata_out[2] = fout.rdata;
+    fout.pop = pop;
+}

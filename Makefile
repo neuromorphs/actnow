@@ -18,22 +18,24 @@ ACTSIM := actsim
 # Tests live under tests/core (CPU/ISA datapath unit tests), tests/peripherals
 # (standalone peripheral/infra unit tests), tests/regression (one-off
 # bug-repro tests, kept separate so tests/peripherals stays one file per
-# peripheral), tests/sw (the generic real-program-through-soc runner), and
-# tests/e2e (full boot + real compiled program + real peripheral
-# interaction). e2e tests are discovered separately and given their own
-# rules below -- each needs a specific ROM image (a different
+# peripheral), and tests/sw (the generic real-program-through-soc runner).
+# e2e tests (full boot + real compiled program + real peripheral
+# interaction) live under chips/bench/tests/e2e/ instead -- they wire
+# through one specific chip variant's harness (chips/bench/core.act), not
+# the chip-agnostic tree here -- and are delegated to chips/bench/Makefile
+# below, since each needs a specific ROM image (a different
 # software/<name>/ program) that the shared
 # $(FILE_REGISTRY_GEN)/$(ROM_IMAGE) prerequisite chain can't guarantee (see
-# e2e_fifo_test's own rule comment for why).
+# chips/bench/Makefile's own e2e_fifo_test rule comment for why).
 TESTS := $(basename $(notdir $(wildcard tests/core/*.act tests/peripherals/*.act tests/regression/*.act tests/sw/*.act)))
 FILE_REGISTRY     := tests/files/file_registry.txt
 FILE_REGISTRY_GEN := gen/file_ids.act gen/file_registry.conf
 
 # Resolves a bare test name (e.g. "alu_test") to its actual path under
-# tests/core, tests/peripherals, tests/regression, tests/sw, or tests/e2e --
-# lets the generic per-test rule and the dedicated e2e rules work by name
-# regardless of which subdirectory a test lives in.
-TEST_SRC = $(firstword $(wildcard tests/core/$(1).act tests/peripherals/$(1).act tests/regression/$(1).act tests/sw/$(1).act tests/e2e/$(1).act))
+# tests/core, tests/peripherals, tests/regression, or tests/sw -- lets the
+# generic per-test rule work by name regardless of which subdirectory a test
+# lives in. e2e tests aren't resolved here -- see chips/bench/Makefile.
+TEST_SRC = $(firstword $(wildcard tests/core/$(1).act tests/peripherals/$(1).act tests/regression/$(1).act tests/sw/$(1).act))
 
 # Compiled program image consumed by tests/sw/rom_program_test.act, registered as
 # ROM_IMAGE in $(FILE_REGISTRY). It's a build artifact (see software/tests/), so
@@ -89,7 +91,7 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  make / make all / make test  run every test: tests/core, tests/peripherals,"
-	@echo "                               tests/regression, tests/sw, plus both e2e tests"
+	@echo "                               tests/regression, tests/sw, plus all four e2e tests"
 	@echo "  make <name>                  run a single test by name, e.g. make wfi_test"
 	@echo "                               (any test under tests/core, tests/peripherals,"
 	@echo "                               tests/regression, or tests/sw)"
@@ -166,119 +168,13 @@ $(TESTS): $(FILE_REGISTRY_GEN)
 		echo "$@: PASS"; \
 	fi
 
-# e2e_fifo_test.act exercises software/application/main.c's real
-# interrupt/FIFO flow specifically -- it needs that exact ROM image, not
-# whatever ROM_TEST happens to default to. $(ROM_IMAGE) is a shared file
-# target that make only rebuilds once per invocation (the first time
-# anything needs it) -- a plain prerequisite or target-specific variable
-# can't force a *second* rebuild here if some earlier test in the same
-# `make test` sweep already claimed it with a different ROM_TEST. And
-# against a mismatched image, this doesn't fail loudly: the unconfigured
-# interrupt vector just sends pc back to that image's own _start instead of
-# a real ISR, this test's own fout.pop blocks forever, and actsim quiesces
-# -- a false PASS from the assertion-grep, since nothing ever actually
-# asserts. So: force a fresh image via an explicit sub-make (a genuinely
-# separate invocation, unaffected by whatever the outer one already built),
-# exactly like software-tests already does per test, then restore the
-# default afterward so a later `make rom_program_test` stays deterministic.
-e2e_fifo_test:
-	@echo "--- e2e_fifo_test ---"
-	@rm -f $(ROM_IMAGE) software/tests/build/rom.mem software/build/rom.mem
-	@$(MAKE) -s ROM_TEST=application CROSS=$(CROSS) file-registry
-	@$(AFLAT) tests/e2e/e2e_fifo_test.act
-	@out=$$(printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf tests/e2e/e2e_fifo_test.act e2e_fifo_test 2>&1); \
-	status=$$?; \
-	echo "$$out"; \
-	rm -f $(ROM_IMAGE) software/tests/build/rom.mem software/build/rom.mem; \
-	$(MAKE) -s ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
-	if [ $$status -ne 0 ]; then \
-		echo "e2e_fifo_test: FAIL"; exit $$status; \
-	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
-		echo "e2e_fifo_test: FAIL"; exit 1; \
-	elif ! echo "$$out" | grep -qi "test complete"; then \
-		echo "e2e_fifo_test: FAIL (no completion)"; exit 1; \
-	else \
-		echo "e2e_fifo_test: PASS"; \
-	fi
-
-# Same rationale and pattern as e2e_fifo_test above, pinned to
-# software/multi_event/main.c instead.
-e2e_multi_event_test:
-	@echo "--- e2e_multi_event_test ---"
-	@rm -f $(ROM_IMAGE) software/tests/build/rom.mem software/build/rom.mem
-	@$(MAKE) -s ROM_TEST=multi_event CROSS=$(CROSS) file-registry
-	@$(AFLAT) tests/e2e/e2e_multi_event_test.act
-	@out=$$(printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf tests/e2e/e2e_multi_event_test.act e2e_multi_event_test 2>&1); \
-	status=$$?; \
-	echo "$$out"; \
-	rm -f $(ROM_IMAGE) software/tests/build/rom.mem software/build/rom.mem; \
-	$(MAKE) -s ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
-	if [ $$status -ne 0 ]; then \
-		echo "e2e_multi_event_test: FAIL"; exit $$status; \
-	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
-		echo "e2e_multi_event_test: FAIL"; exit 1; \
-	elif ! echo "$$out" | grep -qi "test complete"; then \
-		echo "e2e_multi_event_test: FAIL (no completion)"; exit 1; \
-	else \
-		echo "e2e_multi_event_test: PASS"; \
-	fi
-
-# Exercises core/soc.act's reset_ext port with a real compiled program
-# through the real bootloader (unlike tests/core/reset_test.act, which
-# hand-assembles instructions directly): boots software/application/main.c,
-# runs one batch through it, fires external reset, then confirms the exact
-# same bootloader+program combination cleanly reboots from scratch --
-# re-copying itself into SRAM and re-configuring its own interrupt vector/
-# FIFO trigger level/enable bit, since reset clears the interrupt
-# controller's config -- and correctly runs a second batch. Same
-# ROM-pinning rationale as e2e_fifo_test above (needs this exact image, not
-# whatever ROM_TEST defaults to).
-e2e_reset_test:
-	@echo "--- e2e_reset_test ---"
-	@rm -f $(ROM_IMAGE) software/tests/build/rom.mem software/build/rom.mem
-	@$(MAKE) -s ROM_TEST=application CROSS=$(CROSS) file-registry
-	@$(AFLAT) tests/e2e/e2e_reset_test.act
-	@out=$$(printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf tests/e2e/e2e_reset_test.act e2e_reset_test 2>&1); \
-	status=$$?; \
-	echo "$$out"; \
-	rm -f $(ROM_IMAGE) software/tests/build/rom.mem software/build/rom.mem; \
-	$(MAKE) -s ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
-	if [ $$status -ne 0 ]; then \
-		echo "e2e_reset_test: FAIL"; exit $$status; \
-	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
-		echo "e2e_reset_test: FAIL"; exit 1; \
-	elif ! echo "$$out" | grep -qi "test complete"; then \
-		echo "e2e_reset_test: FAIL (no completion)"; exit 1; \
-	else \
-		echo "e2e_reset_test: PASS"; \
-	fi
-
-# The full "oh shit, wrong firmware -- reset and reboot into the corrected
-# one" scenario: unlike e2e_reset_test above (which reboots the *same*
-# image), this boots a genuinely broken program (software/hang, an infinite
-# loop that never services anything), then flips core/peripherals/
-# rom_selector.act's bank select to the corrected program
-# (software/application) and asserts reset_ext -- reset itself never knows
-# or cares which program it's rebooting into, exactly like a real dual-bank
-# boot flash. $(ROM_IMAGE_HANG)/$(ROM_IMAGE_APPLICATION) are permanent
-# fixtures (built once via file-registry's own prerequisite chain, not
-# rebuilt per test like $(ROM_IMAGE)), so no rebuild/restore dance is needed
-# here.
-e2e_reset_reload_test: $(FILE_REGISTRY_GEN)
-	@echo "--- e2e_reset_reload_test ---"
-	@$(AFLAT) tests/e2e/e2e_reset_reload_test.act
-	@out=$$(printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf tests/e2e/e2e_reset_reload_test.act e2e_reset_reload_test 2>&1); \
-	status=$$?; \
-	echo "$$out"; \
-	if [ $$status -ne 0 ]; then \
-		echo "e2e_reset_reload_test: FAIL"; exit $$status; \
-	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
-		echo "e2e_reset_reload_test: FAIL"; exit 1; \
-	elif ! echo "$$out" | grep -qi "test complete"; then \
-		echo "e2e_reset_reload_test: FAIL (no completion)"; exit 1; \
-	else \
-		echo "e2e_reset_reload_test: PASS"; \
-	fi
+# e2e tests wire through chips/bench specifically (chips/bench/core.act) and
+# are defined + built there -- chips/bench/Makefile owns the ROM_IMAGE
+# rebuild dance each one needs (see its own e2e_fifo_test comment for why),
+# this just delegates by name with the same variables a direct invocation
+# would use.
+e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test:
+	@$(MAKE) -C chips/bench $@ ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS)
 
 # Run every RV32I software test through soc's real pipeline. For each test we
 # rebuild the single shared ROM image slot (build/rom_image.mem) in place, run

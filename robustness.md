@@ -298,26 +298,63 @@ waiting for the program to voluntarily sleep first — useless for a hang).
 
 ### 1.5 Reorganize the harness into `chips/bench/`
 
-- [ ] New directory `chips/bench/` containing:
-  - `chips/bench/harness.act` — the 16 `event_id` channels + `fifo_in` +
-    `fifo_out` + `demux` instantiation currently duplicated inline in
-    `e2e_fifo_test.act` / `e2e_multi_event_test.act`, extracted into one
-    reusable `defproc harness`.
+- [x] New directory `chips/bench/` containing:
+  - `chips/bench/harness.act` — the `fifo_in` + `fifo_out` + `demux`
+    instantiation currently duplicated inline in `e2e_fifo_test.act` /
+    `e2e_multi_event_test.act` / `e2e_reset_test.act`, extracted into one
+    reusable `template<pint ROM_IMAGE> defproc harness`. Exposes
+    `addr_in`/`mode_in`/`wdata_in`/`rdata_in` (soc's external bus),
+    `push`/`pop` (the two FIFOs), and `fifo_event` — fifo_in's auto-fire
+    (`event_out`), left for the caller to route rather than hardwired to a
+    specific `event_id_N` here (see below for why).
   - `chips/bench/core.act` — instantiates `soc` + `harness` together,
-    exposing the 16 event lines, `reset_ext` (1.4), and the GPIO pins added
-    in 1.6.
-- [ ] Move the e2e-specific Makefile logic (the `ROM_IMAGE` rebuild dance,
-      `e2e_fifo_test` / `e2e_multi_event_test` rules) out of the top-level
-      `Makefile` into `chips/bench/Makefile` — mirror the existing
-      `software/*/Makefile` sub-make pattern; have the top-level `Makefile`
-      delegate to it.
-- [ ] Move `tests/e2e/e2e_fifo_test.act` and `e2e_multi_event_test.act` to
-      `chips/bench/tests/e2e/`, updating them to instantiate
-      `chips/bench/core.act` instead of hand-rolling `soc` + `demux` + fifo
-      wiring. (Completes the `tests/e2e/` retirement noted in 0.2.)
-- [ ] **Gate:** identical test behavior — `make test` from the top level
-      still runs both e2e tests successfully (directly or via delegation
-      into `chips/bench/`).
+    exposing all 16 `event_id_N` lines (uniform pass-through, undifferentiated),
+    `reset_ext` (1.4), `fifo_event`, and `push`/`pop`. GPIO (1.6) will extend
+    this port list once it lands.
+  - **Resolved design question:** `event_id_0` is not hardwired to
+    `fifo_event` inside `harness`/`core`. `e2e_fifo_test.act` /
+    `e2e_reset_test.act` want fifo_in's auto-fire wired to `event_id_0`
+    (real hardware behavior), but `e2e_multi_event_test.act` deliberately
+    fires *all 16* lines manually, including line 0, to get full-width
+    interrupt-controller coverage in one uniform loop — a simulation-only
+    technique that only works if line 0 is externally drivable, i.e. *not*
+    claimed internally by fifo_in. Since a channel can only have one sender,
+    these two needs are mutually exclusive at the hardware-wiring level, so
+    the choice is left to each testbench: `core`'s `fifo_event` and
+    `event_id_0` are two independent boundary ports of the same instance,
+    and a caller that wants the real-hardware wiring connects them itself
+    (`c.event_id_0 = c.fifo_event;`, one line, in `e2e_fifo_test.act` /
+    `e2e_reset_test.act`); `e2e_multi_event_test.act` instead connects
+    `event_id_0` to its own manually-driven channel and leaves `fifo_event`
+    unconnected (safe, since its trigger_level stays configured
+    unreachable — see `software/multi_event/main.c`'s own comment).
+- [x] Moved the e2e-specific Makefile logic (the `ROM_IMAGE` rebuild dance,
+      all four `e2e_*_test` rules) out of the top-level `Makefile` into
+      `chips/bench/Makefile`; the top-level `Makefile` delegates to it
+      (`$(MAKE) -C chips/bench $@ ROM_TEST=... BOOT=... CROSS=...`).
+      Shared infrastructure (`file-registry`/`$(ROM_IMAGE)`/
+      `$(ROM_IMAGE_HANG)`/`$(ROM_IMAGE_APPLICATION)`) stays owned by the
+      top-level `Makefile` — it's needed by every test, not just e2e ones,
+      since `file_registry.txt` requires all registered inputs to exist
+      before `gen/` can be regenerated at all — so `chips/bench/Makefile`'s
+      recipes call back into it via an explicit sub-make
+      (`$(MAKE) -C $(ROOT) ...`, `$(ROOT) := ../..`). Every aflat/actsim
+      invocation there explicitly `cd`s to `$(ROOT)` first, since ACT
+      resolves every `import` relative to the compiler's invocation
+      directory (must stay `actnow/`), not relative to the importing file
+      or to wherever the sub-make happened to be invoked from.
+- [x] Moved all four e2e tests (`e2e_fifo_test.act`, `e2e_multi_event_test.act`,
+      `e2e_reset_test.act`, `e2e_reset_reload_test.act`) from `tests/e2e/` to
+      `chips/bench/tests/e2e/` — completes the `tests/e2e/` retirement noted
+      in 0.2. The first three now instantiate `chips/bench/core.act` instead
+      of hand-rolling `soc` + `demux` + fifo wiring. `e2e_reset_reload_test.act`
+      keeps its own hand-rolled topology (`soc` + `demux` + `rom_selector` +
+      two `mem` instances + fifo_in/fifo_out): it needs two independent
+      backing ROMs behind a bank-select mux, which `harness`'s single
+      `ROM_IMAGE` parameter doesn't (and shouldn't) accommodate.
+- [x] **Gate:** `make test` (all unit + regression + sw tests, plus all four
+      e2e tests via delegation into `chips/bench/`) and `make software-tests`
+      (38/38) both pass, verified end to end with the real toolchain.
 
 ### 1.6 Add 8 external GPIO pins to `chips/bench/core.act`
 
