@@ -1,0 +1,25 @@
+import "chips/bench/core.act";
+import "gen/file_ids.act";
+
+// Baseline end-to-end scenario (robustness.md Stage 1.7 scenario 1): boot a
+// real compiled program (software/boot_only/main.c) through the real
+// bootloader, with zero peripheral interaction -- no interrupts configured,
+// no FIFO/GPIO touched -- and confirm it reaches WFI cleanly.
+//
+// This testbench deliberately has no chp body of its own: boot_only never
+// exercises any channel this test could block on, so there's nothing to
+// synchronize against, and nothing to push/fire/observe. soc runs
+// autonomously regardless (bootloader copies the program into SRAM, jumps,
+// main() returns, crt0.S executes WFI) -- actsim's `cycle` command doesn't
+// return until the *entire* simulation quiesces, not just this outermost
+// process, so soc's own "decoded wfi" log line is guaranteed to appear by
+// the time the run completes either way. chips/bench/Makefile's
+// e2e_boot_test rule checks the log for that line directly (same
+// convention `make software-tests` already uses for programs with no
+// testbench-side interaction at all), rather than this test emitting its
+// own "test complete" line the way every other e2e test here does.
+defproc e2e_boot_test() {
+    core<ROM_IMAGE> c;
+}
+
+e2e_boot_test ebt;

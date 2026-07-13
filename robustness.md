@@ -397,9 +397,14 @@ waiting for the program to voluntarily sleep first — useless for a hang).
 
 ### 1.7 Full e2e robustness suite
 
-- [ ] Enumerate the execution-path matrix before writing tests:
-  1. boot → load program A → run to WFI
-  2. boot → load program A → fire event N → ISR → return → WFI
+- [x] Enumerate the execution-path matrix before writing tests:
+  1. [x] boot → load program A → run to WFI — done, see
+     `chips/bench/tests/e2e/e2e_boot_test.act` below.
+  2. [x] boot → load program A → fire event N → ISR → return → WFI —
+     already covered by `e2e_fifo_test.act`'s own batch 1 and
+     `e2e_gpio_test.act` (both are exactly this shape), so no separate
+     file was added for it — would've been pure duplication with nothing
+     new to prove.
   3. [x] boot → load program A → external reset mid-execution → reboots to
      the reset vector — done, see `chips/bench/tests/e2e/e2e_reset_test.act`
      below.
@@ -408,15 +413,59 @@ waiting for the program to voluntarily sleep first — useless for a hang).
      `chips/bench/tests/e2e/e2e_reset_reload_test.act` below.
   5. [x] GPIO input pin → configured event → ISR jumps to the pc associated
      with that pin — done, see Scenario 5/7 below.
-  6. back-to-back event pressure across a reset boundary (extends
-     `e2e_multi_event_test`'s existing coverage)
+  6. [x] back-to-back event pressure across a reset boundary (extends
+     `e2e_multi_event_test`'s existing coverage) — done, see Scenario 6
+     below.
   7. [x] GPIO output pin driven by software, observed by the testbench —
      done, see Scenario 5/7 below.
-- [ ] One new file per scenario (or one consolidated
-      `e2e_robustness_test.act` if setup is shared enough) under
-      `chips/bench/tests/e2e/`.
-- [ ] **Gate:** every scenario passes; top-level `make test` stays green
-      end to end.
+- [x] One new file per scenario (scenario 2 excepted — already covered, see
+      above) under `chips/bench/tests/e2e/`.
+- [x] **Gate:** every scenario passes; top-level `make test` stays green
+      end to end — verified (24 testbenches total) alongside
+      `make software-tests` (38/38).
+
+#### Scenario 1 (done): `chips/bench/tests/e2e/e2e_boot_test.act`
+
+The baseline every other e2e scenario already builds on implicitly, given
+its own dedicated, minimal test: a new program, `software/boot_only/main.c`,
+that does nothing but return from `main()` — no interrupts configured, no
+FIFO/GPIO touched at all. `e2e_boot_test.act` has no `chp` body of its own:
+`boot_only` never exercises a channel the testbench could block on, so
+there's nothing to synchronize against or observe. That's fine —
+`actsim`'s `cycle` command doesn't return until the *entire* simulation
+quiesces, not just the outermost test process, so `soc`'s own `decoded wfi`
+log line is guaranteed to appear by completion regardless. `chips/bench/
+Makefile`'s `e2e_boot_test` rule judges pass/fail directly from that log
+line (same convention `make software-tests` already uses for programs with
+no testbench-side interaction), rather than requiring a testbench-emitted
+`"test complete"` line the way every other e2e rule here does.
+
+#### Scenario 6 (done): `chips/bench/tests/e2e/e2e_multi_event_reset_test.act`
+
+Extends `e2e_multi_event_test.act`'s full-width interrupt-controller
+coverage two ways at once, reusing the same `software/multi_event/main.c`
+program:
+
+- **Back-to-back pressure:** fires events with no artificial inter-event
+  delay, unlike `e2e_multi_event_test.act`'s own 300-time-unit pause
+  ("model a little real-world latency between events"). This architecture
+  is single-issue and non-preemptive, so genuinely overlapping ISRs aren't
+  a real scenario here — what *is* meaningful to prove is that firing the
+  next event with zero testbench-side pacing is still safe purely from
+  `core/interrupt.act`'s own structure: it's one sequential loop that sends
+  `event_pc!vectors[N]` (itself blocked until `soc` goes idle again) before
+  ever looping back to offer the next `event_id_N`, so a premature
+  `event_ch[k]!(true)` just blocks at that rendezvous until the controller
+  is genuinely ready — no deadlock, no dropped event, no delay required
+  from the testbench.
+- **Across a reset boundary:** batch 1 (events 0..7) runs back-to-back,
+  external reset fires mid-stream, then batch 2 (events 8..15) runs
+  back-to-back against the freshly-rebooted program. Only passes if the
+  *entire* 16-entry vector table and enable mask — not just `event_id_0`,
+  the only line `e2e_reset_test.act` re-proves — genuinely survive a
+  reset+reboot cycle intact.
+
+Verified `make test`/`make software-tests` both green.
 
 #### Scenario 3 (done): `chips/bench/tests/e2e/e2e_reset_test.act`
 

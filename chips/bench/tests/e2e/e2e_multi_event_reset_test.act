@@ -1,0 +1,103 @@
+import "chips/bench/core.act";
+import "gen/file_ids.act";
+
+// Extends e2e_multi_event_test.act's full-width interrupt-controller
+// coverage two ways at once (robustness.md Stage 1.7 scenario 6):
+//   - back-to-back pressure: fires events with no artificial inter-event
+//     delay, unlike e2e_multi_event_test.act's own 300-time-unit pause
+//     ("model a little real-world latency between events"). This
+//     architecture is single-issue and non-preemptive, so a genuinely
+//     concurrent/overlapping ISR isn't a scenario that can exist here --
+//     what *is* meaningful to prove is that firing the next event
+//     immediately (no testbench-side pacing at all) is still safe purely
+//     from core/interrupt.act's own structure: it's a single sequential
+//     loop that sends event_pc!vectors[N] (which itself blocks until soc
+//     goes idle again) before ever looping back to offer the next
+//     event_id_N, so a premature `event_ch[k]!(true)` just blocks at that
+//     rendezvous until interrupt.act is genuinely ready -- no deadlock, no
+//     dropped event, no delay required from this side.
+//   - across a reset boundary: batch 1 (events 0..7) runs, external reset
+//     fires mid-stream, then batch 2 (events 8..15) runs against the
+//     freshly-rebooted program. Only passes if the *entire* 16-entry vector
+//     table and enable mask -- not just event_id_0, the only line
+//     e2e_reset_test.act re-proves -- genuinely survive a reset+reboot
+//     cycle intact.
+//
+// Address layout / event wiring matches e2e_multi_event_test.act: base=4
+// ROM (bootloader only), base=5/6 the input/output FIFOs, gpio_in_0/
+// gpio_in_1 carrying event_id_14/event_id_15 (see core.act's own comment).
+// c.fifo_event is left unconnected -- same reason as e2e_multi_event_test.act.
+defproc e2e_multi_event_reset_test() {
+    core<ROM_IMAGE> c;
+
+    chan(bool) event_ch[16];
+    event_ch[0] = c.event_id_0;
+    event_ch[1] = c.event_id_1;
+    event_ch[2] = c.event_id_2;
+    event_ch[3] = c.event_id_3;
+    event_ch[4] = c.event_id_4;
+    event_ch[5] = c.event_id_5;
+    event_ch[6] = c.event_id_6;
+    event_ch[7] = c.event_id_7;
+    event_ch[8] = c.event_id_8;
+    event_ch[9] = c.event_id_9;
+    event_ch[10] = c.event_id_10;
+    event_ch[11] = c.event_id_11;
+    event_ch[12] = c.event_id_12;
+    event_ch[13] = c.event_id_13;
+    event_ch[14] = c.gpio_in_0;
+    event_ch[15] = c.gpio_in_1;
+
+    int<WIDTH_DATA> pushed, result, expected;
+    int<5> i;
+
+    chp {
+        log("======== multi-event back-to-back + reset test start ========");
+
+        // --- Batch 1: fire events 0..7 back-to-back, no inter-event delay ---
+        log("--- batch 1: firing events 0..7 back-to-back (no delay) ---");
+        i := 0;
+        *[ i < 8 ->
+            pushed := int(100, WIDTH_DATA) + int(i, WIDTH_DATA);
+            expected := pushed + int(i, WIDTH_DATA) + 1;
+
+            c.push!pushed;
+            [ ([]k:16: i = k -> event_ch[k]!(true)) ];
+
+            c.pop?result;
+            assert(result = expected, "batch 1 event ", i, ": want ", expected, ", got ", result);
+            log("batch 1 event ", i, ": pushed ", pushed, ", got ", result, " (correct)");
+
+            i := i + 1
+        ];
+        log("batch 1: events 0..7 all dispatched correctly under back-to-back pressure");
+
+        log("--- asserting external reset ---");
+        c.reset_ext!true;
+        log("--- reset done -- multi_event should now be rebooting from scratch ---");
+
+        // --- Batch 2: fire events 8..15 back-to-back, against the freshly
+        // rebooted program -- only works if the *entire* 16-entry vector
+        // table and enable mask were genuinely re-registered from scratch.
+        log("--- batch 2 (post-reset): firing events 8..15 back-to-back (no delay) ---");
+        i := 8;
+        *[ i < 16 ->
+            pushed := int(100, WIDTH_DATA) + int(i, WIDTH_DATA);
+            expected := pushed + int(i, WIDTH_DATA) + 1;
+
+            c.push!pushed;
+            [ ([]k:16: i = k -> event_ch[k]!(true)) ];
+
+            c.pop?result;
+            assert(result = expected, "batch 2 event ", i, ": want ", expected, ", got ", result);
+            log("batch 2 event ", i, ": pushed ", pushed, ", got ", result, " (correct)");
+
+            i := i + 1
+        ];
+        log("batch 2: events 8..15 all dispatched correctly post-reset under back-to-back pressure");
+
+        log("======== multi-event back-to-back + reset test complete ========")
+    }
+}
+
+e2e_multi_event_reset_test emrt;

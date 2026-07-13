@@ -31,7 +31,7 @@ ROM_TEST ?= simple
 
 ROM_IMAGE := software/tests/build/rom_image.mem
 
-.PHONY: e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test
+.PHONY: e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test
 
 # e2e_fifo_test.act exercises software/application/main.c's real
 # interrupt/FIFO flow specifically -- it needs that exact ROM image, not
@@ -115,6 +115,57 @@ e2e_reset_test:
 		echo "e2e_reset_test: FAIL (no completion)"; exit 1; \
 	else \
 		echo "e2e_reset_test: PASS"; \
+	fi
+
+# Baseline scenario: boot software/boot_only/main.c (zero peripheral
+# interaction) and confirm it reaches WFI cleanly. Unlike every other e2e
+# rule here, e2e_boot_test.act has no chp body to emit a "test complete"
+# line -- there's nothing for it to synchronize against -- so completion is
+# judged directly from soc's own log line instead, same convention
+# `make software-tests` already uses for programs with no testbench-side
+# interaction at all.
+e2e_boot_test:
+	@echo "--- e2e_boot_test ---"
+	@rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem
+	@$(MAKE) -s -C $(ROOT) ROM_TEST=boot_only CROSS=$(CROSS) file-registry
+	@cd $(ROOT) && $(AFLAT) chips/bench/tests/e2e/e2e_boot_test.act
+	@out=$$(cd $(ROOT) && printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf chips/bench/tests/e2e/e2e_boot_test.act e2e_boot_test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem; \
+	$(MAKE) -s -C $(ROOT) ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
+	if [ $$status -ne 0 ]; then \
+		echo "e2e_boot_test: FAIL"; exit $$status; \
+	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+		echo "e2e_boot_test: FAIL"; exit 1; \
+	elif ! echo "$$out" | grep -qi "decoded wfi"; then \
+		echo "e2e_boot_test: FAIL (no completion)"; exit 1; \
+	else \
+		echo "e2e_boot_test: PASS"; \
+	fi
+
+# Same rationale and pattern as e2e_multi_event_test above, pinned to
+# software/multi_event/main.c as well -- extends its coverage with
+# back-to-back (no artificial delay) event firing across a reset boundary.
+# See chips/bench/tests/e2e/e2e_multi_event_reset_test.act's own comment.
+e2e_multi_event_reset_test:
+	@echo "--- e2e_multi_event_reset_test ---"
+	@rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem
+	@$(MAKE) -s -C $(ROOT) ROM_TEST=multi_event CROSS=$(CROSS) file-registry
+	@cd $(ROOT) && $(AFLAT) chips/bench/tests/e2e/e2e_multi_event_reset_test.act
+	@out=$$(cd $(ROOT) && printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf chips/bench/tests/e2e/e2e_multi_event_reset_test.act e2e_multi_event_reset_test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem; \
+	$(MAKE) -s -C $(ROOT) ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
+	if [ $$status -ne 0 ]; then \
+		echo "e2e_multi_event_reset_test: FAIL"; exit $$status; \
+	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+		echo "e2e_multi_event_reset_test: FAIL"; exit 1; \
+	elif ! echo "$$out" | grep -qi "test complete"; then \
+		echo "e2e_multi_event_reset_test: FAIL (no completion)"; exit 1; \
+	else \
+		echo "e2e_multi_event_reset_test: PASS"; \
 	fi
 
 # Exercises GPIO (core/peripherals/gpio.act) end to end, both directions in
