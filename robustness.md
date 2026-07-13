@@ -51,8 +51,9 @@ way and stay legible as more peripherals land in Stage 1/2.
   - `core/peripherals/mem.act`
   - `core/peripherals/fifo_in.act`
   - `core/peripherals/fifo_out.act`
-  - `core/peripherals/demux.act` (new in Stage 1.1 — the generic address
-    router extracted out of `mmu.act`)
+  - `core/peripherals/demux.act` (new in Stage 1.1 — a periphery-facing
+    address router, not core-facing like `mmu.act`; splits whatever `mmu`
+    decided wasn't on-chip)
 - [ ] Update every `import "..."` string repo-wide to the new paths:
   `core/soc.act`, `core/globals.act`, etc. (`gen/file_ids.act` is
   build-generated and untouched.)
@@ -80,42 +81,68 @@ way and stay legible as more peripherals land in Stage 1/2.
 
 ## Stage 1 — Real PMP MMU, external reset, harness reorg, GPIO, e2e coverage
 
-### 1.1 Split the generic address router out of `mmu.act` into `demux.act`
+### 1.1 Split the periphery-facing router out into its own `demux.act`
 
-The templated router currently living in `core/mmu.act` (`defproc
-mmu<N_EXACT, EXACT_BASES, CATCHALL_MIN_BASE>`) is just an address demux —
-reused today both inside `soc.act` (RAM / interrupt-controller / external
-routing) and inline in the e2e tests (ROM / fifo_in / fifo_out routing). It
-needs to become its own process so the *real* PMP mmu (1.2) can take the
-`mmu` name.
+`core/mmu.act`'s router is core-facing: it sits directly between soc's own
+fetch/load-store logic and the chip's on-chip resources (internal RAM,
+interrupt controller), servicing those addresses itself and passing
+anything else (base >= `ADDR_EXT_MIN`) straight through its catch-all to
+soc's own `addr_ext` boundary. It stays named `mmu` and stays soc's own
+internal instance — it isn't going anywhere.
 
-- [ ] Copy the existing template verbatim into
-      `core/peripherals/demux.act`, renamed `defproc demux<N_EXACT,
-      EXACT_BASES, CATCHALL_MIN_BASE>` (same ports, same body — pure
-      rename, no behavior change).
-- [ ] Update every current consumer to `import
-      "core/peripherals/demux.act"` and instantiate `demux<...>` instead of
-      `mmu<...>`:
-  - `core/soc.act`'s own peripheral router (`SOC_MMU_N_EXACT` /
-    `SOC_MMU_EXACT_BASES`)
-  - `tests/e2e/e2e_fifo_test.act`
-  - `tests/e2e/e2e_multi_event_test.act`
-  - `tests/peripherals/mmu_test.act` — rename to
-    `tests/peripherals/demux_test.act` (`defproc demux_test`), since it's
-    exercising the generic router, not the new PMP design.
-- [ ] Remove the old generic router's body from `core/mmu.act`, leaving the
-      file empty/ready for 1.2.
-- [ ] **Gate:** `make test` passes with everything renamed — zero
-      functional change expected from this task alone.
+What actually needed extracting was the *separate* instantiation of the same
+underlying "N exact + 1 catch-all" template that the e2e tests hand-roll
+inline to split soc's external bus further into distinct peripherals (ROM /
+fifo_in / fifo_out, no catch-all) — that one is periphery-facing (it never
+talks to the core, only to whatever `mmu`'s catch-all already decided was
+off-chip) and needed to become its own named process: `demux`.
 
-### 1.2 Design and implement the real PMP mmu
+- [x] Copy the router template into `core/peripherals/demux.act` as
+      `defproc demux<N_EXACT, EXACT_BASES, CATCHALL_MIN_BASE>`, with its
+      single upstream port group named `addr_in`/`mode_in`/`wdata_in`/
+      `rdata_in` (not `_core` — this process never faces the CPU core
+      directly, unlike `mmu`) and the downstream array kept as
+      `addr_out[]`/etc.
+  - Hoisted the shared `mask_data` helper into `core/utils.act` (already
+    the shared-helper home for `alu`/`branch_taken`/`compute_addr`) so
+    `core/mmu.act` and `core/peripherals/demux.act` both reuse one
+    definition instead of each defining their own — needed anyway, since
+    both end up in scope together wherever a file imports both (ACT's
+    import namespace is global/transitive), and two same-named functions
+    would conflict.
+  - `core/mmu.act` is untouched otherwise — still `defproc mmu`, still
+    core-facing `_core` naming, still soc's real, working, on-chip router.
+    (**Correction:** an earlier pass at this task emptied `core/mmu.act`
+    out and renamed soc's own internal instance to `demux` — backwards.
+    `mmu` stays the on-chip router; only the harness's separate splitter
+    becomes `demux`. Fixed.)
+- [x] Consumers:
+  - `core/soc.act` — unchanged (still imports `core/mmu.act`, still
+    instantiates `mmu<SOC_MMU_N_EXACT, SOC_MMU_EXACT_BASES, ADDR_EXT_MIN>
+    mmu`).
+  - `tests/e2e/e2e_fifo_test.act` / `e2e_multi_event_test.act` — now
+    `import "core/peripherals/demux.act"` and instantiate `demux<...>`
+    for their ROM/fifo_in/fifo_out split (previously hand-rolled against
+    the shared `mmu` template).
+  - `tests/peripherals/mmu_test.act` — unchanged in spirit, still tests
+    `core/mmu.act`'s real 2-exact+catch-all deployment (RAM / interrupt
+    controller / external).
+  - `tests/peripherals/demux_test.act` — new file, testing
+    `core/peripherals/demux.act`'s actual real-world shape (3 exact
+    routes mirroring ROM=4/fifo_in=5/fifo_out=6, no catch-all) rather than
+    mirroring `mmu_test`'s configuration.
+- [x] **Gate:** `make test` passes (including both `mmu_test` and
+      `demux_test`); `make software-tests` all 38 programs still pass.
+      Zero functional change to soc's own on-chip routing.
+
+### 1.2 Design and implement the real dual-port PMP mmu
 
 - [ ] Resolve the open design question before writing code: does
       instruction fetch ever need to reach the external bus (XIP from
       external ROM, per the Makefile's non-`BOOT` path), or does this
       architecture only ever execute out of internal RAM? This determines
-      whether the instruction port needs a read-only path through `demux`
-      or can go straight to `mem.act`'s RAM route.
+      whether the instruction port needs a read-only path through `mmu`'s
+      own catch-all (→ `demux`) or can go straight to `mem.act`'s RAM route.
 - [ ] Define the new `defproc mmu(...)` in `core/mmu.act` with two
       independent core-facing port groups sharing one physical-memory-facing
       port group:
@@ -133,13 +160,15 @@ needs to become its own process so the *real* PMP mmu (1.2) can take the
 - [ ] Protection is structural (no `wdata` on the instr side means no write
       is representable), but add a defensive `assert`/log if `mode_instr`
       ever carries `op_mem_t.W`, in case a future caller misuses the port.
-- [ ] New unit test: `tests/peripherals/mmu_test.act` (the real one this
-      time) — drive the instr port with reads only, the data port with
-      reads/writes/RMW against the same backing addresses, assert writes
-      through the data port are visible to instr-port reads, and that a
-      manufactured illegal instr-port write is rejected/asserted.
-- [ ] **Gate:** new `mmu_test` passes; `demux_test` (1.1) still passes
-      unmodified.
+- [ ] Rewrite `tests/peripherals/mmu_test.act` for the new dual-port shape
+      (it currently tests the interim single-port, 2-exact+catch-all
+      router from 1.1) — drive the instr port with reads only, the data
+      port with reads/writes/RMW against the same backing addresses,
+      assert writes through the data port are visible to instr-port reads,
+      and that a manufactured illegal instr-port write is
+      rejected/asserted.
+- [ ] **Gate:** rewritten `mmu_test` passes; `demux_test` (1.1) still
+      passes unmodified; `core/soc.act` rewired in 1.3 still boots.
 
 ### 1.3 Rewire `soc.act` onto the new dual-port mmu
 
@@ -148,10 +177,11 @@ needs to become its own process so the *real* PMP mmu (1.2) can take the
       fetch sequence targets `addr_instr/mode_instr/rdata_instr`; the
       `OPCODE_LOAD`/`OPCODE_STORE` branches target
       `addr_data/mode_data/wdata_data/rdata_data`.
-- [ ] soc's existing peripheral routing (RAM / interrupt controller /
-      external, via `demux` from 1.1) sits downstream of the **data** port
-      only. Per the 1.2 design decision: if fetch never needs the external
-      bus, wire the instr port straight to `mem.act`'s RAM and skip `demux`
+- [ ] soc's existing on-chip routing (RAM / interrupt controller /
+      external catch-all, `mmu`'s own exact+catch-all logic) sits
+      downstream of the **data** port only. Per the 1.2 design decision: if
+      fetch never needs the external bus, wire the instr port straight to
+      `mem.act`'s RAM and skip the exact/catch-all routing (and `demux`)
       for instruction traffic entirely.
 - [ ] **Gate:** `make test`, `make software-tests`, and both existing e2e
       tests (`e2e_fifo_test`, `e2e_multi_event_test`) all still pass

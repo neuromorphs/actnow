@@ -44,3 +44,14 @@ export function compute_addr(int<WIDTH_DATA> base_reg; int<WIDTH_DATA> imm) : ad
         self.offset := ea{15..0}
     }
 }
+
+// Shared by both address routers (core/mmu.act and core/peripherals/demux.act):
+// only the low BYTE / HALF_WORD / WORD bits are kept, higher bits are 0.
+export function mask_data (int<WIDTH_DATA> data; size_mem_t size) : int<WIDTH_DATA> {
+    chp {
+        [ size = size_mem_t.BYTE       -> self := data & 0xff
+        [] size = size_mem_t.HALF_WORD -> self := data & 0xffff
+        [] else                        -> self := data
+        ]
+    }
+}

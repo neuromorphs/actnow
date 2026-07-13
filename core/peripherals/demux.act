@@ -1,0 +1,112 @@
+import "core/globals.act";
+import "core/utils.act";
+
+/*
+This is a peripheral-side router, not a core-facing unit -- it never talks
+to the CPU core directly (that's core/mmu.act's job). The chain for any
+access that isn't one of soc's own on-chip resources is: soc's fetch/
+load-store logic -> mmu (services on-chip addresses itself; anything else
+falls through its catch-all) -> soc's own addr_ext/mode_ext/wdata_ext/
+rdata_ext boundary -> this demux -> the actual off-chip peripheral (ROM,
+FIFOs, ...). This file's single upstream port group (addr_in/mode_in/
+wdata_in/rdata_in) faces that boundary -- see e.g.
+tests/e2e/e2e_fifo_test.act, which wires it straight to soc's addr_ext
+group and splits it further into ROM/fifo_in/fifo_out.
+
+Upstream port group (addr_in/mode_in/wdata_in/rdata_in):
+0. receives mode from upstream
+1. sends rdata upstream, in parallel or/and receives wdata from upstream depending on op
+
+To peripherals:
+0. sends mode to periph
+1. receives rdata from periph, in parallel or/and sends wdata to periph depending on op
+
+sized transfers: only the low BYTE / HALF_WORD / WORD bits are kept. higher bits are 0
+
+Generic address-routed bus: N_EXACT downstream ports (addr_out[0..N_EXACT-1])
+are selected by an exact match against EXACT_BASES[k]. One further downstream
+port, addr_out[N_EXACT] (the last one), catches any address with
+base >= CATCHALL_MIN_BASE that didn't already match an exact entry -- so
+there are N_EXACT+1 downstream ports in total. An address matching neither
+is silently dropped: reads leave rdata untouched (never sent upstream), writes
+are absorbed and never forwarded anywhere. That's deliberate -- it's what a
+real reserved/unmapped address should do (nothing answers, but nothing hangs
+waiting for an answer either), and it falls out for free rather than needing
+an explicit "reserved" case: pick EXACT_BASES/CATCHALL_MIN_BASE so nothing
+maps to the gap and it's unreachable by construction.
+
+This template is currently identical in shape to core/mmu.act's (both are
+"N exact routes + one optional catch-all"), but the two are conceptually
+distinct processes and will diverge for real once core/mmu.act grows its
+dual-port PMP behavior (robustness.md Stage 1.2) -- this file's job stays
+"split an already off-chip bus into distinct peripherals" either way.
+Today's harness instantiation (tests/e2e/e2e_fifo_test.act and
+e2e_multi_event_test.act) uses 3 exact routes (ROM, fifo_in, fifo_out) with
+no catch-all at all (CATCHALL_MIN_BASE set higher than any real base, e.g.
+via ADDR_NO_CATCHALL, so `addr.base >= CATCHALL_MIN_BASE` can never be true
+since addr.base is only 4 bits wide).
+*/
+template<pint N_EXACT; pint EXACT_BASES[N_EXACT]; pint CATCHALL_MIN_BASE>
+defproc demux(
+    chan?(addr_t) addr_in;
+    chan?(mode_mem_t) mode_in;
+    chan?(int<WIDTH_DATA>) wdata_in;
+    chan!(int<WIDTH_DATA>) rdata_in;
+    chan!(addr_t) addr_out[N_EXACT+1];
+    chan!(mode_mem_t) mode_out[N_EXACT+1];
+    chan!(int<WIDTH_DATA>) wdata_out[N_EXACT+1];
+    chan?(int<WIDTH_DATA>) rdata_out[N_EXACT+1]
+) {
+    addr_t addr;
+    mode_mem_t mode;
+    op_mem_t op;
+    size_mem_t size;
+    int<WIDTH_DATA> wdata;
+    int<WIDTH_DATA> rdata;
+    bool is_write, is_read;
+
+    chp {
+        *[
+            addr_in?addr; mode_in?mode;
+            op := mode.op;
+            size := mode.size;
+            // Enum equality works fine as a selection guard, but this toolchain
+            // doesn't support assigning an enum comparison's result directly into
+            // a bool via `:=` -- has to be expressed as a selection instead.
+            [ (op = op_mem_t.W) | (op = op_mem_t.R_AND_W) -> is_write := true [] else -> is_write := false ];
+            [ (op = op_mem_t.R) | (op = op_mem_t.R_AND_W) -> is_read := true [] else -> is_read := false ];
+
+            // receive from upstream
+            [
+                is_write -> wdata_in?wdata; wdata := mask_data(wdata, size)
+                [] else -> skip
+            ];
+
+            // route to whichever downstream port claims this base
+            [
+                ([]k:N_EXACT: addr.base = EXACT_BASES[k] ->
+                    addr_out[k]!addr; mode_out[k]!mode;
+                    [
+                        op = op_mem_t.W -> wdata_out[k]!wdata
+                        [] op = op_mem_t.R -> rdata_out[k]?rdata
+                        [] op = op_mem_t.R_AND_W -> rdata_out[k]?rdata, wdata_out[k]!wdata
+                    ]
+                )
+                [] addr.base >= CATCHALL_MIN_BASE ->
+                    addr_out[N_EXACT]!addr; mode_out[N_EXACT]!mode;
+                    [
+                        op = op_mem_t.W -> wdata_out[N_EXACT]!wdata
+                        [] op = op_mem_t.R -> rdata_out[N_EXACT]?rdata
+                        [] op = op_mem_t.R_AND_W -> rdata_out[N_EXACT]?rdata, wdata_out[N_EXACT]!wdata
+                    ]
+                [] else -> skip
+            ];
+
+            // send upstream
+            [
+                is_read -> rdata := mask_data(rdata, size); rdata_in!rdata
+                [] else -> skip
+            ]
+        ]
+    }
+}

@@ -1,0 +1,375 @@
+import "core/globals.act";
+import "core/peripherals/demux.act";
+
+// Returns true iff w has no bits set above the transfer-size boundary,
+// i.e. the demux masked the higher bits to 0 as required.
+function masked_ok (int<WIDTH_DATA> w; size_mem_t size) : bool {
+    chp {
+        [ size = size_mem_t.BYTE       -> self := (w{31..8} = 0)
+        [] size = size_mem_t.HALF_WORD -> self := (w{31..16} = 0)
+        [] else                        -> self := true
+        ]
+    }
+}
+
+// Source for address / mode / write-data generation.
+// For every read-producing transaction it also emits the expected (post-mask)
+// read value on `exp`, so the read sink can self-check.
+defproc addr_source (
+    chan!(addr_t) addr; chan!(mode_mem_t) mode;
+    chan!(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) exp
+) {
+    addr_t a;
+    mode_mem_t md;
+    int<WIDTH_DATA> w, e;
+    int i;
+
+    chp {
+        log("======== demux test start ========");
+
+        // Bases mirror this template's real deployment (see
+        // tests/e2e/e2e_fifo_test.act): ROM=4, fifo_in=5, fifo_out=6, no
+        // catch-all -- everything here is an exact route, unlike mmu.act's
+        // own 2-exact+catch-all shape.
+
+        // ---------------- WORD-sized functional tests ----------------
+
+        // Test 1: Write to ROM route (base=4), WORD
+        log("--- Test 1: 4x WORD Write to ROM route (base=4) ---");
+        i := 0;
+        *[ i < 4 ->
+            a.base := 4;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            md.op := op_mem_t.W;
+            md.size := size_mem_t.WORD;
+            w := int(0x1000 + i, WIDTH_DATA);
+            addr!a; mode!md; wdata!w;
+            i := i + 1
+        ];
+
+        // Test 2: Read from ROM route, WORD
+        log("--- Test 2: 4x WORD Read from ROM route (base=4) ---");
+        i := 0;
+        *[ i < 4 ->
+            a.base := 4;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            md.op := op_mem_t.R;
+            md.size := size_mem_t.WORD;
+            e := int(0xDEADBEEF, WIDTH_DATA);
+            addr!a; mode!md; exp!e;
+            i := i + 1
+        ];
+
+        // Test 3: Write to fifo_in route (base=5), WORD
+        log("--- Test 3: 2x WORD Write to fifo_in route (base=5) ---");
+        i := 0;
+        *[ i < 2 ->
+            a.base := 5;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            md.op := op_mem_t.W;
+            md.size := size_mem_t.WORD;
+            w := int(0x2000 + i, WIDTH_DATA);
+            addr!a; mode!md; wdata!w;
+            i := i + 1
+        ];
+
+        // Test 4: Read from fifo_in route, WORD
+        log("--- Test 4: 2x WORD Read from fifo_in route (base=5) ---");
+        i := 0;
+        *[ i < 2 ->
+            a.base := 5;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            md.op := op_mem_t.R;
+            md.size := size_mem_t.WORD;
+            e := int(0xDEADBEEF, WIDTH_DATA);
+            addr!a; mode!md; exp!e;
+            i := i + 1
+        ];
+
+        // Test 5: RMW to fifo_out route (base=6), WORD
+        log("--- Test 5: 3x WORD RMW to fifo_out route (base=6) ---");
+        i := 0;
+        *[ i < 3 ->
+            a.base := 6;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            md.op := op_mem_t.R_AND_W;
+            md.size := size_mem_t.WORD;
+            w := int(0x3000 + i, WIDTH_DATA);
+            e := int(0xDEADBEEF, WIDTH_DATA);
+            addr!a; mode!md; wdata!w; exp!e;
+            i := i + 1
+        ];
+
+        // Test 6: Write to an unmapped base (no catch-all here, unlike
+        // mmu.act -- ADDR_NO_CATCHALL means anything outside {4,5,6} is
+        // simply dropped, should consume wdata but do nothing)
+        log("--- Test 6: 2x WORD Write to unmapped base=7 (no-op, wdata consumed) ---");
+        i := 0;
+        *[ i < 2 ->
+            a.base := 7;
+            a.offset := int(i, WIDTH_ADDR_OFFSET);
+            md.op := op_mem_t.W;
+            md.size := size_mem_t.WORD;
+            w := int(0x4000 + i, WIDTH_DATA);
+            addr!a; mode!md; wdata!w;
+            i := i + 1
+        ];
+
+        // ---------------- Sized-transfer (masking) tests ----------------
+        // The source always presents the full pattern 0xDEADBEEF; the demux must
+        // mask the high bits to 0 before the value reaches the backend (writes)
+        // or the read sink (reads).
+
+        // Test 7: BYTE Write to ROM route -> backend must observe 0x000000EF
+        log("--- Test 7: BYTE Write to ROM route (base=4), 0xDEADBEEF -> expect 0x000000EF ---");
+        a.base := 4;
+        a.offset := int(0, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.W;
+        md.size := size_mem_t.BYTE;
+        w := int(0xDEADBEEF, WIDTH_DATA);
+        addr!a; mode!md; wdata!w;
+
+        // Test 8: HALF_WORD Write to ROM route -> backend must observe 0x0000BEEF
+        log("--- Test 8: HALF_WORD Write to ROM route (base=4), 0xDEADBEEF -> expect 0x0000BEEF ---");
+        a.base := 4;
+        a.offset := int(1, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.W;
+        md.size := size_mem_t.HALF_WORD;
+        w := int(0xDEADBEEF, WIDTH_DATA);
+        addr!a; mode!md; wdata!w;
+
+        // Test 9: WORD Write to ROM route -> backend must observe full 0xDEADBEEF
+        log("--- Test 9: WORD Write to ROM route (base=4), 0xDEADBEEF -> expect 0xDEADBEEF ---");
+        a.base := 4;
+        a.offset := int(2, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.W;
+        md.size := size_mem_t.WORD;
+        w := int(0xDEADBEEF, WIDTH_DATA);
+        addr!a; mode!md; wdata!w;
+
+        // Test 10: BYTE Read from ROM route (backend returns 0xDEADBEEF) -> sink expects 0x000000EF
+        log("--- Test 10: BYTE Read from ROM route (base=4) -> sink expects 0x000000EF ---");
+        a.base := 4;
+        a.offset := int(0, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.R;
+        md.size := size_mem_t.BYTE;
+        e := int(0xEF, WIDTH_DATA);
+        addr!a; mode!md; exp!e;
+
+        // Test 11: HALF_WORD Read from ROM route -> sink expects 0x0000BEEF
+        log("--- Test 11: HALF_WORD Read from ROM route (base=4) -> sink expects 0x0000BEEF ---");
+        a.base := 4;
+        a.offset := int(1, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.R;
+        md.size := size_mem_t.HALF_WORD;
+        e := int(0xBEEF, WIDTH_DATA);
+        addr!a; mode!md; exp!e;
+
+        // Test 12: WORD Read from ROM route -> sink expects full 0xDEADBEEF
+        log("--- Test 12: WORD Read from ROM route (base=4) -> sink expects 0xDEADBEEF ---");
+        a.base := 4;
+        a.offset := int(2, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.R;
+        md.size := size_mem_t.WORD;
+        e := int(0xDEADBEEF, WIDTH_DATA);
+        addr!a; mode!md; exp!e;
+
+        // Test 13: BYTE RMW to fifo_out route: write 0xDEADBEEF (masked to 0x000000EF)
+        //          and read back a full pattern from the backend (masked to BYTE for upstream)
+        log("--- Test 13: BYTE RMW to fifo_out route (base=6): write expects 0x000000EF, sink expects low byte ---");
+        a.base := 6;
+        a.offset := int(0, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.R_AND_W;
+        md.size := size_mem_t.BYTE;
+        w := int(0xDEADBEEF, WIDTH_DATA);
+        e := int(0xEF, WIDTH_DATA);
+        addr!a; mode!md; wdata!w; exp!e;
+
+        // Test 14: HALF_WORD RMW to fifo_in route (base=5)
+        log("--- Test 14: HALF_WORD RMW to fifo_in route (base=5): write expects 0x0000BEEF ---");
+        a.base := 5;
+        a.offset := int(0, WIDTH_ADDR_OFFSET);
+        md.op := op_mem_t.R_AND_W;
+        md.size := size_mem_t.HALF_WORD;
+        w := int(0xDEADBEEF, WIDTH_DATA);
+        e := int(0xBEEF, WIDTH_DATA);
+        addr!a; mode!md; wdata!w; exp!e;
+
+        log("======== demux test complete ========")
+    }
+}
+
+// Sink for read data. Checks each returned value against the expected
+// (post-mask) value supplied by the source on `exp`.
+defproc read_sink (chan?(int<WIDTH_DATA>) rdata; chan?(int<WIDTH_DATA>) exp) {
+    int<WIDTH_DATA> r, e;
+
+    chp {
+        *[ rdata?r; exp?e;
+           log("%xRead data: 0x", r);
+           assert(r = e, "read data mismatch: demux read-side masking/routing broken")
+        ]
+    }
+}
+
+// Dummy ROM-route backend (receives and echoes). Reads always return
+// 0xDEADBEEF so that the demux's read-side masking can be observed at the
+// read sink. Every received write value is asserted to already have its
+// higher bits masked to 0 by the demux.
+defproc rom_backend (
+    chan?(addr_t) addr; chan?(mode_mem_t) mode;
+    chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata
+) {
+    addr_t a;
+    mode_mem_t md;
+    op_mem_t o;
+    size_mem_t s;
+    int<WIDTH_DATA> w, r;
+
+    chp {
+        *[
+            addr?a; mode?md;
+            o := md.op;
+            s := md.size;
+            [
+                o = op_mem_t.W ->
+                    wdata?w;
+                    assert(masked_ok(w, s), "ROM: write data not masked to transfer size");
+                    log("%xROM: Write 0x", w, "%u (size=", s, ") to addr base=", a.base, " offset=", a.offset)
+                [] o = op_mem_t.R ->
+                    r := int(0xDEADBEEF, WIDTH_DATA);
+                    rdata!r;
+                    log("%xROM: Read 0x", r, "%u (size=", s, ") from addr base=", a.base, " offset=", a.offset)
+                [] o = op_mem_t.R_AND_W ->
+                    wdata?w;
+                    assert(masked_ok(w, s), "ROM: RMW write data not masked to transfer size");
+                    r := int(0xDEADBEEF, WIDTH_DATA);
+                    rdata!r;
+                    log("%xROM: RMW write 0x", w, "%x read 0x", r, "%u (size=", s, ") from addr base=", a.base, " offset=", a.offset)
+            ]
+        ]
+    }
+}
+
+// Dummy fifo_in-route backend
+defproc fifo_in_backend (
+    chan?(addr_t) addr; chan?(mode_mem_t) mode;
+    chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata
+) {
+    addr_t a;
+    mode_mem_t md;
+    op_mem_t o;
+    size_mem_t s;
+    int<WIDTH_DATA> w, r;
+
+    chp {
+        *[
+            addr?a; mode?md;
+            o := md.op;
+            s := md.size;
+            [
+                o = op_mem_t.W ->
+                    wdata?w;
+                    assert(masked_ok(w, s), "FIFO_IN: write data not masked to transfer size");
+                    log("%xFIFO_IN: Write 0x", w, "%u (size=", s, ") to offset=", a.offset)
+                [] o = op_mem_t.R ->
+                    r := int(0xDEADBEEF, WIDTH_DATA);
+                    rdata!r;
+                    log("%xFIFO_IN: Read 0x", r, "%u (size=", s, ") from offset=", a.offset)
+                [] o = op_mem_t.R_AND_W ->
+                    wdata?w;
+                    assert(masked_ok(w, s), "FIFO_IN: RMW write data not masked to transfer size");
+                    r := int(0xDEADBEEF, WIDTH_DATA);
+                    rdata!r;
+                    log("%xFIFO_IN: RMW write 0x", w, "%x read 0x", r, "%u (size=", s, ") from offset=", a.offset)
+            ]
+        ]
+    }
+}
+
+// Dummy fifo_out-route backend
+defproc fifo_out_backend (
+    chan?(addr_t) addr; chan?(mode_mem_t) mode;
+    chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata
+) {
+    addr_t a;
+    mode_mem_t md;
+    op_mem_t o;
+    size_mem_t s;
+    int<WIDTH_DATA> w, r;
+
+    chp {
+        *[
+            addr?a; mode?md;
+            o := md.op;
+            s := md.size;
+            [
+                o = op_mem_t.W ->
+                    wdata?w;
+                    assert(masked_ok(w, s), "FIFO_OUT: write data not masked to transfer size");
+                    log("%xFIFO_OUT: Write 0x", w, "%u (size=", s, ") to addr base=", a.base, " offset=", a.offset)
+                [] o = op_mem_t.R ->
+                    r := int(0xDEADBEEF, WIDTH_DATA);
+                    rdata!r;
+                    log("%xFIFO_OUT: Read 0x", r, "%u (size=", s, ") from addr base=", a.base, " offset=", a.offset)
+                [] o = op_mem_t.R_AND_W ->
+                    wdata?w;
+                    assert(masked_ok(w, s), "FIFO_OUT: RMW write data not masked to transfer size");
+                    r := int(0xDEADBEEF, WIDTH_DATA);
+                    rdata!r;
+                    log("%xFIFO_OUT: RMW write 0x", w, "%x read 0x", r, "%u (size=", s, ") from addr base=", a.base, " offset=", a.offset)
+            ]
+        ]
+    }
+}
+
+// Main testbench
+defproc demux_test() {
+    // Instantiate components
+    addr_source asrc;
+    read_sink rsink;
+
+    // 3 exact routes (ROM=4, fifo_in=5, fifo_out=6), no catch-all --
+    // matches this template's real deployment (see
+    // tests/e2e/e2e_fifo_test.act) rather than mmu.act's own
+    // 2-exact+catch-all shape. ADDR_NO_CATCHALL disables the catch-all
+    // route entirely (addr.base is only WIDTH_ADDR_BASE bits wide, so
+    // `addr.base >= ADDR_NO_CATCHALL` can never be true).
+    pint N_EXACT = 3;
+    pint EXACT_BASES[N_EXACT];
+    EXACT_BASES = {4, 5, 6};
+    demux<N_EXACT, EXACT_BASES, ADDR_NO_CATCHALL> m;
+
+    rom_backend rom;
+    fifo_in_backend fin;
+    fifo_out_backend fout;
+
+    // Wire address / mode / write-data sources to demux
+    asrc.addr = m.addr_in;
+    asrc.mode = m.mode_in;
+    asrc.wdata = m.wdata_in;
+
+    // Wire read data sink from demux, and expected-value stream from source
+    rsink.rdata = m.rdata_in;
+    asrc.exp = rsink.exp;
+
+    // Wire demux's ROM route (index 0) to the dummy ROM backend
+    rom.addr = m.addr_out[0];
+    rom.mode = m.mode_out[0];
+    rom.wdata = m.wdata_out[0];
+    m.rdata_out[0] = rom.rdata;
+
+    // Wire demux's fifo_in route (index 1) to the dummy fifo_in backend
+    fin.addr = m.addr_out[1];
+    fin.mode = m.mode_out[1];
+    fin.wdata = m.wdata_out[1];
+    m.rdata_out[1] = fin.rdata;
+
+    // Wire demux's fifo_out route (index 2) to the dummy fifo_out backend
+    fout.addr = m.addr_out[2];
+    fout.mode = m.mode_out[2];
+    fout.wdata = m.wdata_out[2];
+    m.rdata_out[2] = fout.rdata;
+}
+
+demux_test dt;

@@ -1,16 +1,28 @@
 import "core/globals.act";
-
-function mask_data (int<WIDTH_DATA> data; size_mem_t size) : int<WIDTH_DATA> {
-    chp {
-        [ size = size_mem_t.BYTE       -> self := data & 0xff
-        [] size = size_mem_t.HALF_WORD -> self := data & 0xffff
-        [] else                        -> self := data
-        ]
-    }
-}
+import "core/utils.act";
 
 /*
-To core:
+This is the core-facing unit: it sits directly between soc's fetch/load-store
+logic and the chip's own on-chip resources (internal RAM, interrupt
+controller). For each transaction it checks the address:
+  - if it's one of EXACT_BASES (an on-chip resource) -> service it directly,
+    routing to that resource's own addr_out[k]/mode_out[k]/wdata_out[k]/
+    rdata_out[k] port group.
+  - otherwise (base >= CATCHALL_MIN_BASE, i.e. not on-chip at all) -> pass
+    the whole transaction through, unmodified, on the catch-all port
+    (addr_out[N_EXACT], the last one). soc wires this catch-all straight to
+    its own addr_ext/mode_ext/wdata_ext/rdata_ext boundary -- it never
+    decides what's actually out there. Whatever composes soc (today, the
+    test harness; later, dvs_core) wires that boundary into a separate
+    core/peripherals/demux.act instance, which does the actual off-chip
+    peripheral routing (ROM, FIFOs, ...). So the full path for a
+    non-on-chip access is: mmu (this file) -> soc's addr_ext boundary ->
+    demux -> the actual peripheral.
+
+Upstream port group (addr_core/mode_core/wdata_core/rdata_core) faces the
+CPU core directly -- unlike core/peripherals/demux.act (periphery-facing,
+never core-facing), this really is the core's own MMU, hence the naming.
+
 0. receives mode from core
 1. sends rdata to core, in parallel or/and receives wdata from core depending on op
 
@@ -20,27 +32,20 @@ To peripherals:
 
 sized transfers: only the low BYTE / HALF_WORD / WORD bits are kept. higher bits are 0
 
-Generic address-routed bus: N_EXACT downstream ports (addr_out[0..N_EXACT-1])
-are selected by an exact match against EXACT_BASES[k]. One further downstream
-port, addr_out[N_EXACT] (the last one), catches any address with
-base >= CATCHALL_MIN_BASE that didn't already match an exact entry -- so
-there are N_EXACT+1 downstream ports in total. An address matching neither
-is silently dropped: reads leave rdata untouched (never sent to core), writes
-are absorbed and never forwarded anywhere. That's deliberate -- it's what a
-real reserved/unmapped address should do (nothing answers, but nothing hangs
+An address matching neither an exact base nor the catch-all is silently
+dropped: reads leave rdata untouched (never sent to core), writes are
+absorbed and never forwarded anywhere. That's deliberate -- it's what a real
+reserved/unmapped address should do (nothing answers, but nothing hangs
 waiting for an answer either), and it falls out for free rather than needing
 an explicit "reserved" case: pick EXACT_BASES/CATCHALL_MIN_BASE so nothing
-maps to the gap and it's unreachable by construction.
+maps to the gap and it's unreachable by construction. soc's own instantiation
+(2 exact routes -- internal RAM, interrupt controller -- plus a catch-all at
+base>=ADDR_EXT_MIN) leaves bases 2 and 3 unreachable this way.
 
-Two uses of the same template:
-  - soc's own core-to-peripheral MMU: N_EXACT=2 exact routes (internal RAM,
-    interrupt controller) plus a catch-all at base>=4 for soc's own
-    "external" bus -- addresses 2 and 3 fall in the gap and are unreachable,
-    matching the old hardcoded reserved-region behavior.
-  - a plain address demux with no catch-all at all (CATCHALL_MIN_BASE set
-    higher than any real base, e.g. 16, so `addr.base >= CATCHALL_MIN_BASE`
-    can never be true since addr.base is only 4 bits wide) splitting that
-    same external bus further into distinct peripherals (ROM, FIFOs, ...).
+Note: a real dual-port PMP design (isolated read-only instruction port vs.
+read-write data port over one shared physical memory) is still on the
+roadmap for this file -- see robustness.md Stage 1.2. This is the interim,
+functionally-complete version soc currently runs on.
 */
 template<pint N_EXACT; pint EXACT_BASES[N_EXACT]; pint CATCHALL_MIN_BASE>
 defproc mmu(

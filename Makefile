@@ -5,6 +5,7 @@
 #   make wfi_test   - run just tests/wfi_test.act (works for any test by name)
 #   make list       - list the test names make has discovered
 #   make clean      - remove local simulator artifacts
+#   make help       - full usage, targets, and overridable variables
 #
 # Must be run from this directory (actnow/) -- ACT resolves every `import`
 # relative to the working directory the compiler was invoked from, not
@@ -68,9 +69,40 @@ SW_TESTS   := $(filter-out $(MEXT_TESTS),$(basename $(notdir $(wildcard \
                   software/tests/*.S software/tests/*.c \
                   software/tests/unit/*.S software/tests/unit/*.c))))
 
-.PHONY: all test list clean file-registry software-tests force e2e_fifo_test e2e_multi_event_test $(TESTS)
+.PHONY: all test list clean help file-registry software-tests force e2e_fifo_test e2e_multi_event_test $(TESTS)
 
 all: test
+
+help:
+	@echo "actnow -- ACT/CHP RV32I core test runner"
+	@echo ""
+	@echo "Usage: make [target] [VAR=value ...]"
+	@echo ""
+	@echo "Targets:"
+	@echo "  make / make all / make test  run every test: tests/core, tests/peripherals,"
+	@echo "                               tests/regression, tests/sw, plus both e2e tests"
+	@echo "  make <name>                  run a single test by name, e.g. make wfi_test"
+	@echo "                               (any test under tests/core, tests/peripherals,"
+	@echo "                               tests/regression, or tests/sw)"
+	@echo "  make list                    list every test name make has discovered"
+	@echo "  make software-tests          run the full RV32I suite (riscv-tests + custom)"
+	@echo "                               through soc's real fetch/decode/execute pipeline"
+	@echo "  make e2e_fifo_test           boot + interrupt/FIFO e2e test (application)"
+	@echo "  make e2e_multi_event_test    boot + all-16-events e2e test (multi_event)"
+	@echo "  make rom_program_test        run one program image through soc (see ROM_TEST)"
+	@echo "  make file-registry           (re)generate gen/file_ids.act + gen/file_registry.conf"
+	@echo "  make clean                   remove local simulator artifacts (gen/, history)"
+	@echo "  make help                    show this message"
+	@echo ""
+	@echo "Variables (override on the command line, e.g. make BOOT=1 ROM_TEST=addi rom_program_test):"
+	@echo "  ROM_TEST=<name>   program to build for rom_program_test (default: simple)"
+	@echo "  BOOT=1            run the selected program from internal SRAM via the bootloader"
+	@echo "                    instead of executing in place from external ROM"
+	@echo "  CROSS=<prefix>    RISC-V cross-compiler prefix (default: auto-detected from PATH)"
+	@echo "  SW_TESTS=\"...\"    subset of programs for software-tests (default: all non-M-ext)"
+	@echo ""
+	@echo "Must be run from this directory (actnow/) -- see the top of this Makefile and"
+	@echo "the README's Toolchain section for why."
 
 test: $(TESTS) e2e_fifo_test e2e_multi_event_test
 	@echo "=== all tests passed ==="

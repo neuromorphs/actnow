@@ -1,6 +1,7 @@
 import "core/soc.act";
 import "core/peripherals/fifo_in.act";
 import "core/peripherals/fifo_out.act";
+import "core/peripherals/demux.act";
 import "gen/file_ids.act";
 
 // End-to-end testbench modeling how this chip actually operates: bootload a
@@ -21,7 +22,7 @@ import "gen/file_ids.act";
 //             jumps to SRAM -- nothing after that ever touches it again)
 //   base=5 -> input FIFO (fifo_in.act)
 //   base=6 -> output FIFO (fifo_out.act)
-// This external bus is a plain N-way address demux -- mmu.act's generic
+// This external bus is a plain N-way address demux -- demux.act's generic
 // router reused with no catch-all (ADDR_NO_CATCHALL disables it, since
 // every address out here is one of the three exact bases above).
 defproc e2e_fifo_test() {
@@ -30,12 +31,12 @@ defproc e2e_fifo_test() {
     pint DEMUX_N = 3;
     pint DEMUX_BASES[DEMUX_N];
     DEMUX_BASES = {4, 5, 6};
-    mmu<DEMUX_N, DEMUX_BASES, ADDR_NO_CATCHALL> demux;
+    demux<DEMUX_N, DEMUX_BASES, ADDR_NO_CATCHALL> demux;
 
-    demux.addr_core = s.addr_ext;
-    demux.mode_core = s.mode_ext;
-    demux.wdata_core = s.wdata_ext;
-    demux.rdata_core = s.rdata_ext;
+    demux.addr_in = s.addr_ext;
+    demux.mode_in = s.mode_ext;
+    demux.wdata_in = s.wdata_ext;
+    demux.rdata_in = s.rdata_ext;
 
     mem<true, ROM_IMAGE> rom;
     demux.addr_out[0] = rom.addr;

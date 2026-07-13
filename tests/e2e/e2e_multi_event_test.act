@@ -1,6 +1,7 @@
 import "core/soc.act";
 import "core/peripherals/fifo_in.act";
 import "core/peripherals/fifo_out.act";
+import "core/peripherals/demux.act";
 import "gen/file_ids.act";
 
 // Generality/stress testbench: boots a real compiled program
@@ -31,12 +32,12 @@ defproc e2e_multi_event_test() {
     pint DEMUX_N = 3;
     pint DEMUX_BASES[DEMUX_N];
     DEMUX_BASES = {4, 5, 6};
-    mmu<DEMUX_N, DEMUX_BASES, ADDR_NO_CATCHALL> demux;
+    demux<DEMUX_N, DEMUX_BASES, ADDR_NO_CATCHALL> demux;
 
-    demux.addr_core = s.addr_ext;
-    demux.mode_core = s.mode_ext;
-    demux.wdata_core = s.wdata_ext;
-    demux.rdata_core = s.rdata_ext;
+    demux.addr_in = s.addr_ext;
+    demux.mode_in = s.mode_ext;
+    demux.wdata_in = s.wdata_ext;
+    demux.rdata_in = s.rdata_ext;
 
     mem<true, ROM_IMAGE> rom;
     demux.addr_out[0] = rom.addr;

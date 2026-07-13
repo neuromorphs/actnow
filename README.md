@@ -16,28 +16,43 @@ the MMU masking the write value down to the requested size before it
 reaches the peripheral. The M-extension (multiply/divide) is not
 implemented.
 
-## Address-routed bus (`core/mmu.act`)
+There are two distinct address routers, not one — see the next section:
+`core/mmu.act` decides what's on-chip, `core/peripherals/demux.act` splits
+whatever isn't. A real dual-port PMP design for `core/mmu.act` (isolated
+read-only instruction port / read-write data port over one shared physical
+memory) is still on the roadmap; see `robustness.md`.
 
-`core/mmu.act`'s `mmu` is a generic template, `mmu<N_EXACT; EXACT_BASES[N_EXACT];
-CATCHALL_MIN_BASE>`: `N_EXACT` downstream ports are selected by an exact
-match against `EXACT_BASES[k]`, and one further downstream port (index
-`N_EXACT`, the last one) catches any address with `base >=
-CATCHALL_MIN_BASE` that didn't already match. An address matching neither is
-silently dropped — reads are never answered, writes are absorbed — which is
-what a real reserved/unmapped address should do (undefined, but doesn't hang
-waiting on a response). Two instantiations of the same template are used:
+## Address routers (`core/mmu.act` and `core/peripherals/demux.act`)
 
-- **soc's own core-to-peripheral MMU** (inside `core/soc.act`): 2 exact routes
-  (`ADDR_MEM`=0 → internal RAM, `ADDR_INT_CTRL`=1 → interrupt controller)
-  plus a catch-all at `base >= ADDR_EXT_MIN` (4) → soc's own
-  `addr_ext`/`mode_ext`/`wdata_ext`/`rdata_ext` ports. Bases 2 and 3 fall in
-  the gap and are unreachable by construction.
-- **a plain address demux** with no catch-all at all (pass `ADDR_NO_CATCHALL`
-  for `CATCHALL_MIN_BASE`, which — since `addr_t`'s base field is only
+Both are instantiations of the same underlying shape — `N_EXACT` downstream
+ports selected by an exact match against `EXACT_BASES[k]`, plus one further
+optional downstream port (index `N_EXACT`, the last one) that catches any
+address with `base >= CATCHALL_MIN_BASE` that didn't already match. An
+address matching neither is silently dropped — reads are never answered,
+writes are absorbed — which is what a real reserved/unmapped address should
+do (undefined, but doesn't hang waiting on a response). But they're separate
+processes with distinct architectural roles, not two uses of one shared file:
+
+- **`core/mmu.act`'s `mmu`** is core-facing — it's the unit soc's own
+  fetch/load-store logic talks to directly. Instantiated inside
+  `core/soc.act` with 2 exact routes (`ADDR_MEM`=0 → internal RAM,
+  `ADDR_INT_CTRL`=1 → interrupt controller) plus a catch-all at `base >=
+  ADDR_EXT_MIN` (4) that passes anything not on-chip straight through to
+  soc's own `addr_ext`/`mode_ext`/`wdata_ext`/`rdata_ext` boundary. Bases 2
+  and 3 fall in the gap and are unreachable by construction. (A real
+  dual-port PMP redesign is still pending — see `robustness.md`.)
+- **`core/peripherals/demux.act`'s `demux`** is periphery-facing — it never
+  talks to the core directly, only to whatever's already been decided to be
+  off-chip. `tests/e2e/e2e_fifo_test.act` wires it straight to soc's
+  `addr_ext` boundary with no catch-all at all (`ADDR_NO_CATCHALL` for
+  `CATCHALL_MIN_BASE`, which — since `addr_t`'s base field is only
   `WIDTH_ADDR_BASE` bits wide — can never actually match, so the router's
-  last downstream port just goes unused). `tests/e2e/e2e_fifo_test.act` reuses
-  the same `mmu` this way to split soc's external bus further into distinct
+  last downstream port just goes unused), splitting it into distinct
   peripherals: ROM at base=4, input FIFO at base=5, output FIFO at base=6.
+
+So a non-on-chip access takes the path: soc's core → `mmu` (falls through
+its catch-all) → soc's `addr_ext` boundary → `demux` → the actual
+peripheral.
 
 ## Interrupt controller (`core/interrupt.act`)
 
@@ -154,7 +169,7 @@ layers of tests.
 
 The CHP testbenches are split by kind: `tests/core/` (CPU/ISA datapath —
 hand-crafted instruction words, e.g. ALU, register file), `tests/peripherals/`
-(standalone peripheral/infra unit tests — MMU, memory, FIFOs),
+(standalone peripheral/infra unit tests — MMU, demux, memory, FIFOs),
 `tests/regression/` (one-off bug-repro tests), and `tests/e2e/` (full boot +
 real compiled program + real peripheral interaction). Each reports
 `<name>: PASS` or `FAIL`; `make` finds a test by name regardless of which
@@ -268,7 +283,7 @@ Requires `actsim` built from commit `fa1a636` ("tests and fixes for
 user-defined enums") or later — earlier versions crash (`Assertion: pos ==
 nvals` in `state.cc`) the instant a `deftype` struct with an enum-typed field
 (e.g. this project's `mode_mem_t`) is sent over a channel, which
-`core/mmu.act`/`core/peripherals/mem.act` do on every memory transaction.
+`core/mmu.act`/`core/peripherals/demux.act`/`core/peripherals/mem.act` do on every memory transaction.
 `tests/regression/mode_mem_t_enum_bug_test.act` is a standalone regression test for it. If
 your `actsim` predates the fix, update the `actsim` submodule in your
 `act`/`actflow` checkout to `origin/master` and rebuild just `act` + `actsim`.

@@ -78,7 +78,12 @@ defproc soc(
     // 2 exact routes (internal RAM, interrupt controller) + 1 catch-all for
     // soc's own "external" bus (anything base>=ADDR_EXT_MIN) -- see
     // mmu.act's own comment for why bases 2/3 end up unreachable by
-    // construction rather than needing an explicit reserved case.
+    // construction rather than needing an explicit reserved case. Anything
+    // landing on the catch-all is, by construction, not an on-chip
+    // resource -- it passes straight through to addr_ext/mode_ext/
+    // wdata_ext/rdata_ext below, where whatever composes soc (the test
+    // harness, dvs_core, ...) wires up a core/peripherals/demux.act
+    // instance to route it to the actual off-chip peripheral.
     pint SOC_MMU_N_EXACT = 2;
     pint SOC_MMU_EXACT_BASES[SOC_MMU_N_EXACT];
     SOC_MMU_EXACT_BASES = {ADDR_MEM, ADDR_INT_CTRL};

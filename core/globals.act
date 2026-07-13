@@ -12,7 +12,7 @@ deftype mode_mem_t(op_mem_t op; size_mem_t size) { }
 pint ADDR_MEM = 0,
     ADDR_INT_CTRL = 1;
 
-// First base soc's own mmu (mmu.act) treats as "external" -- anything with
+// First base soc's own router (core/peripherals/demux.act) treats as "external" -- anything with
 // base >= ADDR_EXT_MIN and not otherwise claimed passes through to soc's own
 // addr_ext/mode_ext/wdata_ext/rdata_ext ports. Bases 2 and 3 (the old
 // ADDR_INTERNAL_RESERVED_0/1) fall in the gap between ADDR_INT_CTRL and this
@@ -21,7 +21,7 @@ pint ADDR_MEM = 0,
 // behavior (undefined, but doesn't hang waiting on an off-chip response).
 pint ADDR_EXT_MIN = 4;
 
-// Pass as CATCHALL_MIN_BASE to mmu.act's generic router to disable its
+// Pass as CATCHALL_MIN_BASE to demux.act's generic router to disable its
 // catch-all route entirely -- addr_t's base field is only WIDTH_ADDR_BASE
 // (4) bits wide, so `addr.base >= ADDR_NO_CATCHALL` can never be true and
 // the router's last downstream port is simply never used.
