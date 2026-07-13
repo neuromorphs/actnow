@@ -1,7 +1,7 @@
 import std;
 import sim;
 
-import "globals.act";
+import "core/globals.act";
 
 // Unified backing memory, same std::ram bank layout either way.
 //   READ_ONLY=false -> plain read/write RAM, no preload (std::ram starts

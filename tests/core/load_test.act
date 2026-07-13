@@ -1,4 +1,4 @@
-import "soc.act";
+import "core/soc.act";
 
 // Drives soc through LUI (to build a base address in x1) followed by all
 // five LOAD variants (LW, LB, LBU, LH, LHU) against that base, then WFI.

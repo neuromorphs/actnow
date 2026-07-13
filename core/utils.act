@@ -1,4 +1,4 @@
-import "globals.act";
+import "core/globals.act";
 
 // Single shared ALU for R-type, I-type, and the shift-immediates (SLLI/SRLI/SRAI).
 // Note that b can either be rs2 or the immediate, depending on the instruction type.

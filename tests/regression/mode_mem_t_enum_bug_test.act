@@ -1,4 +1,4 @@
-import "globals.act";
+import "core/globals.act";
 
 // Regression test for a real actsim toolchain bug (not a bug in this
 // project's code): sending a `mode_mem_t` value over a channel used to crash

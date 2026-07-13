@@ -1,7 +1,7 @@
 import std;
 
-import "globals.act";
-import "mem.act";
+import "core/globals.act";
+import "core/peripherals/mem.act";
 
 /*
  * Testbench for the `mem` module (actnow/mem.act).

@@ -1,6 +1,6 @@
 import std;
 
-import "globals.act";
+import "core/globals.act";
 
 // Input FIFO peripheral: the outside world pushes data in via `push` (e.g. a
 // testbench simulating an external device or DMA source); the CPU pops the

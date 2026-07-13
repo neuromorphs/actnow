@@ -1,5 +1,5 @@
-import "globals.act";
-import "mmu.act";
+import "core/globals.act";
+import "core/mmu.act";
 
 // Returns true iff w has no bits set above the transfer-size boundary,
 // i.e. the MMU masked the higher bits to 0 as required.

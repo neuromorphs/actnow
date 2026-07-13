@@ -1,4 +1,4 @@
-import "soc.act";
+import "core/soc.act";
 import "gen/file_ids.act";
 
 // Loads a real compiled RV32I program image and runs it through the actual
