@@ -4,7 +4,8 @@
       "Bash(actsim -cnf=gen/file_registry.conf tests/e2e/e2e_reset_reload_test.act e2e_reset_reload_test)",
       "Bash(make CROSS=riscv64-unknown-elf- e2e_reset_reload_test > /tmp/make_ertt.log 2>&1; echo \"EXIT: $?\"; tail -30 /tmp/make_ertt.log)",
       "Bash(make CROSS=riscv64-unknown-elf- test)",
-      "Bash(make CROSS=riscv64-unknown-elf- software-tests > /tmp/sw_tests.log 2>&1; echo \"EXIT: $?\"; tail -10 /tmp/sw_tests.log)"
+      "Bash(make CROSS=riscv64-unknown-elf- software-tests > /tmp/sw_tests.log 2>&1; echo \"EXIT: $?\"; tail -10 /tmp/sw_tests.log)",
+      "Bash(git commit -m ' *)"
     ],
     "additionalDirectories": [
       "/tmp"

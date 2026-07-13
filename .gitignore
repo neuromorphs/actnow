@@ -8,3 +8,5 @@ software/**/build/
 # test suite artifacts
 /gen/
 __pycache__/
+
+.claude
