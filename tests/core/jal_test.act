@@ -1,20 +1,15 @@
 import "core/soc.act";
 
-// Drives soc through JAL followed by JALR in one continuous run (no WFI in
-// between, since waking always re-vectors pc rather than resuming -- see
-// wfi_test.act / the soc.act "flush" discussion). Deliberately uses a
-// negative JAL offset, since that's exactly the case that used to corrupt
-// bit 0 of the reconstructed immediate (the sign bit only shows up as a
-// problem when it's actually set). JALR's target then depends on JAL's
-// link register, so a wrong JALR mask or JAL return-address value would
-// show up as a wrong final fetch address here too.
+// Drives soc through JAL followed by JALR in one continuous run. Uses a
+// negative JAL offset, which exercises the immediate's sign-extension (the
+// sign bit only shows up as a problem when it's actually set). JALR's
+// target then depends on JAL's link register, so a wrong JALR mask or JAL
+// return-address value would show up as a wrong final fetch address too.
 //
-// soc boots at ADDR_RESET (0x40000, base=4) and fetches through
-// addr_ext/mode_ext/rdata_ext -- everything below 0x40000 is outside the
-// external region (it aliases into the reserved base=3 window, which mmu.act
-// silently drops reads on), so a leading NOP advances pc to 0x40004 first;
-// JAL then jumps back by only -4 (still negative, still exercises the same
-// sign-extension bug) so the target stays inside the external region.
+// soc boots at ADDR_RESET (0x40000, base=4); everything below 0x40000 is
+// outside the external region (mmu.act silently drops reads there), so a
+// leading NOP advances pc to 0x40004 first, and JAL jumps back by -4 so the
+// target stays inside the external region.
 defproc jal_test() {
 
     soc s;

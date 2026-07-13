@@ -4,26 +4,18 @@ import "gen/file_ids.act";
 // Loads a real compiled RV32I program image and runs it through the actual
 // soc pipeline (fetch/decode/execute), instead of hand-crafted instruction
 // words like the other tests. The image comes from
-// software/tests/build/rom_image.mem, produced by `make TEST=simple` in
-// software/tests/ (see software/tests/Makefile) -- one 32-bit word per
-// line, "0b"-prefixed so actsim's sim::file::read can parse it. The image is
-// registered as ROM_IMAGE in tests/files/file_registry.txt, which the
-// generated gen/file_registry.conf maps to that path (loaded via -cnf).
+// software/tests/build/rom_image.mem (see software/tests/Makefile),
+// registered as ROM_IMAGE in tests/files/file_registry.txt.
 //
-// mem<true, ROM_IMAGE> (mem.act, imported transitively via soc.act) serves
-// it: a read-only instantiation of the same std::ram-backed memory soc uses
-// internally, correctly rejecting any write -- which is fine here, since
-// .data/.bss writes go to internal RAM (base=0) via soc's own mem<false,.>,
-// not to addr_ext at all; nothing should ever write to ROM.
+// mem<true, ROM_IMAGE> serves it: a read-only instance of the same
+// std::ram-backed memory soc uses internally, rejecting any write -- fine
+// here, since .data/.bss writes go to internal RAM via soc's own
+// mem<false,.>, never to addr_ext.
 //
-// The program under test is software/tests/simple.S, riscv-tests' most
-// basic self-checking test. It has no real pass/fail assertion of its own
-// (RVTEST_PASS is a no-op for this test) -- it just runs straight-line code
-// (AUIPC/ADDI/BGEU/LW/SW/JAL), including one backward jump, and finishes by
-// executing this project's own WFI opcode (encoded as the raw word
-// 0x0000000b at label `mytest_ret`, deliberately reused as riscv-tests'
-// "test finished" marker). Reaching "decoded wfi" in the log below with no
-// crash or hang along the way is what "passing" means here.
+// ROM_TEST defaults to software/tests/simple.S, riscv-tests' basic
+// self-checking test: straight-line code with one backward jump, finishing
+// with this project's own WFI opcode. Reaching "decoded wfi" in the log
+// below with no crash or hang is what "passing" means here.
 defproc rom_program_test() {
     soc s;
 

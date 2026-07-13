@@ -3,39 +3,20 @@ import std;
 import "core/globals.act";
 import "core/peripherals/mem.act";
 
-/*
- * Testbench for the `mem` module (actnow/mem.act).
- *
- * Memory model under test
- * -----------------------
- *   `mem` is a byte-addressable, 32-bit-word memory built from 4 byte-wide
- *   std::ram banks.  A byte at byte-address A lives in:
- *
- *        bank   = A mod 4        (byte lane, from offset{1..0})
- *        widx   = A div 4        (word index / bank location, from offset>>2)
- *
- *   The low byte of a word is lane 0 (little-endian across the banks).
- *
- *   Sized transfers only ever touch the low BYTE / HALF_WORD / WORD bits;
- *   higher bits are masked to 0.  Writes ignore the high bits of the supplied
- *   word (only `nbytes` lanes are written); reads zero-extend the result.
- *
- * Capacity / configurability
- * ---------------------------
- *   Total data bytes  = SIZE_MEM_WORDS * 4.
- *   The byte offset field is WIDTH_ADDR_OFFSET (16) bits wide, so it can
- *   address up to 2^16 = 8*1024*8 bytes.  SIZE_MEM_WORDS is intentionally set
- *   to 8*1024 (=> 8*1024*4 data bytes) but may be raised up to 16*1024
- *   (=> 8*1024*8 bytes) to fill the whole address space.  This testbench reads
- *   SIZE_MEM_WORDS symbolically, so it always exercises the current top word.
- *
- * Structure
- * ---------
- *   Everything is inline in test(): local channels drive the mem ports directly,
- *   and the chp body issues write / read / read-modify-write transactions,
- *   self-checking every read against the expected (post-mask) value.
- *   (A macro-based driver would be cleaner, but is avoided on purpose.)
- */
+// Testbench for core/peripherals/mem.act: a byte-addressable, 32-bit-word
+// memory built from 4 byte-wide std::ram banks. A byte at address A lives
+// in bank = A mod 4 (from offset{1..0}), word index = A div 4 (from
+// offset>>2); the low byte of a word is lane 0. Sized transfers only touch
+// the low BYTE/HALF_WORD/WORD bits -- writes ignore the rest of the
+// supplied word, reads zero-extend.
+//
+// Total capacity = SIZE_MEM_WORDS * 4 bytes; this testbench reads
+// SIZE_MEM_WORDS symbolically, so it always exercises the current top word
+// regardless of how that constant is set.
+//
+// Local channels drive the mem ports directly; the chp body issues write/
+// read/RMW transactions, self-checking every read against the expected
+// (post-mask) value.
 defproc mem_test() {
     mem<false, 0> m;
 

@@ -1,29 +1,17 @@
 import "chips/bench/core.act";
 import "gen/file_ids.act";
 
-// End-to-end testbench modeling how this chip actually operates: bootload a
-// real compiled program (software/application/main.c, built BOOT=1-style --
-// see chips/bench/Makefile's `ROM_TEST=application` handling), let it
-// configure its own interrupt vector, its input FIFO's trigger level
-// (BATCH=3, see main.c), and go to sleep (WFI). Then push two separate
-// 3-word batches into the input FIFO (with a delay between them, modeling
-// real-world latency) -- fifo_in fires the interrupt *itself* once each
-// batch is fully pushed, no manual triggering from this testbench at all.
+// Boots a real compiled program (software/application/main.c) through the
+// bootloader, lets it configure its own interrupt vector and input FIFO
+// trigger level (BATCH=3), then go to sleep. Pushes two separate 3-word
+// batches into the input FIFO (with a delay between them) -- fifo_in fires
+// the interrupt itself once each batch lands, no manual triggering here.
 // Each batch is processed by the program's own ISR and observed as 3
-// results on a real output FIFO.
+// results on the output FIFO.
 //
-// Address layout once the bootloader hands off to the application (which
-// runs from internal SRAM, base=0 -- see soc.act's own internal MMU routes
-// for base 0/1, both handled entirely inside soc):
-//   base=4 -> ROM (only used by the bootloader itself, briefly, before it
-//             jumps to SRAM -- nothing after that ever touches it again)
-//   base=5 -> input FIFO (fifo_in.act)
-//   base=6 -> output FIFO (fifo_out.act)
-// This is chips/bench/core.act's standard periphery (chips/bench/
-// harness.act) -- fifo_in's auto-fire is routed to event_id_0, matching
-// real chips/bench wiring, since this test relies on it (unlike
-// e2e_multi_event_test.act, which drives all 16 event lines manually
-// instead and leaves fifo_event disconnected).
+// `c.event_id_0 = c.fifo_event` wires fifo_in's auto-fire to event_id_0,
+// matching real chips/bench wiring (unlike e2e_multi_event_test.act, which
+// drives all 16 event lines manually and leaves fifo_event disconnected).
 defproc e2e_fifo_test() {
     core<ROM_IMAGE> c;
     c.event_id_0 = c.fifo_event;
@@ -34,19 +22,12 @@ defproc e2e_fifo_test() {
     chp {
         log("======== end-to-end interrupt/FIFO test start ========");
 
-        // No boot-completion delay needed here: interrupt.act gates
-        // event_id_0's delivery on an enable bit that main() only sets
-        // after configuring the vector and fifo_in's trigger level (see
-        // interrupt.act / main.c). And fifo_in itself won't fire event_out
-        // until it's actually received BATCH pushes. So each push below
-        // just blocks at fifo_in's own rendezvous until the program is
-        // ready, and the interrupt fires itself once the batch lands --
-        // self-managed synchronization the whole way, no guessed delay.
+        // No boot-completion delay needed: each push below just blocks
+        // until the program has configured its vector and trigger level,
+        // and the interrupt fires itself once a batch lands.
 
         // --- Batch 1: push 41, 42, 43 -- ISR computes +1 on each, expect
-        // 42, 43, 44 out. The 3rd push is what triggers fifo_in's
-        // event_out (BATCH=3, configured by main()) -- nothing here fires
-        // an interrupt directly.
+        // 42, 43, 44 out.
         log("--- batch 1: pushing 41, 42, 43 into the input FIFO ---");
         c.push!int(41, WIDTH_DATA);
         c.push!int(42, WIDTH_DATA);
@@ -65,9 +46,7 @@ defproc e2e_fifo_test() {
         *[ delay < 3000 -> delay := delay + 1 ];
 
         // --- Batch 2: push 100, 200, 300, expect 101, 201, 301 out. Same
-        // ISR, same vector, same trigger level -- the program never
-        // reconfigures anything between events, exactly like a real
-        // interrupt handler that just keeps running.
+        // ISR and config, reused without reconfiguring anything.
         log("--- batch 2: pushing 100, 200, 300 into the input FIFO ---");
         c.push!int(100, WIDTH_DATA);
         c.push!int(200, WIDTH_DATA);

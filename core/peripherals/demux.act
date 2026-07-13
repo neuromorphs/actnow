@@ -2,49 +2,25 @@ import "core/globals.act";
 import "core/utils.act";
 
 /*
-This is a peripheral-side router, not a core-facing unit -- it never talks
-to the CPU core directly (that's core/mmu.act's job). The chain for any
-access that isn't one of soc's own on-chip resources is: soc's fetch/
-load-store logic -> mmu (services on-chip addresses itself; anything else
-falls through its catch-all) -> soc's own addr_ext/mode_ext/wdata_ext/
-rdata_ext boundary -> this demux -> the actual off-chip peripheral (ROM,
-FIFOs, ...). This file's single upstream port group (addr_in/mode_in/
-wdata_in/rdata_in) faces that boundary -- see e.g.
-tests/e2e/e2e_fifo_test.act, which wires it straight to soc's addr_ext
-group and splits it further into ROM/fifo_in/fifo_out.
+Peripheral-side router -- never talks to the CPU core directly (that's
+core/mmu.act's job). The chain for anything off-chip is: soc's fetch/
+load-store logic -> mmu (falls through its catch-all) -> soc's own
+addr_ext/mode_ext/wdata_ext/rdata_ext boundary -> this demux -> the actual
+peripheral (ROM, FIFOs, GPIO, ...). See chips/bench/harness.act, which
+wires this straight to soc's addr_ext group and splits it into ROM/
+fifo_in/fifo_out/gpio.
 
-Upstream port group (addr_in/mode_in/wdata_in/rdata_in):
-0. receives mode from upstream
-1. sends rdata upstream, in parallel or/and receives wdata from upstream depending on op
+Generic address-routed bus: N_EXACT downstream ports are selected by an
+exact match against EXACT_BASES[k]. One further downstream port,
+addr_out[N_EXACT], catches any address with base >= CATCHALL_MIN_BASE that
+didn't already match. An address matching neither is silently dropped:
+reads leave rdata untouched, writes are absorbed -- matching how a real
+reserved/unmapped address behaves (nothing answers, but nothing hangs
+waiting either).
 
-To peripherals:
-0. sends mode to periph
-1. receives rdata from periph, in parallel or/and sends wdata to periph depending on op
-
-sized transfers: only the low BYTE / HALF_WORD / WORD bits are kept. higher bits are 0
-
-Generic address-routed bus: N_EXACT downstream ports (addr_out[0..N_EXACT-1])
-are selected by an exact match against EXACT_BASES[k]. One further downstream
-port, addr_out[N_EXACT] (the last one), catches any address with
-base >= CATCHALL_MIN_BASE that didn't already match an exact entry -- so
-there are N_EXACT+1 downstream ports in total. An address matching neither
-is silently dropped: reads leave rdata untouched (never sent upstream), writes
-are absorbed and never forwarded anywhere. That's deliberate -- it's what a
-real reserved/unmapped address should do (nothing answers, but nothing hangs
-waiting for an answer either), and it falls out for free rather than needing
-an explicit "reserved" case: pick EXACT_BASES/CATCHALL_MIN_BASE so nothing
-maps to the gap and it's unreachable by construction.
-
-This template is currently identical in shape to core/mmu.act's (both are
-"N exact routes + one optional catch-all"), but the two are conceptually
-distinct processes and will diverge for real once core/mmu.act grows its
-dual-port PMP behavior (robustness.md Stage 1.2) -- this file's job stays
-"split an already off-chip bus into distinct peripherals" either way.
-Today's harness instantiation (tests/e2e/e2e_fifo_test.act and
-e2e_multi_event_test.act) uses 3 exact routes (ROM, fifo_in, fifo_out) with
-no catch-all at all (CATCHALL_MIN_BASE set higher than any real base, e.g.
-via ADDR_NO_CATCHALL, so `addr.base >= CATCHALL_MIN_BASE` can never be true
-since addr.base is only 4 bits wide).
+This template is the same shape as core/mmu.act's ("N exact routes + one
+optional catch-all"), but the two stay separate processes: this one is
+periphery-facing, mmu is core-facing.
 */
 template<pint N_EXACT; pint EXACT_BASES[N_EXACT]; pint CATCHALL_MIN_BASE>
 defproc demux(

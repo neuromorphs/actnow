@@ -2,67 +2,40 @@ import "core/globals.act";
 import "core/utils.act";
 
 /*
-This is the core-facing unit: it sits directly between soc's fetch/
-load-store logic and the chip's own on-chip resources (internal RAM,
-interrupt controller), same role as before -- but now with two independent
-core-facing port groups instead of one, sharing one physical-resource-facing
-port group. This is the real physical memory protection (PMP) design: an
-instruction port that can only ever read, and a data port that can read and
-write, both able to reach the same backing RAM, so code and data share
-physical memory but a fetch can never be used to write it.
+Core-facing dual-port PMP (physical memory protection) mmu: sits between
+soc's fetch/load-store logic and the chip's on-chip resources (internal
+RAM, interrupt controller). Two independent core-facing port groups share
+one physical-resource-facing port group, so code and data share physical
+memory but a fetch can never write it:
 
-  - instr port group (addr_instr/mode_instr/rdata_instr): no wdata channel
-    at all -- a write is not just rejected, it isn't representable. This is
-    the actual protection mechanism: it holds even if a future caller's mode
-    field is wrong, since there's no channel for write data to travel on
-    regardless. A defensive assert on mode_instr.op catches a caller
-    mistake anyway (see below), but the hardware-level guarantee doesn't
-    depend on it.
-  - data port group (addr_data/mode_data/wdata_data/rdata_data): full
-    R/W/RMW, same shape as the old single `addr_core` group.
+  - instr port (addr_instr/mode_instr/rdata_instr): no wdata channel at
+    all, so a write isn't just rejected, it isn't representable -- the
+    protection holds even if a caller's mode field is wrong. A defensive
+    assert on mode_instr.op catches that mistake too, but isn't what does
+    the actual protecting.
+  - data port (addr_data/mode_data/wdata_data/rdata_data): full R/W/RMW.
 
-Both port groups route through the *same* EXACT_BASES/CATCHALL_MIN_BASE
-table and the *same* addr_out[]/mode_out[]/wdata_out[]/rdata_out[] downstream
-array -- this is what "share the same physical memory" means concretely:
-there is exactly one route to internal RAM (index k where
-EXACT_BASES[k]=ADDR_MEM), and both ports fall through to it. The instr
-branch technically has routing access to every EXACT_BASES entry (not just
-RAM), including the interrupt controller -- that's unrestricted on purpose;
-the property actually asked for is "never allow a write through the
-instruction port," which the missing wdata_instr channel already gives
-unconditionally, regardless of which base is targeted. Restricting *which*
-addresses fetch may target isn't a protection property this project asked
-for, so it isn't modeled here.
+Both ports route through the same EXACT_BASES/CATCHALL_MIN_BASE table and
+the same addr_out[]/mode_out[]/wdata_out[]/rdata_out[] downstream array --
+that's what makes them share one physical RAM rather than each having a
+private copy. The instr port also needs the catch-all route, not just the
+RAM route: soc always boots by fetching the reset vector from external ROM
+through it, and the default (non-BOOT) mode executes straight from there
+("XIP").
 
-Instruction fetch also needs the catch-all route (base >= CATCHALL_MIN_BASE),
-not just the RAM route -- soc always boots by fetching the reset vector from
-ADDR_RESET (base=4, external ROM, via this same catch-all), and the
-top-level Makefile's default (non-BOOT) mode executes straight from there
-("XIP"). So the instr port must be able to reach whatever's on the other
-side of the catch-all (soc's own addr_ext boundary -> a downstream
-core/peripherals/demux.act instance -> the actual ROM/peripheral) exactly
-like the data port can.
+Arbitration is a top-level probed selection between the two ports. soc's
+core is single-issue and strictly sequential, so in practice they're never
+both pending at once -- the probed selection just makes that safe
+structurally rather than by convention.
 
-Arbitration: a top-level probed selection (`[| #addr_instr -> ... [] #addr_data
--> ... |]`) picks whichever port has a pending request. soc's own core is
-single-issue and strictly sequential (fetch runs to completion, then decode/
-execute -- which may include exactly one load/store -- runs to completion,
-then back to fetch), so in practice the two ports are never both pending at
-once; the probed selection is what makes that safe structurally rather than
-by convention, and stays sound if that ever changes.
+Only the low BYTE/HALF_WORD/WORD bits of a transfer are kept, higher bits
+are 0. An address matching neither an exact base nor the catch-all is
+silently dropped (reads never answered, writes absorbed) -- same as a real
+reserved/unmapped address.
 
-sized transfers: only the low BYTE / HALF_WORD / WORD bits are kept. higher
-bits are 0. An address matching neither an exact base nor the catch-all is
-silently dropped: reads leave rdata untouched (never sent to core), writes
-are absorbed and never forwarded anywhere -- same reserved/unmapped-address
-behavior as before. soc's own instantiation (2 exact routes -- internal RAM,
-interrupt controller -- plus a catch-all at base>=ADDR_EXT_MIN) leaves bases
-2 and 3 unreachable this way.
-
-Note: this file's own real router logic (the exact+catch-all dispatch) is
-still, deliberately, the same shape as core/peripherals/demux.act's -- they
-remain separate processes with separate architectural roles (this one
-core-facing, that one periphery-facing), not two uses of one shared file.
+This router's dispatch logic is deliberately the same shape as
+core/peripherals/demux.act's, but they stay separate processes: this one is
+core-facing, that one is periphery-facing.
 */
 template<pint N_EXACT; pint EXACT_BASES[N_EXACT]; pint CATCHALL_MIN_BASE>
 defproc mmu(
@@ -113,9 +86,7 @@ defproc mmu(
                     addr_data?addr; mode_data?mode;
                     op := mode.op;
                     size := mode.size;
-                    // Enum equality works fine as a selection guard, but this toolchain
-                    // doesn't support assigning an enum comparison's result directly into
-                    // a bool via `:=` -- has to be expressed as a selection instead.
+
                     [ (op = op_mem_t.W) | (op = op_mem_t.R_AND_W) -> is_write := true [] else -> is_write := false ];
                     [ (op = op_mem_t.R) | (op = op_mem_t.R_AND_W) -> is_read := true [] else -> is_read := false ];
 

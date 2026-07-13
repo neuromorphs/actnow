@@ -1,11 +1,7 @@
 import "core/soc.act";
 
-// Drives soc through a single AUIPC instruction. This specifically guards
-// against a real bug that existed here: rd_addr and rd_data got swapped, so
-// the computed pc+imm value was being truncated into the 5-bit register
-// address field instead of written as the result, and rd_data just held the
-// raw (un-added-to-pc) immediate. This test would have failed loudly under
-// that bug -- x3 would never have received ADDR_RESET + 4096.
+// Drives soc through a single AUIPC instruction, checking that x3 receives
+// pc+imm -- not the immediate alone, and not written to the wrong register.
 defproc auipc_test() {
 
     soc s;

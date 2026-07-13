@@ -1,24 +1,20 @@
 import "chips/bench/core.act";
 import "gen/file_ids.act";
 
-// End-to-end test for GPIO (robustness.md Stage 1.7 scenarios 5 and 7),
-// exercising both directions in one real compiled program
-// (software/gpio_demo/main.c):
-//   - input: firing one of chips/bench/core.act's two GPIO input pins
-//     (gpio_in_0/gpio_in_1 -- pure wiring onto soc's event_id_14/
-//     event_id_15) wakes the CPU through the existing interrupt-controller
-//     vectoring, exactly like any other event line (scenario 5).
+// End-to-end test for GPIO, exercising both directions in one real
+// compiled program (software/gpio_demo/main.c):
+//   - input: firing one of core's two GPIO input pins (gpio_in_0/
+//     gpio_in_1 -- pure wiring onto soc's event_id_14/event_id_15) wakes
+//     the CPU through the existing interrupt-controller vectoring, exactly
+//     like any other event line.
 //   - output: each ISR responds with a real MMIO store to the GPIO output
-//     register (core/peripherals/gpio.act, base=7), observed here on
-//     gpio_out_0..gpio_out_3 (scenario 7).
+//     register, observed here on gpio_out_0..gpio_out_3.
 //
-// No boot-completion delay needed: interrupt.act doesn't offer to receive
-// on event_id_14/event_id_15 until gpio_demo's own enable-mask write, so
-// each `gpio_in_N!true` below just blocks until the program is ready --
-// same self-managed synchronization as every other e2e test here.
+// No boot-completion delay needed: each `gpio_in_N!true` below just blocks
+// until gpio_demo has enabled that line.
 //
 // push/pop/fifo_event/swd_0/swd_1 are left unconnected -- this test never
-// touches the FIFOs, and SWD is unimplemented (robustness.md Stage 3).
+// touches the FIFOs, and SWD is unimplemented.
 defproc e2e_gpio_test() {
     core<ROM_IMAGE> c;
 

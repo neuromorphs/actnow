@@ -12,51 +12,34 @@ deftype mode_mem_t(op_mem_t op; size_mem_t size) { }
 pint ADDR_MEM = 0,
     ADDR_INT_CTRL = 1;
 
-// First base soc's own router (core/peripherals/demux.act) treats as "external" -- anything with
-// base >= ADDR_EXT_MIN and not otherwise claimed passes through to soc's own
-// addr_ext/mode_ext/wdata_ext/rdata_ext ports. Bases 2 and 3 (the old
-// ADDR_INTERNAL_RESERVED_0/1) fall in the gap between ADDR_INT_CTRL and this
-// and are unreachable by construction -- reads to them are simply never
-// answered rather than forwarded anywhere, matching real reserved-address
-// behavior (undefined, but doesn't hang waiting on an off-chip response).
+// First base treated as "external": anything with base >= ADDR_EXT_MIN
+// passes through mmu's catch-all to soc's own addr_ext/mode_ext/wdata_ext/
+// rdata_ext ports. Bases 2 and 3 fall in the gap and are unreachable by
+// construction -- reads there are simply never answered, matching how a
+// real reserved address behaves (undefined, but doesn't hang).
 pint ADDR_EXT_MIN = 4;
 
-// Pass as CATCHALL_MIN_BASE to demux.act's generic router to disable its
-// catch-all route entirely -- addr_t's base field is only WIDTH_ADDR_BASE
-// (4) bits wide, so `addr.base >= ADDR_NO_CATCHALL` can never be true and
-// the router's last downstream port is simply never used.
+// Pass as CATCHALL_MIN_BASE to demux.act to disable its catch-all route:
+// addr_t's base field is only WIDTH_ADDR_BASE bits wide, so
+// `addr.base >= ADDR_NO_CATCHALL` can never be true.
 pint ADDR_NO_CATCHALL = 1 << WIDTH_ADDR_BASE;
 
 pint ADDR_RESET = 0x40000;
 
-// Event vector addresses are no longer fixed constants -- interrupt.act now
-// has a real, software-configured vector table (16 MMIO registers at
-// base=ADDR_INT_CTRL, word-addressed by event_id). Software must store its
-// own ISR address for event_id_N into that table before the corresponding
-// event can ever be meaningfully triggered; this is what lets the same
-// vectoring mechanism work regardless of where the running program actually
-// lives (XIP from ROM, or copied into internal SRAM by BOOT=1).
-//
 // interrupt controller register map (base=ADDR_INT_CTRL), byte offsets:
-//   0, 4, 8, ..., 60 -> vectors[0..15], one word each (ISR address)
-//   ADDR_INT_CTRL_ENABLE -> enable mask, bit N gates event_id_N's delivery.
-//     event_id_N isn't just ignored while its bit is clear -- interrupt.act
-//     doesn't even offer to receive on that channel until it's set, so a
-//     device asserting it blocks at the rendezvous rather than being
-//     dropped, and delivers the instant software enables it. This is what
-//     makes "wait for the program to finish booting before firing an
-//     interrupt" self-managed instead of needing a guessed delay: fire it
-//     any time, and it'll naturally wait for the program's own `enable`
-//     write, exactly like real hardware.
+//   0, 4, 8, ..., 60      -> vectors[0..15], one ISR address per event line
+//   ADDR_INT_CTRL_ENABLE  -> enable mask, bit N gates event_id_N's delivery
+// Software must write its own ISR address into vectors[N] before event N
+// means anything -- this is what makes vectoring work the same way whether
+// the program is running XIP from ROM or copied into SRAM by the
+// bootloader. Until a line's enable bit is set, interrupt.act doesn't even
+// offer to receive on it, so a device asserting it just blocks until
+// software is ready -- no interrupt is ever delivered to an unconfigured
+// handler, and nothing upstream needs a guessed "wait for boot" delay.
 pint ADDR_INT_CTRL_ENABLE = 64;
 
-// Off-chip GPIO output register (core/peripherals/gpio.act), routed by
-// chips/bench/harness.act's demux alongside ROM(4)/fifo_in(5)/fifo_out(6) --
-// see robustness.md Stage 1.6. Unlike ADDR_MEM/ADDR_INT_CTRL above (which
-// name on-chip mmu routes), ROM/fifo_in/fifo_out's own bases stay literal
-// (4/5/6) in harness.act rather than named here -- this one's named because
-// it's referenced from two places (harness.act's demux table and gpio_test)
-// that would otherwise need to agree on a magic number independently.
+// GPIO output register (core/peripherals/gpio.act), routed by
+// chips/bench/harness.act's demux alongside ROM(4)/fifo_in(5)/fifo_out(6).
 pint ADDR_GPIO = 7;
 
 // 8 Ki words

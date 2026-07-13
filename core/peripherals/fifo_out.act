@@ -2,24 +2,18 @@ import std;
 
 import "core/globals.act";
 
-// Output FIFO peripheral: the CPU pushes data in on every write (there's
-// only one meaningful register, so the address offset is ignored); the
-// testbench pops the oldest entry via `pop` to observe what the CPU
-// produced. CPU reads are rejected via assert -- there's no legitimate way
-// to read from an output-only FIFO from the core side.
+// Output FIFO: the CPU pushes data on every write (there's only one
+// register, so the address offset is ignored); the testbench pops the
+// oldest entry via `pop` to observe what the CPU produced. CPU reads are
+// rejected via assert -- there's no legitimate way to read an output-only
+// FIFO from the core side.
 //
-// A CPU write to a full FIFO blocks (real backpressure, like a real
-// hardware FIFO stalling the bus) rather than asserting -- fifo_out simply
-// doesn't accept the addr/mode transaction at all while count=DEPTH, so the
-// CPU's SW instruction just stalls until `pop` drains room. This is safe
-// from deadlock because (count<DEPTH)&#addr is a top-level alternative,
-// re-evaluated every loop iteration alongside (count>0)&#pop -- unlike a
-// guard nested inside an already-committed branch, whichever side needs to
-// wait just leaves the other free to run and eventually change count out
-// from under it. (One trade-off: an illegal CPU *read* attempt also has to
-// wait for room before it can be accepted and then rejected, since which
-// op it is isn't known until mode is received -- harmless in practice,
-// since that path is already a programming-bug case, not a normal one.)
+// A CPU write to a full FIFO blocks (real backpressure) rather than
+// asserting: fifo_out doesn't accept the transaction at all while
+// count=DEPTH, so the write just stalls until `pop` drains room. This is
+// safe from deadlock because (count<DEPTH)&#addr and (count>0)&#pop are
+// both top-level alternatives, re-evaluated every loop iteration -- neither
+// side can get stuck waiting behind the other.
 template<pint DEPTH>
 defproc fifo_out(
     chan?(addr_t) addr; chan?(mode_mem_t) mode;

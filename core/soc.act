@@ -22,11 +22,8 @@ defproc soc(
     chan?(bool) event_id_13;
     chan?(bool) event_id_14;
     chan?(bool) event_id_15;
-    // External reset: puts the core back into its boot state (pc=ADDR_RESET)
-    // and clears the interrupt controller's configured vector table/enable
-    // mask, same as a cold boot -- see the main chp loop's own comment for
-    // why this has to be checked at the very top of every instruction cycle
-    // rather than only while idle.
+    // Puts the core back into its boot state (pc=ADDR_RESET) and clears the
+    // interrupt controller's vector table/enable mask, same as a cold boot.
     chan?(bool) reset_ext;
     chan!(addr_t) addr_ext;
     chan!(mode_mem_t) mode_ext;
@@ -60,18 +57,16 @@ defproc soc(
 
     chan(int<32>) event_pc;
 
-    // Interrupt controller's MMU-facing ports (base=ADDR_INT_CTRL) -- lets
+    // Interrupt controller's CPU-facing ports (base=ADDR_INT_CTRL) -- lets
     // software configure its own vector table entries via LOAD/STORE.
     chan(addr_t) addr_int_ctrl;
     chan(mode_mem_t) mode_int_ctrl;
     chan(int<WIDTH_DATA>) wdata_int_ctrl;
     chan(int<WIDTH_DATA>) rdata_int_ctrl;
 
-    // Relays reset_ext onward to the interrupt controller so its configured
-    // vector table/enable mask gets cleared too -- soc's own chp loop below
-    // consumes reset_ext itself (a channel send can only be received once,
-    // so it can't fan out to both places directly) and re-sends this once
-    // it has.
+    // Relays reset_ext onward to the interrupt controller (a channel send
+    // can only be received once, so soc can't fan reset_ext out to both
+    // itself and interrupt.act directly).
     chan(bool) reset_int_ctrl;
 
     interrupt inter(event_id_0, event_id_1, event_id_2, event_id_3, event_id_4, event_id_5,
@@ -91,14 +86,10 @@ defproc soc(
     mem<false, 0> ram; // read/write, no file preload (file_id unused)
 
     // 2 exact routes (internal RAM, interrupt controller) + 1 catch-all for
-    // soc's own "external" bus (anything base>=ADDR_EXT_MIN) -- see
-    // mmu.act's own comment for why bases 2/3 end up unreachable by
-    // construction rather than needing an explicit reserved case. Anything
-    // landing on the catch-all is, by construction, not an on-chip
-    // resource -- it passes straight through to addr_ext/mode_ext/
-    // wdata_ext/rdata_ext below, where whatever composes soc (the test
-    // harness, dvs_core, ...) wires up a core/peripherals/demux.act
-    // instance to route it to the actual off-chip peripheral.
+    // anything off-chip (base>=ADDR_EXT_MIN), which passes straight through
+    // to addr_ext/mode_ext/wdata_ext/rdata_ext -- whatever composes soc
+    // wires a core/peripherals/demux.act instance there to reach the actual
+    // peripheral.
     pint SOC_MMU_N_EXACT = 2;
     pint SOC_MMU_EXACT_BASES[SOC_MMU_N_EXACT];
     SOC_MMU_EXACT_BASES = {ADDR_MEM, ADDR_INT_CTRL};
@@ -124,35 +115,22 @@ defproc soc(
     chp {
         running := false;
         *[
-            // Racing external reset directly against both "keep running"
-            // and "idle, waiting for a wake-up pc" -- as three flat
-            // siblings in one non-deterministic selection, not reset
-            // nested against a single "true" catch-all -- is what lets
-            // reset recover the core in either state: a genuinely hung
-            // program (stuck in an infinite loop of otherwise-normal
-            // instructions, never reaching WFI) *and* a core that's
-            // legitimately idle at WFI waiting on a real event. Nesting
-            // the idle wait inside a "true" branch instead would have left
-            // a gap: if the selection ever picked "true" while idle even
-            // once (a perfectly legal choice, since it's always ready),
-            // execution would commit to blocking on event_pc?pc and
-            // wouldn't reconsider reset_ext again until a real event
-            // happened to arrive. Flattened like this, reset is a genuine
-            // sibling of the wait itself, not of a branch that merely
-            // contains it. Reset can't interrupt an instruction already in
-            // flight (there's no abort mid-transaction here), only ever
-            // between them -- which is also what keeps this safe: no
-            // instruction is ever left half-executed when reset takes hold.
+            // reset_ext races as a flat sibling of "keep running" and
+            // "idle, waiting for a wake-up pc" -- not nested inside a
+            // catch-all -- so it can recover the core whether it's hung
+            // (stuck in a loop that never reaches WFI) or legitimately
+            // idle. Nesting the idle wait inside a "true" branch instead
+            // would leave a gap: once that branch is chosen, execution
+            // commits to blocking on event_pc?pc and won't reconsider
+            // reset_ext until a real event arrives. Reset only ever takes
+            // effect between instructions, never mid-instruction.
             [|
                 #reset_ext ->
                     reset_ext?reset_recv;
                     log("external reset: pc ", ADDR_RESET);
                     pc := ADDR_RESET;
                     running := true;
-                    // Consumed reset_ext ourselves above (a channel send can
-                    // only be received once), so relay it onward to clear
-                    // the interrupt controller's own configured state too.
-                    reset_int_ctrl!true
+                    reset_int_ctrl!true  // relay onward to clear interrupt.act's own state
                 [] running -> skip
                 [] (~running) & #event_pc -> event_pc?pc
             |];
@@ -162,7 +140,7 @@ defproc soc(
             addr_core.base := pc{19..16}, addr_core.offset := pc{15..0},
             mode_core.op := op_mem_t.R, mode_core.size := size_mem_t.WORD;
 
-            mmu.addr_instr!addr_core; mmu.mode_instr!mode_core;   // Match sequential handshake in mmu.act
+            mmu.addr_instr!addr_core; mmu.mode_instr!mode_core;
             mmu.rdata_instr?instr;
 
             // all six fields are independent slices of the same already-resolved
@@ -244,13 +222,11 @@ defproc soc(
                     req_pkt.rd_addr := rd, req_pkt.rd_valid := true,
                     req_pkt.rd_data := imm;
                     rf.req!req_pkt
-                // EBREAK (SYSTEM opcode, instr[31:20]=0x001) halts the core exactly
-                // like WFI -- it's the riscv-tests harness's fail signal (see
-                // common/test_start.S: "fail -> ebreak"), and there's no trap
-                // handler to vector to yet, so halting is the only sound thing
-                // to do with it. Reuses is_wfi's existing halt path rather than
-                // adding a second one; the distinct log line is what makes it
-                // possible to tell a real failure apart from a normal WFI.
+                // EBREAK (SYSTEM opcode, instr[31:20]=0x001) halts like WFI --
+                // it's the riscv-tests harness's fail signal (common/test_start.S:
+                // "fail -> ebreak"), and there's no trap handler to vector to
+                // yet. Reuses is_wfi's halt path; the distinct log line is what
+                // tells a real failure apart from a normal WFI.
                 [] (opcode = OPCODE_SYSTEM) & (instr{31..20} = 1) ->
                     log("EBREAK -- test FAILED (see TESTNUM/x28 above)");
                     is_wfi := true

@@ -12,11 +12,9 @@ function masked_ok (int<WIDTH_DATA> w; size_mem_t size) : bool {
     }
 }
 
-// Drives both of mmu's core-facing port groups, in program order -- one
-// process, not two independent ones, specifically so the data-port write
-// in the cross-port section below is guaranteed to happen before the
-// instr-port read that must observe it (two unsynchronized processes would
-// leave that ordering nondeterministic).
+// Drives both of mmu's core-facing port groups from one process (not two
+// independent ones), so the data-port write below is guaranteed to happen
+// before the instr-port read that must observe it.
 defproc stimulus (
     chan!(addr_t) addr_data; chan!(mode_mem_t) mode_data;
     chan!(int<WIDTH_DATA>) wdata_data; chan!(int<WIDTH_DATA>) exp_data;
@@ -32,9 +30,8 @@ defproc stimulus (
 
         // ---------------- Data port: RAM route (base=0) ----------------
         // ram_backend below is a small stateful model (unlike
-        // intctrl_backend/ext_backend, which are stateless echo-testers) --
-        // real read-your-own-write is the one property specific to this
-        // dual-port design worth demonstrating here.
+        // intctrl_backend/ext_backend, which just echo) -- read-your-own-
+        // write is the one property worth demonstrating here.
 
         log("--- Data: WORD write 0x11111111 to RAM offset 0 ---");
         a.base := 0; a.offset := int(0, WIDTH_ADDR_OFFSET);
@@ -165,15 +162,12 @@ defproc read_sink (chan?(int<WIDTH_DATA>) rdata; chan?(int<WIDTH_DATA>) exp) {
 }
 
 // Small stateful RAM-like backend -- unlike intctrl_backend/ext_backend
-// below (stateless echo-testers verifying mmu's own masking/routing logic
-// in isolation, same style as demux_test.act's backends), this one
-// genuinely remembers what was written. That's the one property specific
-// to the dual-port design (instr and data sharing one physical resource)
-// that a stateless echo can't demonstrate. 8 independent word slots,
-// indexed by the low 3 bits of the offset -- deliberately simpler than
-// core/peripherals/mem.act's real byte-lane addressing, since that's
-// already covered by tests/peripherals/mem_test.act; this only needs to
-// prove "a write is visible to a later read," not model real memory.
+// below (stateless echo-testers), this one genuinely remembers what was
+// written, which is what lets the cross-port test prove instr and data
+// share one physical resource. 8 word slots indexed by the low 3 bits of
+// the offset -- deliberately simpler than mem.act's real byte-lane
+// addressing (already covered by tests/peripherals/mem_test.act); this only
+// needs to prove "a write is visible to a later read."
 defproc ram_backend (
     chan?(addr_t) addr; chan?(mode_mem_t) mode;
     chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata

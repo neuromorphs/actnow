@@ -2,41 +2,28 @@ import std;
 
 import "core/globals.act";
 
-// Input FIFO peripheral: the outside world pushes data in via `push` (e.g. a
-// testbench simulating an external device or DMA source); the CPU pops the
-// oldest entry on every read (there's only one meaningful register, so the
-// address offset is ignored).
+// Input FIFO: the outside world pushes data in via `push`; the CPU pops the
+// oldest entry on every read (there's only one register, so the address
+// offset is ignored).
 //
-// CPU writes configure the trigger level instead of being rejected: once
-// `count` reaches that many entries, fifo_in fires `event_out` itself --
-// wire it directly to one of soc's event_id_N ports and pushing enough data
-// becomes the thing that raises the interrupt, no external/testbench-side
-// triggering needed. Firing is edge-triggered (the exact push that brings
-// count to trigger_level, not every push at or above it), so it fires again
-// next time count re-reaches the level after being drained back down.
+// A CPU write instead configures the trigger level: once `count` reaches
+// it, fifo_in fires `event_out` itself -- wire it to one of soc's
+// event_id_N ports and pushing enough data becomes what raises the
+// interrupt, with no separate triggering needed. Firing is edge-triggered
+// (the exact push that brings count to trigger_level), so it fires again
+// next time count re-reaches the level after draining.
 //
-// Pushes are gated on the trigger level having been explicitly configured
-// at least once (`configured`), not just accepted against whatever default
-// happens to be in place -- otherwise a producer pushing before software
-// gets around to configuring a real level would silently count against the
-// wrong threshold and might never reach it (imagine software wants
-// trigger_level=3 but a producer already pushed exactly 3 while the
-// unconfigured default was still e.g. DEPTH=4 -- count stalls at 3 forever,
-// one short of firing, and reconfiguring afterward doesn't retroactively
-// recheck it). Gating push acceptance itself means a push genuinely blocks
-// until software is ready, so the ordering is always correct by
-// construction -- same self-managed-synchronization idea as the interrupt
-// controller's enable bit.
+// Pushes are gated on the trigger level having been configured at least
+// once -- otherwise a producer pushing before software sets a real level
+// could count against the wrong threshold and never reach it. Gating push
+// acceptance means a push genuinely blocks until software is ready, so
+// ordering is correct by construction.
 //
-// A push blocks (via the count<DEPTH guard, once configured) until there's
-// room -- that's safe because it's a top-level alternative re-evaluated
-// every loop iteration, not nested inside a committed branch. A CPU read of
-// an empty FIFO can't be handled the same way without risking deadlock
-// (once the addr/mode transaction is accepted there's no way back out to
-// let a concurrent push land and unblock it), so it's asserted instead: the
-// contract is that whoever drives the interrupt that wakes the CPU to read
-// this FIFO must push first (or configure a trigger level and let fifo_in
-// raise it), exactly like a real FIFO's "data ready" IRQ.
+// A push blocks until there's room (safe: it's a top-level alternative
+// re-evaluated every loop iteration, not nested inside a committed branch).
+// A CPU read of an empty FIFO can't be handled the same way without risking
+// deadlock, so it's asserted instead: whoever drives the interrupt that
+// wakes the CPU to read this FIFO must push first.
 template<pint DEPTH>
 defproc fifo_in(
     chan?(addr_t) addr; chan?(mode_mem_t) mode;
@@ -74,16 +61,11 @@ defproc fifo_in(
                     push?buf[tail];
                     tail := (tail + 1 = DEPTH) ? 0 : tail + 1;
                     count := count + 1;
-                    // event_out!true is a plain blocking send -- if count
-                    // reaches trigger_level here and nothing is wired to
-                    // event_out, this deadlocks the *entire* fifo_in
-                    // (stuck mid-push, unable to service any further #addr
-                    // or #push) rather than failing loudly. If a caller
-                    // doesn't wire event_out to anything (e.g. because it's
-                    // firing every event manually instead), it must
-                    // configure trigger_level to something unreachable
-                    // (e.g. larger than DEPTH) -- see software/multi_event's
-                    // own comment for a real example of getting this wrong.
+                    // event_out!true blocks -- if nothing is wired to it
+                    // when count reaches trigger_level, this deadlocks all
+                    // of fifo_in. A caller that fires events manually
+                    // instead (not wiring event_out) must set trigger_level
+                    // unreachable -- see software/multi_event/main.c.
                     [ count = trigger_level -> event_out!true
                       [] else -> skip
                     ]

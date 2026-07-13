@@ -1,35 +1,25 @@
 import "chips/bench/core.act";
 import "gen/file_ids.act";
 
-// Generality/stress testbench: boots a real compiled program
-// (software/multi_event/main.c, built BOOT=1-style -- see chips/bench/
-// Makefile's software/<name>/ handling) that registers a DISTINCT ISR for
-// every one of the 16 maskable event lines, each computing a different,
-// easy-to-verify transform (ISR N: out = in + (N+1)). This testbench fires
-// all 16 events in turn -- one at a time, since this architecture has no
-// preemption/concurrency, matching real usage -- and checks each one's
-// distinct, correct response, to build confidence that vector
-// configuration, the enable mask, and dispatch genuinely work across the
-// *full* width of the interrupt controller (interrupt.act), not just the
-// one or two lines the other demos exercise.
+// Generality/stress test: boots a real compiled program
+// (software/multi_event/main.c) that registers a distinct ISR for every
+// one of the 16 maskable event lines (ISR N: out = in + (N+1)). Fires all
+// 16 events in turn -- one at a time, since this architecture has no
+// preemption -- and checks each one's distinct response, building
+// confidence that vector configuration, the enable mask, and dispatch work
+// across the full width of the interrupt controller, not just the one or
+// two lines the other tests exercise.
 //
 // core's event_id_N ports are individually named (not an array), so this
-// wires each one to a slot in a local channel array (event_ch) purely so
-// the driving loop below can index into it with a runtime variable --
-// soc/interrupt.act themselves are unchanged from every other test. Unlike
-// e2e_fifo_test.act / e2e_reset_test.act, `c.fifo_event` is deliberately
-// left unconnected here -- fifo_in can only ever auto-fire one event line,
-// and this test's whole point is exercising all sixteen manually and
-// uniformly instead (see software/multi_event/main.c's own comment on why
-// its trigger_level is configured unreachable). Lines 14/15 are driven
-// through `c.gpio_in_0`/`c.gpio_in_1` -- chips/bench/core.act's Stage 1.6
-// GPIO input pins are pure wiring onto soc's own event_id_14/event_id_15
-// (see core.act's own comment), so manually firing them here is no
-// different from any other line, just under their GPIO-facing name.
-//
-// Address layout matches e2e_fifo_test.act: base=4 ROM (bootloader only),
-// base=5/6 the input/output FIFOs, via chips/bench/core.act's standard
-// periphery.
+// wires each into a local channel array (event_ch) purely so the driving
+// loop can index it with a runtime variable. `c.fifo_event` is deliberately
+// left unconnected: fifo_in can only auto-fire one event line, and this
+// test's point is exercising all sixteen manually instead (see
+// software/multi_event/main.c for why its trigger_level is set
+// unreachable). Lines 14/15 are driven through `c.gpio_in_0`/`c.gpio_in_1`
+// -- pure wiring onto event_id_14/event_id_15 (see core.act) -- so firing
+// them here is no different from any other line, just under their
+// GPIO-facing name.
 defproc e2e_multi_event_test() {
     core<ROM_IMAGE> c;
 
@@ -58,12 +48,6 @@ defproc e2e_multi_event_test() {
     chp {
         log("======== 16-event generality test start ========");
 
-        // fifo_in gates push acceptance on its trigger level having been
-        // explicitly configured -- main() does this once at startup
-        // (value doesn't matter here, since every event is fired
-        // manually), so this push below just blocks until it's ready,
-        // same self-managed synchronization as every other test.
-
         i := 0;
         *[ i < 16 ->
             pushed := int(100, WIDTH_DATA) + int(i, WIDTH_DATA);
@@ -76,7 +60,6 @@ defproc e2e_multi_event_test() {
             assert(result = expected, "event ", i, ": want ", expected, ", got ", result);
             log("event ", i, ": pushed ", pushed, ", got ", result, " (correct)");
 
-            // model a little real-world latency between events
             delay := 0;
             *[ delay < 300 -> delay := delay + 1 ];
 

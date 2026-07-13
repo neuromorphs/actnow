@@ -6,26 +6,18 @@ import "core/peripherals/gpio.act";
 import "core/peripherals/demux.act";
 
 // chips/bench's off-chip periphery: ROM + input FIFO + output FIFO + GPIO
-// output register behind a 4-way demux (base=4/5/6/7, no catch-all -- see
-// demux.act), wired to whatever soc instance's addr_ext/mode_ext/wdata_ext/
+// output register behind a 4-way demux (base=4/5/6/ADDR_GPIO, no
+// catch-all), wired to whatever soc instance's addr_ext/mode_ext/wdata_ext/
 // rdata_ext boundary is connected to addr_in/mode_in/wdata_in/rdata_in
-// below. ROM/fifo_in/fifo_out were previously hand-rolled identically
-// inline in tests/e2e/e2e_fifo_test.act, tests/e2e/e2e_multi_event_test.act,
-// and tests/e2e/e2e_reset_test.act -- extracted here (robustness.md Stage
-// 1.5) as the one shared definition of "what chips/bench's periphery
-// actually looks like"; gpio (base=ADDR_GPIO) was added directly here
-// (Stage 1.6), never having been hand-rolled inline anywhere.
+// below.
 //
 // fifo_in's auto-fire (event_out) is exposed as `fifo_event` rather than
-// hardwired to any particular soc event line here -- real hardware wires it
-// directly to one of soc's event_id_N ports (see core/peripherals/
-// fifo_in.act / the README), but which one, and whether it's used at all, is
-// a wiring decision made one level up in chips/bench/core.act, not something
-// this process should bake in. e2e_multi_event_test.act deliberately leaves
-// it unconnected (it drives all 16 event lines manually instead); an
-// unconnected chan port is safe here as long as it's never sent on, which
-// holds as long as fifo_in's trigger_level stays configured unreachable in
-// that scenario (see fifo_in.act's own comment).
+// hardwired to a specific soc event line: real hardware wires it directly
+// to one of soc's event_id_N ports, but which one (or whether it's used at
+// all) is a wiring decision made one level up in chips/bench/core.act, not
+// something this process should bake in. A caller that leaves fifo_event
+// unconnected is fine as long as it never sends on it -- i.e. as long as
+// fifo_in's trigger_level stays configured unreachable (see fifo_in.act).
 template<pint ROM_IMAGE>
 defproc harness(
     chan?(addr_t) addr_in;

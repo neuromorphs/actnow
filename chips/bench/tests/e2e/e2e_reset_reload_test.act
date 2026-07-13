@@ -5,46 +5,29 @@ import "core/peripherals/demux.act";
 import "core/peripherals/rom_selector.act";
 import "gen/file_ids.act";
 
-// The full "oh shit, wrong firmware" scenario: unlike e2e_reset_test.act
-// (which proves reset can cleanly reboot the *same* image), this proves
-// reset can recover from a genuinely different, broken program by rebooting
-// into a genuinely different, corrected one.
+// The "wrong firmware" scenario: unlike e2e_reset_test.act (which reboots
+// the *same* image), this proves reset can recover from a genuinely
+// different, broken program by rebooting into a corrected one.
 //
-// Doesn't use chips/bench/core.act -- core.act's periphery (chips/bench/
-// harness.act) is parameterized on a single ROM_IMAGE, but this scenario
-// needs two independent backing ROMs (ROM_IMAGE_HANG/ROM_IMAGE_APPLICATION)
-// behind a rom_selector mux, which is exactly the piece harness.act doesn't
-// (and shouldn't) know about -- so this test hand-rolls soc + demux +
-// rom_selector + fifo_in/fifo_out directly instead, same shape as before
-// robustness.md Stage 1.5's harness extraction.
+// Doesn't use chips/bench/core.act: harness.act is parameterized on a
+// single ROM_IMAGE, but this scenario needs two independent backing ROMs
+// (ROM_IMAGE_HANG/ROM_IMAGE_APPLICATION) behind a rom_selector mux, so this
+// test hand-rolls soc + demux + rom_selector + fifo_in/fifo_out directly.
 //
 // software/hang/main.c is deliberately erroneous: a real infinite loop that
-// never configures or services any peripheral (see tests/e2e/hang_repro_test
-// history in robustness.md -- confirmed via a standalone repro that this
-// program alone, wired through this exact demux/fifo topology and left
-// completely idle, runs cleanly for billions of simulated time units with
-// no spurious behavior; it just never does anything, which is the point).
+// never configures or services any peripheral. rom_selector routes soc's
+// ROM port to whichever bank is selected by `flip_bank`, entirely
+// independent of reset_ext -- exactly like a real dual-bank-boot flash,
+// where something else decides which bank is live and reset just reboots
+// into whatever that is.
 //
-// core/peripherals/rom_selector.act sits between the demux and two backing
-// ROMs (ROM_IMAGE_HANG, ROM_IMAGE_APPLICATION), routing soc's ROM port to
-// whichever bank is currently selected. Which bank is selected is a genuine
-// sibling alternative in rom_selector's own chp (flip_bank), entirely
-// independent of core/soc.act's reset_ext -- reset never carries a target
-// address or program identity, exactly like a real dual-bank-boot flash:
-// something else decides which bank is live, and reset just reboots into
-// whatever that is.
-//
-// Sequence: boot into hang (bank A) and let it idle -- nothing pushed to it,
-// since it never configures fifo_in's trigger level and a push would just
-// block forever (fifo_in.act's own `configured` gate) rather than prove
-// anything. Modeling "the operator notices the hang" as simply the passage
-// of time is deliberate: trying to interactively prove unresponsiveness
-// (e.g. a push that's expected to hang) would deadlock this very testbench,
-// the same deadlock class tests/core/reset_test.act's own fetch_answerer
-// comment warns about. Then flip rom_selector to bank B (application) and
-// assert reset_ext -- the *same* recovery mechanism e2e_reset_test.act
-// proves, just now landing on a different program. Finally run the same
-// batch e2e_fifo_test.act/e2e_reset_test.act already use, proving the
+// Sequence: boot into hang (bank A) and let it idle -- nothing is pushed to
+// it, since it never configures fifo_in's trigger level and a push would
+// just block forever rather than prove anything; modeling "the operator
+// notices the hang" as the passage of time avoids that. Then flip
+// rom_selector to bank B (application) and assert reset_ext -- the same
+// recovery mechanism e2e_reset_test.act proves, now landing on a different
+// program -- and run the same batch e2e_fifo_test.act uses, proving the
 // corrected program genuinely boots and runs.
 defproc e2e_reset_reload_test() {
     soc s;
@@ -96,10 +79,8 @@ defproc e2e_reset_reload_test() {
     chp {
         log("======== reset+reload e2e test start ========");
 
-        // --- Boot into the broken program (bank A = hang) and let it idle.
-        // rom_selector defaults active_b=false (bank A) at elaboration, so
-        // no explicit flip is needed to select it. Nothing pushed here --
-        // see the top comment for why.
+        // rom_selector defaults to bank A (hang) at elaboration, so no
+        // explicit flip is needed to select it.
         log("--- booted into hang (bank A) -- letting it idle ---");
         delay := 0;
         *[ delay < 3000 -> delay := delay + 1 ];
@@ -111,11 +92,8 @@ defproc e2e_reset_reload_test() {
         s.reset_ext!true;
         log("--- reset done -- should now be booting the corrected program from bank B ---");
 
-        // --- Same batch e2e_fifo_test.act/e2e_reset_test.act use: push 41,
-        // 42, 43, ISR computes +1 on each, expect 42, 43, 44 out. Only
-        // possible if the corrected program (software/application/main.c)
-        // genuinely booted, registered its ISR vector, configured fifo_in's
-        // trigger level, and enabled event_id_0 from scratch.
+        // Same batch e2e_fifo_test.act uses -- only passes if the corrected
+        // program genuinely booted and reconfigured itself from scratch.
         log("--- pushing 41, 42, 43 into the input FIFO ---");
         fin.push!int(41, WIDTH_DATA);
         fin.push!int(42, WIDTH_DATA);

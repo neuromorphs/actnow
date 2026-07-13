@@ -1,11 +1,10 @@
 import "core/soc.act";
 
-// Exercises core/mmu.act's external reset: soc.act's own comment explains
-// why reset is raced directly against both "keep running" and "idle,
-// waiting for a wake-up pc" as three flat siblings in one selection,
-// rather than checked only while idle -- this test is what actually proves
-// that in simulation, on the real core, not just in the scratch probe
-// experiments used to design it.
+// Exercises core/soc.act's external reset (reset_ext): a hand-assembled
+// program hits a deliberate infinite self-loop (never reaching WFI,
+// modeling a genuine hang), external reset recovers it mid-loop, and the
+// post-reset program reads back the interrupt controller's vector table/
+// enable mask via real LOAD instructions to confirm both were cleared.
 //
 // Boot sequence (pass 0), fetched from ADDR_RESET (0x40000, base=4):
 //   LUI  x3, 0x10    -- x3 = 0x10000 (int_ctrl base, i.e. base=1 in addr_t)
@@ -63,9 +62,7 @@ defproc fetch_answerer(
             assert(addr.base = 4, "unexpected fetch/store base: want 4 (external), got ", addr.base);
             [
                 mode.op = op_mem_t.W ->
-                    // The two post-reset verification stores -- assert
-                    // directly that the interrupt controller's state
-                    // really was cleared.
+                    // The two post-reset verification stores.
                     wdata_ext?wdata;
                     [ addr.offset = 0x100 ->
                         assert(wdata = 0, "vectors[0] readback after reset: want 0, got ", wdata)
@@ -154,23 +151,16 @@ defproc reset_test() {
     chp {
         log("======== reset_test start ========");
 
-        // Let the self-loop actually spin for a while (fetch_answerer will
-        // keep answering it indefinitely, concurrently with this delay --
-        // it never stops being ready, so however many times soc's own
-        // internal arbiter happens to pick "keep running" before it picks
-        // reset, fetch_answerer just keeps serving them) before asserting
-        // external reset.
+        // Let the self-loop spin for a while before asserting reset --
+        // fetch_answerer keeps answering it indefinitely in the meantime.
         delay := 2000;
         *[ delay > 0 -> delay := delay - 1 ];
 
         log("--- asserting external reset ---");
         s.reset_ext!true;
 
-        // Wait for fetch_answerer to actually finish serving the full
-        // post-reset verification sequence (through WFI) before declaring
-        // the test complete -- otherwise this log line would print the
-        // moment the reset send itself completes, well before the
-        // vectors[0]/enable_mask readback assertions have even run.
+        // Wait for the full post-reset verification sequence (through WFI)
+        // before declaring completion.
         done?done_recv;
 
         log("======== reset_test complete ========")

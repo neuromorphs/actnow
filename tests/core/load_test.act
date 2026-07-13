@@ -3,19 +3,15 @@ import "core/soc.act";
 // Drives soc through LUI (to build a base address in x1) followed by all
 // five LOAD variants (LW, LB, LBU, LH, LHU) against that base, then WFI.
 //
-// LOAD's data address is deliberately kept in the external region (base=4,
-// same as where soc boots and fetches instructions from) rather than
-// internal ram: ram is private to soc (only mmu can reach it) and STORE
-// isn't implemented yet, so there's no way to preload ram with known values
-// from outside soc. Targeting addr_ext lets this test supply known data
+// LOAD's data address is deliberately kept in the external region (base=4)
+// rather than internal ram, which is private to soc and only reachable
+// through mmu -- targeting addr_ext lets this test supply known data
 // directly and check both the computed address (rs1+imm) and the selected
 // transfer size on the observable addr_ext/mode_ext channels.
 //
 // Sign/zero-extension of the loaded value (LB/LH vs LBU/LHU) isn't
-// observable from outside soc either -- rd write-back only shows up in
-// regfile's own internal log line, same convention already used by
-// auipc_test.act/branch_test.act for anything that depends on a register
-// value rather than a fetch address.
+// observable from outside soc -- rd write-back only shows up in regfile's
+// own internal log line.
 defproc load_test() {
 
     soc s;

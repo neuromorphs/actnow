@@ -1,27 +1,21 @@
 import "core/globals.act";
 
-// Real interrupt controller: 16 maskable event lines, each with its own
-// software-configured vector register (word-addressed at
-// ADDR_INT_CTRL:offset 0, 4, 8, ... 60 -- one per event_id). Software
-// writes the address of its own ISR into vectors[N] once (typically during
-// startup, before ever going to sleep); when event_id_N later fires, pc
-// jumps to whatever was last written there. This is what makes event
-// vectoring work regardless of where the running program actually lives
-// (XIP from ROM, or copied into internal SRAM by the bootloader under
-// BOOT=1) -- the address is a runtime value the program supplies itself,
-// not a hardcoded constant baked into this file.
+// 16 maskable event lines, each with its own software-configured vector
+// register (word-addressed at ADDR_INT_CTRL:offset 0, 4, 8, ... 60). When
+// event_id_N fires, pc jumps to whatever address software last wrote to
+// vectors[N] -- since that address is a runtime value, not a constant baked
+// in here, vectoring works the same way whether the program is running XIP
+// from ROM or copied into SRAM by the bootloader.
 //
-// The reset vector is the one exception: it's unconditional and fires
-// before software has had any chance to configure anything, so it stays a
-// fixed constant (ADDR_RESET) -- matching real hardware, where the reset
-// vector is fixed in silicon, not software-configurable.
+// The reset vector is the one exception: it's a fixed constant (ADDR_RESET)
+// that fires unconditionally, before software has had any chance to
+// configure anything -- matching real hardware, where the reset vector is
+// fixed in silicon.
 //
-// Each event_id_N also has an enable bit (see globals.act's register-map
-// comment): until software sets it, this process doesn't even offer to
-// receive on that channel, so a device asserting it just blocks at the
-// rendezvous instead of being silently dropped or acted on with a
-// not-yet-configured vector -- self-managed synchronization, no guessed
-// delay needed anywhere upstream.
+// Each event_id_N also has an enable bit (see globals.act). Until software
+// sets it, this process doesn't even offer to receive on that channel, so a
+// device asserting it just blocks until software is ready, rather than
+// being dropped or dispatched to a not-yet-configured vector.
 defproc interrupt(
     chan?(bool) event_id_0;
     chan?(bool) event_id_1;
@@ -39,16 +33,11 @@ defproc interrupt(
     chan?(bool) event_id_13;
     chan?(bool) event_id_14;
     chan?(bool) event_id_15;
-    // Relayed from soc's own external reset_ext (soc.act consumes the
-    // external signal itself, to jump pc back to ADDR_RESET, then relays it
-    // here so this controller's own configured state -- the vector table
-    // and enable mask -- gets cleared too, matching real hardware. Not
-    // gated by any enable bit, same as the reset vector itself: it's
-    // unconditional, independent of whatever software has or hasn't
-    // configured yet.
+    // Relayed from soc's external reset_ext: clears the vector table and
+    // enable mask, unconditionally, same as a cold boot.
     chan?(bool) reset_int_ctrl;
-    // MMU-facing port group (base=ADDR_INT_CTRL) -- lets the CPU configure
-    // (and read back) the vector table via ordinary LOAD/STORE.
+    // CPU-facing port group (base=ADDR_INT_CTRL) -- configures and reads
+    // back the vector table via ordinary LOAD/STORE.
     chan?(addr_t) addr;
     chan?(mode_mem_t) mode;
     chan?(int<WIDTH_DATA>) wdata;
@@ -74,10 +63,8 @@ defproc interrupt(
         *[ init_i < 16 -> vectors[int(init_i,4)] := 0; init_i := init_i + 1 ];
         enable_mask := 0;
 
-        // RESET VECTOR: fires exactly once, unconditionally, independent of
-        // the 16 maskable event lines below -- this is not "an event", it's
-        // the hardware reset every real chip needs to bootstrap before any
-        // interrupt source could possibly be configured/enabled yet.
+        // Reset vector: fires exactly once, unconditionally, before any of
+        // the 16 event lines below could possibly be configured.
         is_reset := true;
         *[
             [is_reset -> log("reset vector: pc ", ADDR_RESET); event_pc!ADDR_RESET

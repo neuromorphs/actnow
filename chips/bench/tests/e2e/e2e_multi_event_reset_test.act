@@ -2,31 +2,22 @@ import "chips/bench/core.act";
 import "gen/file_ids.act";
 
 // Extends e2e_multi_event_test.act's full-width interrupt-controller
-// coverage two ways at once (robustness.md Stage 1.7 scenario 6):
+// coverage two ways at once:
 //   - back-to-back pressure: fires events with no artificial inter-event
-//     delay, unlike e2e_multi_event_test.act's own 300-time-unit pause
-//     ("model a little real-world latency between events"). This
-//     architecture is single-issue and non-preemptive, so a genuinely
-//     concurrent/overlapping ISR isn't a scenario that can exist here --
-//     what *is* meaningful to prove is that firing the next event
-//     immediately (no testbench-side pacing at all) is still safe purely
-//     from core/interrupt.act's own structure: it's a single sequential
-//     loop that sends event_pc!vectors[N] (which itself blocks until soc
-//     goes idle again) before ever looping back to offer the next
-//     event_id_N, so a premature `event_ch[k]!(true)` just blocks at that
-//     rendezvous until interrupt.act is genuinely ready -- no deadlock, no
-//     dropped event, no delay required from this side.
+//     delay, unlike e2e_multi_event_test.act's own pacing pause. This
+//     architecture is single-issue and non-preemptive, so overlapping ISRs
+//     can't happen here regardless -- what this proves is that firing the
+//     next event immediately is still safe purely from
+//     core/interrupt.act's own structure: it's a single sequential loop
+//     that sends event_pc!vectors[N] (blocked until soc goes idle) before
+//     ever looping back to offer the next event_id_N, so a premature
+//     `event_ch[k]!(true)` just blocks at that rendezvous until the
+//     controller is genuinely ready.
 //   - across a reset boundary: batch 1 (events 0..7) runs, external reset
 //     fires mid-stream, then batch 2 (events 8..15) runs against the
-//     freshly-rebooted program. Only passes if the *entire* 16-entry vector
+//     freshly-rebooted program. Only passes if the entire 16-entry vector
 //     table and enable mask -- not just event_id_0, the only line
-//     e2e_reset_test.act re-proves -- genuinely survive a reset+reboot
-//     cycle intact.
-//
-// Address layout / event wiring matches e2e_multi_event_test.act: base=4
-// ROM (bootloader only), base=5/6 the input/output FIFOs, gpio_in_0/
-// gpio_in_1 carrying event_id_14/event_id_15 (see core.act's own comment).
-// c.fifo_event is left unconnected -- same reason as e2e_multi_event_test.act.
+//     e2e_reset_test.act re-proves -- survive a reset+reboot cycle intact.
 defproc e2e_multi_event_reset_test() {
     core<ROM_IMAGE> c;
 
@@ -76,9 +67,9 @@ defproc e2e_multi_event_reset_test() {
         c.reset_ext!true;
         log("--- reset done -- multi_event should now be rebooting from scratch ---");
 
-        // --- Batch 2: fire events 8..15 back-to-back, against the freshly
-        // rebooted program -- only works if the *entire* 16-entry vector
-        // table and enable mask were genuinely re-registered from scratch.
+        // --- Batch 2: fire events 8..15 back-to-back against the freshly
+        // rebooted program -- only works if the entire vector table and
+        // enable mask were genuinely re-registered from scratch.
         log("--- batch 2 (post-reset): firing events 8..15 back-to-back (no delay) ---");
         i := 8;
         *[ i < 16 ->

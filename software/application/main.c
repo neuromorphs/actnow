@@ -1,37 +1,19 @@
 #include <stdint.h>
 
-/* Real-world-style interrupt-driven application, running from SRAM after
-   the bootloader copies it there (see common/crt0.S / common/application.lds).
+/* Interrupt-driven application, running from SRAM after the bootloader
+   copies it there. main() registers isr_handler as event_id_0's ISR, sets
+   fifo_in's trigger level to BATCH, enables event_id_0, then returns --
+   crt0.S executes WFI right after, putting the core to sleep.
 
-   Address layout (addr_t base:offset, matching globals.act):
-     base=1 -> interrupt controller (interrupt.act):
-                 offset 4*N            -> vectors[N] (ISR address, word-addressed)
-                 offset ADDR_INT_CTRL_ENABLE (64) -> enable mask, bit N gates event_id_N
-     base=5 -> input FIFO  (fifo_in.act): CPU reads pop it; a CPU write instead
-               configures its trigger level (see below)
-     base=6 -> output FIFO (fifo_out.act), single data register
-   (base=4, ROM, isn't referenced here -- this program only runs from it.)
+   fifo_in fires event_id_0 itself once BATCH values have been pushed: no
+   separate trigger needed, and until the enable write above, the
+   interrupt controller won't even accept event_id_0, so a producer
+   pushing early just blocks until this program is ready.
 
-   main() registers isr_handler as event_id_0's ISR, sets fifo_in's trigger
-   level to BATCH, enables event_id_0, then returns; crt0.S executes the WFI
-   opcode right after `call main` returns, putting the core to sleep.
-
-   fifo_in fires event_id_0 *itself* once BATCH values have been pushed into
-   it -- there's no separate "interrupt line" a producer has to remember to
-   assert after filling the FIFO; filling it to the configured level is what
-   raises the interrupt. And until the enable write above, interrupt.act
-   doesn't even offer to receive on event_id_0 -- so whoever's pushing just
-   blocks at fifo_in's own push rendezvous until this program is actually
-   ready, no arbitrary "wait for boot" delay needed anywhere upstream.
-
-   Each time event_id_0 fires, pc jumps straight to isr_handler (not through
-   main() or crt0.S again) -- it reads exactly BATCH words from the input
-   FIFO, adds 1 to each, and writes each result to the output FIFO. A write
-   to fifo_out blocks (real backpressure) rather than crashing if it's ever
-   full, so this is safe even if the consumer draining fifo_out falls behind.
-   Since &isr_handler is resolved by the linker, this all works unmodified
-   whether the image runs XIP from ROM or, as here, copied into SRAM by the
-   bootloader -- nothing here hardcodes an address. */
+   Each firing jumps straight to isr_handler, which reads BATCH words from
+   the input FIFO, adds 1 to each, and writes the results to the output
+   FIFO. A write to a full output FIFO blocks (real backpressure) instead
+   of crashing. */
 
 #define ADDR(base, offset) ((volatile uint32_t *)(((uint32_t)(base) << 16) | (uint32_t)(offset)))
 

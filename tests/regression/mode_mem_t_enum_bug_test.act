@@ -2,20 +2,16 @@ import "core/globals.act";
 
 // Regression test for a real actsim toolchain bug (not a bug in this
 // project's code): sending a `mode_mem_t` value over a channel used to crash
-// the simulator, because mode_mem_t's fields (op_mem_t, size_mem_t) are
-// defenum types, and actsim's expr_multires (state.cc, _count /
-// _init_helper) mis-sized any deftype struct that had an enum-typed field --
-// it counted the field when sizing the channel value but didn't know how to
-// fill it, so the internal `pos` and `nvals` counters disagreed and the
-// simulator hit `Assertion: pos == nvals` on the very first send/receive of
-// that struct. (A bare enum sent directly over a channel, not nested in a
-// struct, was always fine -- only an enum *nested inside* a struct like
-// mode_mem_t triggered it.)
+// the simulator, because its enum-typed fields (op_mem_t, size_mem_t) were
+// mis-sized by actsim's expr_multires (state.cc) -- it counted the field
+// when sizing the channel value but didn't know how to fill it, so the
+// internal `pos`/`nvals` counters disagreed and the simulator hit
+// `Assertion: pos == nvals` on the first send/receive. (A bare enum sent
+// directly, not nested in a struct, was always fine.)
 //
 // Fixed upstream in asyncvlsi/actsim commit fa1a636 ("tests and fixes for
-// user-defined enums"), which added `|| TypeFactory::isEnum(it)` to the
-// isIntType checks in _init_helper/_fill_helper. This test now passes and
-// exists to catch a regression if an older actsim ever gets installed again.
+// user-defined enums"). This test exists to catch a regression if an older
+// actsim ever gets installed again.
 defproc sender(chan!(mode_mem_t) c) {
     mode_mem_t m;
     chp {

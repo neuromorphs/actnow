@@ -2,30 +2,26 @@ import "core/globals.act";
 import "core/soc.act";
 import "chips/bench/harness.act";
 
-// chips/bench's whole chip: soc (core/soc.act) + its off-chip periphery
-// (chips/bench/harness.act) wired together, exposing exactly what a
-// chips/bench testbench needs to drive it -- 14 generic event lines
-// (event_id_0..13, pass-through to soc, uniform and undifferentiated: which
-// one, if any, ends up carrying fifo_in's auto-fire is decided by the
-// caller via `fifo_event`, not baked in here -- see harness.act),
-// `reset_ext` (core/soc.act, robustness.md Stage 1.4), `fifo_event`
-// (fifo_in's auto-fire, left for the caller to route into one of the event
-// lines or ignore), the input/output FIFO's push/pop ports, and the 8
-// external GPIO pins added in robustness.md Stage 1.6:
-//   - 4 inputs: `gpio_in_0`/`gpio_in_1` are pure wiring onto soc's own
-//     event_id_14/event_id_15 -- real physical pins that, once vectored via
-//     the existing interrupt-controller table (core/interrupt.act), jump to
-//     a program-associated pc exactly like any other event line. Reserving
-//     these two specific lines (rather than any other two of the 16) keeps
-//     event_id_0..13 free for e2e_multi_event_test.act's full-width,
-//     manually-driven interrupt-controller coverage test.  `swd_0`/`swd_1`
-//     are stub input pins reserved for future SWD debug support
-//     (robustness.md Stage 3, not yet scoped) -- declared for interface
-//     completeness but deliberately left unconnected to any soc
-//     functionality; genuinely no-op today.
-//   - 4 outputs: `gpio_out_0`..`gpio_out_3` are a straight pass-through of
-//     harness.act's own gpio peripheral pins (core/peripherals/gpio.act) --
-//     software drives them via a real MMIO write to base=ADDR_GPIO.
+// chips/bench's whole chip: soc + its off-chip periphery (harness.act)
+// wired together, exposing everything a chips/bench testbench needs:
+//   - event_id_0..13: generic pass-through event lines. Which one (if any)
+//     carries fifo_in's auto-fire is up to the caller via `fifo_event`, not
+//     baked in here -- see harness.act.
+//   - reset_ext, fifo_event, and the FIFOs' push/pop ports.
+//   - 8 GPIO pins:
+//       - `gpio_in_0`/`gpio_in_1` are pure wiring onto soc's own
+//         event_id_14/event_id_15 -- physical pins that jump to a
+//         program-associated pc through the existing interrupt-controller
+//         vector table, exactly like any other event line. Reserving these
+//         two (rather than any other two of the 16) keeps event_id_0..13
+//         free for tests that drive the interrupt controller's full width
+//         manually.
+//       - `swd_0`/`swd_1` are stub input pins reserved for future SWD debug
+//         support -- declared for interface completeness, genuinely
+//         unconnected to any soc functionality today.
+//       - `gpio_out_0`..`gpio_out_3` pass straight through to harness.act's
+//         gpio peripheral pins; software drives them with an MMIO write to
+//         base=ADDR_GPIO.
 template<pint ROM_IMAGE>
 defproc core(
     chan?(bool) event_id_0;
@@ -49,7 +45,7 @@ defproc core(
     chan?(int<WIDTH_DATA>) push;
     chan!(int<WIDTH_DATA>) pop;
 
-    // GPIO (Stage 1.6)
+    // GPIO
     chan?(bool) gpio_in_0; chan?(bool) gpio_in_1;
     chan?(bool) swd_0; chan?(bool) swd_1;
     chan!(bool) gpio_out_0; chan!(bool) gpio_out_1;

@@ -1,21 +1,14 @@
 #include <stdint.h>
 
-/* Generality/stress test for the interrupt controller: registers a
-   DISTINCT ISR for every one of the 16 maskable event lines (event_id_0
-   through event_id_15), each applying a different, easy-to-hand-verify
-   transform. The point is to demonstrate that vector configuration, the
-   enable mask, and dispatch genuinely work across the *full* width of the
-   controller (see interrupt.act) -- not just the one or two lines the
-   other demo programs exercise.
+/* Stress test for the interrupt controller: registers a distinct ISR for
+   every one of the 16 maskable event lines, to prove vector configuration,
+   the enable mask, and dispatch work across the full width of the
+   controller -- not just the one or two lines the other demo programs
+   exercise.
 
-   ISR N reads one word from the input FIFO and writes back v + (N + 1) --
-   e.g. ISR 0 adds 1, ISR 7 adds 8, ISR 15 adds 16. Sixteen genuinely
-   different compiled functions, sixteen genuinely different vector-table
-   entries, one shared FIFO pair.
-
-   Same address layout as software/application/main.c: base=1 is the
-   interrupt controller (vectors[N] at offset 4*N, enable mask at offset
-   ADDR_INT_CTRL_ENABLE=64), base=5/6 are the input/output FIFOs. */
+   ISR N reads one word from the input FIFO and writes back v + (N + 1),
+   e.g. ISR 0 adds 1, ISR 15 adds 16 -- sixteen genuinely different
+   functions and vector-table entries sharing one FIFO pair. */
 
 #define ADDR(base, offset) ((volatile uint32_t *)(((uint32_t)(base) << 16) | (uint32_t)(offset)))
 
@@ -58,18 +51,11 @@ static void (*const isr_table[N_EVENTS])(void) = {
 };
 
 void main(void) {
-    /* fifo_in gates push acceptance on its trigger level having been
-       configured at least once -- this test fires every event manually
-       (see the testbench), so its auto-fire feature (event_out) is never
-       used and, deliberately, never wired to anything by the testbench.
-       That makes the *value* here matter a lot, despite not being used
-       for triggering: if count ever reached this level, fifo_in would try
-       to fire event_out, and since nothing is connected to receive it,
-       that send blocks forever -- silently deadlocking fifo_in entirely
-       (stuck mid-push, unable to service any further transaction, CPU or
-       testbench). A small value like 1 would hit this on the very first
-       push. Setting it beyond DEPTH (this test's fifo_in<4>) makes it
-       unreachable by construction, so event_out is never attempted. */
+    /* This test fires every event manually, so fifo_in's auto-fire
+       (event_out) is deliberately left unwired by the testbench. If count
+       ever reached trigger_level, fifo_in would try to fire event_out and
+       block forever with nothing to receive it -- so set it unreachable
+       (beyond DEPTH) to make sure that never happens. */
     *FIFO_IN = 0xFFFFFFFF;
 
     for (uint32_t i = 0; i < N_EVENTS; i++)

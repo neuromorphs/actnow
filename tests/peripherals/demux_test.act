@@ -27,10 +27,9 @@ defproc addr_source (
     chp {
         log("======== demux test start ========");
 
-        // Bases mirror this template's real deployment (see
-        // tests/e2e/e2e_fifo_test.act): ROM=4, fifo_in=5, fifo_out=6, no
-        // catch-all -- everything here is an exact route, unlike mmu.act's
-        // own 2-exact+catch-all shape.
+        // Bases mirror the real deployment (chips/bench/harness.act):
+        // ROM=4, fifo_in=5, fifo_out=6, no catch-all -- everything here is
+        // an exact route, unlike mmu.act's own 2-exact+catch-all shape.
 
         // ---------------- WORD-sized functional tests ----------------
 
