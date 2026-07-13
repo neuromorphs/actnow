@@ -401,21 +401,24 @@ waiting for the program to voluntarily sleep first — useless for a hang).
   1. boot → load program A → run to WFI
   2. boot → load program A → fire event N → ISR → return → WFI
   3. [x] boot → load program A → external reset mid-execution → reboots to
-     the reset vector — done, see `tests/e2e/e2e_reset_test.act` below.
+     the reset vector — done, see `chips/bench/tests/e2e/e2e_reset_test.act`
+     below.
   4. [x] boot → load program A → external reset → load program B → run B to
-     WFI — done, see `tests/e2e/e2e_reset_reload_test.act` below.
-  5. GPIO input pin → configured event → ISR jumps to the pc associated
-     with that pin
+     WFI — done, see
+     `chips/bench/tests/e2e/e2e_reset_reload_test.act` below.
+  5. [x] GPIO input pin → configured event → ISR jumps to the pc associated
+     with that pin — done, see Scenario 5/7 below.
   6. back-to-back event pressure across a reset boundary (extends
      `e2e_multi_event_test`'s existing coverage)
-  7. GPIO output pin driven by software, observed by the testbench
+  7. [x] GPIO output pin driven by software, observed by the testbench —
+     done, see Scenario 5/7 below.
 - [ ] One new file per scenario (or one consolidated
       `e2e_robustness_test.act` if setup is shared enough) under
       `chips/bench/tests/e2e/`.
 - [ ] **Gate:** every scenario passes; top-level `make test` stays green
       end to end.
 
-#### Scenario 3 (done): `tests/e2e/e2e_reset_test.act`
+#### Scenario 3 (done): `chips/bench/tests/e2e/e2e_reset_test.act`
 
 Real compiled program (`software/application/main.c`) through the real
 bootloader, not hand-assembled instructions (that's what
@@ -428,7 +431,7 @@ genuinely reboots from scratch and re-registers its ISR vector/FIFO trigger
 level/enable bit against a freshly-cleared interrupt controller. Verified
 `make test`/`make software-tests` both green.
 
-#### Scenario 4 (done): `tests/e2e/e2e_reset_reload_test.act`
+#### Scenario 4 (done): `chips/bench/tests/e2e/e2e_reset_reload_test.act`
 
 The "oh shit, wrong firmware" scenario: a genuinely broken program running,
 noticed, and recovered by resetting into a genuinely different, corrected
@@ -483,6 +486,33 @@ Revisited later and resolved:
 - `ROM_IMAGE_HANG`/`ROM_IMAGE_APPLICATION` are permanent registry fixtures
   (built once via `file-registry`'s own prerequisite chain), unlike the
   shared `ROM_IMAGE` slot the other e2e tests rebuild-then-restore in place.
+
+#### Scenarios 5 & 7 (done): `chips/bench/tests/e2e/e2e_gpio_test.act`
+
+Both scenarios share one setup (GPIO input triggering an ISR; that ISR's
+own MMIO store driving GPIO output), so one new program and one new
+testbench cover both directions instead of two separate files.
+
+New real compiled program, `software/gpio_demo/main.c`: registers a
+distinct ISR for each of `chips/bench/core.act`'s two GPIO input pins
+(`gpio_in_0`/`gpio_in_1` — Stage 1.6's pure wiring onto soc's
+`event_id_14`/`event_id_15`), enables both via the existing interrupt-
+controller enable mask, then goes to sleep. `isr_gpio_in_0` writes `0b0101`
+to the GPIO output register (`core/peripherals/gpio.act`, base=7);
+`isr_gpio_in_1` writes `0b1010` — two distinct, easy-to-verify patterns so
+the testbench can tell which ISR actually ran, not just that *an* ISR ran.
+
+`e2e_gpio_test.act` boots that program via `chips/bench/core.act`, then for
+each input pin: fires it (`c.gpio_in_0!true` / `c.gpio_in_1!true`, self-
+managed synchronization same as every other event line — interrupt.act
+doesn't offer to receive until gpio_demo's own enable write, so no guessed
+boot-completion delay is needed) concurrently with receiving on all four of
+`gpio_out_0..gpio_out_3`, and asserts the received pattern matches that
+line's ISR. Proves scenario 5 (GPIO input → vectored ISR) and scenario 7
+(GPIO output driven by software, observed externally) in the same real
+program, end to end through the real bootloader. Verified `make test`/`make
+software-tests` both green (`make test` now runs 22 testbenches total,
+including `e2e_gpio_test`).
 
 ## Stage 2 — DVS-specific chip
 

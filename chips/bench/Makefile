@@ -31,7 +31,7 @@ ROM_TEST ?= simple
 
 ROM_IMAGE := software/tests/build/rom_image.mem
 
-.PHONY: e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test
+.PHONY: e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test
 
 # e2e_fifo_test.act exercises software/application/main.c's real
 # interrupt/FIFO flow specifically -- it needs that exact ROM image, not
@@ -115,6 +115,31 @@ e2e_reset_test:
 		echo "e2e_reset_test: FAIL (no completion)"; exit 1; \
 	else \
 		echo "e2e_reset_test: PASS"; \
+	fi
+
+# Exercises GPIO (core/peripherals/gpio.act) end to end, both directions in
+# one real program (software/gpio_demo/main.c): firing gpio_in_0/gpio_in_1
+# wakes the CPU through the existing interrupt-controller vectoring, and
+# each ISR's own MMIO store drives the GPIO output pins, observed here.
+# Same ROM-pinning rationale as e2e_fifo_test above.
+e2e_gpio_test:
+	@echo "--- e2e_gpio_test ---"
+	@rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem
+	@$(MAKE) -s -C $(ROOT) ROM_TEST=gpio_demo CROSS=$(CROSS) file-registry
+	@cd $(ROOT) && $(AFLAT) chips/bench/tests/e2e/e2e_gpio_test.act
+	@out=$$(cd $(ROOT) && printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf chips/bench/tests/e2e/e2e_gpio_test.act e2e_gpio_test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem; \
+	$(MAKE) -s -C $(ROOT) ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
+	if [ $$status -ne 0 ]; then \
+		echo "e2e_gpio_test: FAIL"; exit $$status; \
+	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+		echo "e2e_gpio_test: FAIL"; exit 1; \
+	elif ! echo "$$out" | grep -qi "test complete"; then \
+		echo "e2e_gpio_test: FAIL (no completion)"; exit 1; \
+	else \
+		echo "e2e_gpio_test: PASS"; \
 	fi
 
 # The full "oh shit, wrong firmware -- reset and reboot into the corrected

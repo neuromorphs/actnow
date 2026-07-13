@@ -80,7 +80,7 @@ SW_TESTS   := $(filter-out $(MEXT_TESTS),$(basename $(notdir $(wildcard \
                   software/tests/*.S software/tests/*.c \
                   software/tests/unit/*.S software/tests/unit/*.c))))
 
-.PHONY: all test list clean help file-registry software-tests force e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test $(TESTS)
+.PHONY: all test list clean help file-registry software-tests force e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test $(TESTS)
 
 all: test
 
@@ -91,7 +91,7 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  make / make all / make test  run every test: tests/core, tests/peripherals,"
-	@echo "                               tests/regression, tests/sw, plus all four e2e tests"
+	@echo "                               tests/regression, tests/sw, plus all five e2e tests"
 	@echo "  make <name>                  run a single test by name, e.g. make wfi_test"
 	@echo "                               (any test under tests/core, tests/peripherals,"
 	@echo "                               tests/regression, or tests/sw)"
@@ -103,6 +103,7 @@ help:
 	@echo "  make e2e_reset_test          boot, run a batch, reset, reboot + run a 2nd batch"
 	@echo "  make e2e_reset_reload_test   boot a hung program, flip ROM banks, reset into a"
 	@echo "                               corrected program, and confirm it runs correctly"
+	@echo "  make e2e_gpio_test           boot + GPIO in/out e2e test (gpio_demo)"
 	@echo "  make rom_program_test        run one program image through soc (see ROM_TEST)"
 	@echo "  make file-registry           (re)generate gen/file_ids.act + gen/file_registry.conf"
 	@echo "  make clean                   remove local simulator artifacts (gen/, history)"
@@ -118,7 +119,7 @@ help:
 	@echo "Must be run from this directory (actnow/) -- see the top of this Makefile and"
 	@echo "the README's Toolchain section for why."
 
-test: $(TESTS) e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test
+test: $(TESTS) e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test
 	@echo "=== all tests passed ==="
 
 file-registry: $(FILE_REGISTRY_GEN)
@@ -173,7 +174,7 @@ $(TESTS): $(FILE_REGISTRY_GEN)
 # rebuild dance each one needs (see its own e2e_fifo_test comment for why),
 # this just delegates by name with the same variables a direct invocation
 # would use.
-e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test:
+e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test:
 	@$(MAKE) -C chips/bench $@ ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS)
 
 # Run every RV32I software test through soc's real pipeline. For each test we

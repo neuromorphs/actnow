@@ -1,0 +1,62 @@
+import "chips/bench/core.act";
+import "gen/file_ids.act";
+
+// End-to-end test for GPIO (robustness.md Stage 1.7 scenarios 5 and 7),
+// exercising both directions in one real compiled program
+// (software/gpio_demo/main.c):
+//   - input: firing one of chips/bench/core.act's two GPIO input pins
+//     (gpio_in_0/gpio_in_1 -- pure wiring onto soc's event_id_14/
+//     event_id_15) wakes the CPU through the existing interrupt-controller
+//     vectoring, exactly like any other event line (scenario 5).
+//   - output: each ISR responds with a real MMIO store to the GPIO output
+//     register (core/peripherals/gpio.act, base=7), observed here on
+//     gpio_out_0..gpio_out_3 (scenario 7).
+//
+// No boot-completion delay needed: interrupt.act doesn't offer to receive
+// on event_id_14/event_id_15 until gpio_demo's own enable-mask write, so
+// each `gpio_in_N!true` below just blocks until the program is ready --
+// same self-managed synchronization as every other e2e test here.
+//
+// push/pop/fifo_event/swd_0/swd_1 are left unconnected -- this test never
+// touches the FIFOs, and SWD is unimplemented (robustness.md Stage 3).
+defproc e2e_gpio_test() {
+    core<ROM_IMAGE> c;
+
+    bool p0, p1, p2, p3;
+
+    chp {
+        log("======== gpio e2e test start ========");
+
+        // --- gpio_in_0 -> isr_gpio_in_0 writes 0b0101 ---
+        log("--- firing gpio_in_0, expect GPIO output 0b0101 ---");
+        (
+            c.gpio_in_0!true
+        ),
+        (
+            c.gpio_out_0?p0; c.gpio_out_1?p1; c.gpio_out_2?p2; c.gpio_out_3?p3
+        );
+        assert(p0, "gpio_in_0: pin_0 should be high (0b0101)");
+        assert(~p1, "gpio_in_0: pin_1 should be low (0b0101)");
+        assert(p2, "gpio_in_0: pin_2 should be high (0b0101)");
+        assert(~p3, "gpio_in_0: pin_3 should be low (0b0101)");
+        log("gpio_in_0: observed 0b0101 as expected");
+
+        // --- gpio_in_1 -> isr_gpio_in_1 writes 0b1010 ---
+        log("--- firing gpio_in_1, expect GPIO output 0b1010 ---");
+        (
+            c.gpio_in_1!true
+        ),
+        (
+            c.gpio_out_0?p0; c.gpio_out_1?p1; c.gpio_out_2?p2; c.gpio_out_3?p3
+        );
+        assert(~p0, "gpio_in_1: pin_0 should be low (0b1010)");
+        assert(p1, "gpio_in_1: pin_1 should be high (0b1010)");
+        assert(~p2, "gpio_in_1: pin_2 should be low (0b1010)");
+        assert(p3, "gpio_in_1: pin_3 should be high (0b1010)");
+        log("gpio_in_1: observed 0b1010 as expected");
+
+        log("======== gpio e2e test complete ========")
+    }
+}
+
+e2e_gpio_test egt;
