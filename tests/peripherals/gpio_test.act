@@ -1,0 +1,77 @@
+import "core/globals.act";
+import "core/peripherals/gpio.act";
+
+// Drives gpio directly (no soc/harness involved) to check the peripheral's
+// own CPU-side semantics in isolation: a write updates the register and
+// re-drives all 4 output pins with the new bit values in the same
+// transaction, and a read returns the last-written value back.
+defproc gpio_test() {
+    gpio gp;
+
+    chan(addr_t) addr;
+    chan(mode_mem_t) mode;
+    chan(int<WIDTH_DATA>) wdata;
+    chan(int<WIDTH_DATA>) rdata;
+    chan(bool) pin_0, pin_1, pin_2, pin_3;
+
+    gp.addr = addr; gp.mode = mode; gp.wdata = wdata; gp.rdata = rdata;
+    gp.pin_0 = pin_0; gp.pin_1 = pin_1; gp.pin_2 = pin_2; gp.pin_3 = pin_3;
+
+    addr_t a;
+    mode_mem_t md;
+    int<WIDTH_DATA> r;
+    bool p0, p1, p2, p3;
+
+    chp {
+        log("======== gpio test start ========");
+        a.base := ADDR_GPIO; a.offset := 0; // address is ignored, there's only one register
+        md.size := size_mem_t.WORD;
+
+        // --- write 0b0101 (pins 0 and 2 high, 1 and 3 low), observe all 4
+        // pins fire with the write in the same transaction ---
+        log("--- write 0b0101: expect pin_0=1, pin_1=0, pin_2=1, pin_3=0 ---");
+        md.op := op_mem_t.W;
+        (
+            addr!a; mode!md; wdata!int(0b0101, WIDTH_DATA)
+        ),
+        (
+            pin_0?p0; pin_1?p1; pin_2?p2; pin_3?p3
+        );
+        assert(p0, "gpio: pin_0 should be high after writing 0b0101");
+        assert(~p1, "gpio: pin_1 should be low after writing 0b0101");
+        assert(p2, "gpio: pin_2 should be high after writing 0b0101");
+        assert(~p3, "gpio: pin_3 should be low after writing 0b0101");
+        log("gpio: pins observed 0b0101 as expected");
+
+        // --- CPU read returns the last-written value back ---
+        log("--- read back the register -> expect 0b0101 ---");
+        md.op := op_mem_t.R;
+        addr!a; mode!md; rdata?r;
+        assert(r = 0b0101, "gpio: readback want 0b0101, got ", r);
+        log("gpio: readback correct");
+
+        // --- write 0b1010 (the complementary pattern), all 4 pins flip ---
+        log("--- write 0b1010: expect pin_0=0, pin_1=1, pin_2=0, pin_3=1 ---");
+        md.op := op_mem_t.W;
+        (
+            addr!a; mode!md; wdata!int(0b1010, WIDTH_DATA)
+        ),
+        (
+            pin_0?p0; pin_1?p1; pin_2?p2; pin_3?p3
+        );
+        assert(~p0, "gpio: pin_0 should be low after writing 0b1010");
+        assert(p1, "gpio: pin_1 should be high after writing 0b1010");
+        assert(~p2, "gpio: pin_2 should be low after writing 0b1010");
+        assert(p3, "gpio: pin_3 should be high after writing 0b1010");
+        log("gpio: pins observed 0b1010 as expected");
+
+        md.op := op_mem_t.R;
+        addr!a; mode!md; rdata?r;
+        assert(r = 0b1010, "gpio: readback want 0b1010, got ", r);
+        log("gpio: readback correct");
+
+        log("======== gpio test complete ========")
+    }
+}
+
+gpio_test gt;

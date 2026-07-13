@@ -358,21 +358,42 @@ waiting for the program to voluntarily sleep first — useless for a hang).
 
 ### 1.6 Add 8 external GPIO pins to `chips/bench/core.act`
 
-- [ ] 4 input pins:
-  - 2 wired straight to two of the interrupt controller's event lines
-    (`event_id_N`), each configurable via the existing vector-table
-    mechanism to jump to a program-associated pc — pure wiring, no new
-    hardware needed.
-  - 2 reserved for SWD debug — stub ports only, no-op for now.
-- [ ] 4 output pins, driven from a new GPIO regfile peripheral:
-  - New file `core/peripherals/gpio.act` — an MMIO register (own
-    address-space base, added to `core/globals.act`'s `ADDR_*` constants
-    and to `chips/bench/harness.act`'s demux base list) whose bits drive
-    the 4 output pins directly.
-- [ ] New unit test: `tests/peripherals/gpio_test.act` — write the GPIO
-      register, observe the corresponding output pin, independent of the
-      full core.
-- [ ] **Gate:** `make test` passes with `gpio_test` added.
+- [x] 4 input pins:
+  - `gpio_in_0`/`gpio_in_1` are pure wiring onto two of the interrupt
+    controller's event lines — specifically `event_id_14`/`event_id_15`
+    (the top two of soc's 16), chosen so `event_id_0..13` stay free and
+    undifferentiated for `e2e_multi_event_test.act`'s existing full-width,
+    manually-driven interrupt-controller coverage test. `event_id_14`/
+    `event_id_15` were removed from `core.act`'s own generic `event_id_N`
+    port list and replaced by these two GPIO-named ports (same underlying
+    soc event line, just given its real-world identity at the boundary);
+    `e2e_multi_event_test.act` updated accordingly (drives them via
+    `c.gpio_in_0`/`c.gpio_in_1` instead of `c.event_id_14`/`c.event_id_15`
+    — no functional change, still fires all 16 lines). Vectoring (jump to
+    a program-associated pc) is the existing `core/interrupt.act` table —
+    no new hardware needed.
+  - `swd_0`/`swd_1` reserved for SWD debug — stub ports only (declared on
+    `core.act` for interface completeness, left completely unconnected to
+    any soc functionality), genuine no-ops until Stage 3 is scoped.
+- [x] 4 output pins, driven from a new GPIO regfile peripheral:
+  - New file `core/peripherals/gpio.act` — a single MMIO register (address
+    offset ignored, same convention as fifo_in/fifo_out) whose low 4 bits
+    drive 4 individually-named `chan!(bool)` pins (`pin_0..pin_3`, not an
+    array — matches `core/soc.act`'s own `event_id_N` convention). A CPU
+    write updates the register and re-drives all 4 pins with the new bit
+    values in the same transaction; a CPU read returns the last-written
+    value. New `pint ADDR_GPIO = 7` in `core/globals.act`, added as a 4th
+    exact route (alongside ROM=4/fifo_in=5/fifo_out=6) to
+    `chips/bench/harness.act`'s demux; `harness.act` exposes the 4 pins as
+    `gpio_out_0..gpio_out_3`, passed straight through by `core.act`.
+- [x] New unit test: `tests/peripherals/gpio_test.act` — drives `gpio`
+      directly (no soc/harness involved), writes two different 4-bit
+      patterns and asserts all 4 pins fire with the correct level in the
+      same transaction as the write, plus asserts CPU readback returns the
+      last-written value.
+- [x] **Gate:** `make test` (21 testbenches, including `gpio_test`) and
+      `make software-tests` (38/38) both pass, verified end to end with the
+      real toolchain.
 
 ### 1.7 Full e2e robustness suite
 

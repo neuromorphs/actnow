@@ -2,16 +2,19 @@ import "core/globals.act";
 import "core/peripherals/mem.act";
 import "core/peripherals/fifo_in.act";
 import "core/peripherals/fifo_out.act";
+import "core/peripherals/gpio.act";
 import "core/peripherals/demux.act";
 
-// chips/bench's off-chip periphery: ROM + input FIFO + output FIFO behind a
-// 3-way demux (base=4/5/6, no catch-all -- see demux.act), wired to whatever
-// soc instance's addr_ext/mode_ext/wdata_ext/rdata_ext boundary is connected
-// to addr_in/mode_in/wdata_in/rdata_in below. Previously hand-rolled
-// identically inline in tests/e2e/e2e_fifo_test.act,
-// tests/e2e/e2e_multi_event_test.act, and tests/e2e/e2e_reset_test.act --
-// extracted here (robustness.md Stage 1.5) as the one shared definition of
-// "what chips/bench's periphery actually looks like".
+// chips/bench's off-chip periphery: ROM + input FIFO + output FIFO + GPIO
+// output register behind a 4-way demux (base=4/5/6/7, no catch-all -- see
+// demux.act), wired to whatever soc instance's addr_ext/mode_ext/wdata_ext/
+// rdata_ext boundary is connected to addr_in/mode_in/wdata_in/rdata_in
+// below. ROM/fifo_in/fifo_out were previously hand-rolled identically
+// inline in tests/e2e/e2e_fifo_test.act, tests/e2e/e2e_multi_event_test.act,
+// and tests/e2e/e2e_reset_test.act -- extracted here (robustness.md Stage
+// 1.5) as the one shared definition of "what chips/bench's periphery
+// actually looks like"; gpio (base=ADDR_GPIO) was added directly here
+// (Stage 1.6), never having been hand-rolled inline anywhere.
 //
 // fifo_in's auto-fire (event_out) is exposed as `fifo_event` rather than
 // hardwired to any particular soc event line here -- real hardware wires it
@@ -33,11 +36,14 @@ defproc harness(
     chan!(bool) fifo_event;
 
     chan?(int<WIDTH_DATA>) push;
-    chan!(int<WIDTH_DATA>) pop
+    chan!(int<WIDTH_DATA>) pop;
+
+    chan!(bool) gpio_out_0; chan!(bool) gpio_out_1;
+    chan!(bool) gpio_out_2; chan!(bool) gpio_out_3
 ) {
-    pint DEMUX_N = 3;
+    pint DEMUX_N = 4;
     pint DEMUX_BASES[DEMUX_N];
-    DEMUX_BASES = {4, 5, 6};
+    DEMUX_BASES = {4, 5, 6, ADDR_GPIO};
     demux<DEMUX_N, DEMUX_BASES, ADDR_NO_CATCHALL> demux;
 
     demux.addr_in = addr_in;
@@ -65,4 +71,14 @@ defproc harness(
     demux.wdata_out[2] = fout.wdata;
     demux.rdata_out[2] = fout.rdata;
     fout.pop = pop;
+
+    gpio gp;
+    demux.addr_out[3] = gp.addr;
+    demux.mode_out[3] = gp.mode;
+    demux.wdata_out[3] = gp.wdata;
+    demux.rdata_out[3] = gp.rdata;
+    gp.pin_0 = gpio_out_0;
+    gp.pin_1 = gpio_out_1;
+    gp.pin_2 = gpio_out_2;
+    gp.pin_3 = gpio_out_3;
 }

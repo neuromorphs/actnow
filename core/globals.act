@@ -50,6 +50,15 @@ pint ADDR_RESET = 0x40000;
 //     write, exactly like real hardware.
 pint ADDR_INT_CTRL_ENABLE = 64;
 
+// Off-chip GPIO output register (core/peripherals/gpio.act), routed by
+// chips/bench/harness.act's demux alongside ROM(4)/fifo_in(5)/fifo_out(6) --
+// see robustness.md Stage 1.6. Unlike ADDR_MEM/ADDR_INT_CTRL above (which
+// name on-chip mmu routes), ROM/fifo_in/fifo_out's own bases stay literal
+// (4/5/6) in harness.act rather than named here -- this one's named because
+// it's referenced from two places (harness.act's demux table and gpio_test)
+// that would otherwise need to agree on a magic number independently.
+pint ADDR_GPIO = 7;
+
 // 8 Ki words
 pint SIZE_MEM_WORDS = 8 * 1024;
 

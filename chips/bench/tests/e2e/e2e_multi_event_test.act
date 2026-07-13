@@ -21,7 +21,11 @@ import "gen/file_ids.act";
 // left unconnected here -- fifo_in can only ever auto-fire one event line,
 // and this test's whole point is exercising all sixteen manually and
 // uniformly instead (see software/multi_event/main.c's own comment on why
-// its trigger_level is configured unreachable).
+// its trigger_level is configured unreachable). Lines 14/15 are driven
+// through `c.gpio_in_0`/`c.gpio_in_1` -- chips/bench/core.act's Stage 1.6
+// GPIO input pins are pure wiring onto soc's own event_id_14/event_id_15
+// (see core.act's own comment), so manually firing them here is no
+// different from any other line, just under their GPIO-facing name.
 //
 // Address layout matches e2e_fifo_test.act: base=4 ROM (bootloader only),
 // base=5/6 the input/output FIFOs, via chips/bench/core.act's standard
@@ -44,8 +48,8 @@ defproc e2e_multi_event_test() {
     event_ch[11] = c.event_id_11;
     event_ch[12] = c.event_id_12;
     event_ch[13] = c.event_id_13;
-    event_ch[14] = c.event_id_14;
-    event_ch[15] = c.event_id_15;
+    event_ch[14] = c.gpio_in_0;
+    event_ch[15] = c.gpio_in_1;
 
     int<WIDTH_DATA> pushed, result, expected;
     int<5> i;
