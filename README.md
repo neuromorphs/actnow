@@ -7,17 +7,18 @@ returns to waiting.
 
 ## Implemented ISA
 
-The full RV32I base integer set is implemented in `soc.act`, including loads
-(LB/LH/LW/LBU/LHU) and stores (SB/SH/SW), both routed through the MMU
-(`mmu.act`) to either internal RAM (`mem.act`) or external memory
-(`addr_ext`/`mode_ext`/`wdata_ext`/`rdata_ext`). Loads sign/zero-extend in
-`soc.act` after the MMU's masking; stores rely on the MMU masking the write
-value down to the requested size before it reaches the peripheral. The
-M-extension (multiply/divide) is not implemented.
+The full RV32I base integer set is implemented in `core/soc.act`, including
+loads (LB/LH/LW/LBU/LHU) and stores (SB/SH/SW), both routed through the MMU
+(`core/mmu.act`) to either internal RAM (`core/peripherals/mem.act`) or
+external memory (`addr_ext`/`mode_ext`/`wdata_ext`/`rdata_ext`). Loads
+sign/zero-extend in `core/soc.act` after the MMU's masking; stores rely on
+the MMU masking the write value down to the requested size before it
+reaches the peripheral. The M-extension (multiply/divide) is not
+implemented.
 
-## Address-routed bus (`mmu.act`)
+## Address-routed bus (`core/mmu.act`)
 
-`mmu.act`'s `mmu` is a generic template, `mmu<N_EXACT; EXACT_BASES[N_EXACT];
+`core/mmu.act`'s `mmu` is a generic template, `mmu<N_EXACT; EXACT_BASES[N_EXACT];
 CATCHALL_MIN_BASE>`: `N_EXACT` downstream ports are selected by an exact
 match against `EXACT_BASES[k]`, and one further downstream port (index
 `N_EXACT`, the last one) catches any address with `base >=
@@ -26,7 +27,7 @@ silently dropped — reads are never answered, writes are absorbed — which is
 what a real reserved/unmapped address should do (undefined, but doesn't hang
 waiting on a response). Two instantiations of the same template are used:
 
-- **soc's own core-to-peripheral MMU** (inside `soc.act`): 2 exact routes
+- **soc's own core-to-peripheral MMU** (inside `core/soc.act`): 2 exact routes
   (`ADDR_MEM`=0 → internal RAM, `ADDR_INT_CTRL`=1 → interrupt controller)
   plus a catch-all at `base >= ADDR_EXT_MIN` (4) → soc's own
   `addr_ext`/`mode_ext`/`wdata_ext`/`rdata_ext` ports. Bases 2 and 3 fall in
@@ -38,7 +39,7 @@ waiting on a response). Two instantiations of the same template are used:
   the same `mmu` this way to split soc's external bus further into distinct
   peripherals: ROM at base=4, input FIFO at base=5, output FIFO at base=6.
 
-## Interrupt controller (`interrupt.act`)
+## Interrupt controller (`core/interrupt.act`)
 
 16 maskable event lines (`event_id_0`..`15`), each with its own
 software-configured vector register: a real, memory-mapped table at
@@ -56,7 +57,7 @@ reset vector is fixed in silicon).
 
 Each event line also has an **enable bit** (a 32-bit mask register at
 `ADDR_INT_CTRL_ENABLE`, offset 64, bit N gates `event_id_N`). Until software
-sets it, `interrupt.act` doesn't even offer to receive on that channel — so
+sets it, `core/interrupt.act` doesn't even offer to receive on that channel — so
 whatever's driving it (a real device, or a testbench) just blocks at the
 rendezvous rather than being serviced with a not-yet-configured vector. This
 is what makes "wait for the program to finish booting" self-managed instead
@@ -64,7 +65,7 @@ of needing a guessed delay: fire the interrupt any time, even at simulated
 time 0, and it'll naturally wait for the program's own vector-then-enable
 sequence — see `tests/e2e/e2e_fifo_test.act`, which does exactly that.
 
-## FIFO peripherals (`fifo_in.act` / `fifo_out.act`)
+## FIFO peripherals (`core/peripherals/fifo_in.act` / `core/peripherals/fifo_out.act`)
 
 Fixed-depth circular-buffer FIFOs, each memory-mapped as a single data
 register (the address offset is ignored — there's only one meaningful
@@ -153,10 +154,11 @@ layers of tests.
 
 The CHP testbenches are split by kind: `tests/core/` (CPU/ISA datapath —
 hand-crafted instruction words, e.g. ALU, register file), `tests/peripherals/`
-(standalone peripheral/infra unit tests — MMU, memory, FIFOs), and
-`tests/e2e/` (full boot + real compiled program + real peripheral
-interaction). Each reports `<name>: PASS` or `FAIL`; `make` finds a test by
-name regardless of which subdirectory it lives in.
+(standalone peripheral/infra unit tests — MMU, memory, FIFOs),
+`tests/regression/` (one-off bug-repro tests), and `tests/e2e/` (full boot +
+real compiled program + real peripheral interaction). Each reports
+`<name>: PASS` or `FAIL`; `make` finds a test by name regardless of which
+subdirectory it lives in.
 
 ```
 make                 # build + run every test under tests/core, tests/peripherals, tests/sw
@@ -253,7 +255,7 @@ you switch programs.
 
 **Pass/fail signalling.** Reaching WFI means the program ran to completion. The
 riscv-tests convention (`common/test_start.S`) is `WFI` = pass, `EBREAK` = fail
-(emitted by a `TEST_CASE` comparison that didn't match). `soc.act` halts on
+(emitted by a `TEST_CASE` comparison that didn't match). `core/soc.act` halts on
 EBREAK via the same path as WFI, but logs a distinct `EBREAK -- test FAILED`
 line (with the failing `TESTNUM`/`x28` value just above it), which the
 `Makefile` greps for alongside `ASSERTION failed`. So a software test passes
@@ -266,19 +268,19 @@ Requires `actsim` built from commit `fa1a636` ("tests and fixes for
 user-defined enums") or later — earlier versions crash (`Assertion: pos ==
 nvals` in `state.cc`) the instant a `deftype` struct with an enum-typed field
 (e.g. this project's `mode_mem_t`) is sent over a channel, which
-`mmu.act`/`mem.act` do on every memory transaction.
-`tests/peripherals/mode_mem_t_enum_bug_test.act` is a standalone regression test for it. If
+`core/mmu.act`/`core/peripherals/mem.act` do on every memory transaction.
+`tests/regression/mode_mem_t_enum_bug_test.act` is a standalone regression test for it. If
 your `actsim` predates the fix, update the `actsim` submodule in your
 `act`/`actflow` checkout to `origin/master` and rebuild just `act` + `actsim`.
 
 **Always compile and run from the project root (`actnow/`), never from inside
 `tests/`.** ACT resolves every `import` path relative to the compiler's working
-directory, not the importing file — so `soc.act`'s own `import "interrupt.act"`
-only resolves when the whole compilation runs with `actnow/` as the working
-directory. `make` handles this; to drive a testbench by hand (what
-`make <name>` does under the hood) -- substitute the right subdirectory
-(`tests/core/`, `tests/peripherals/`, `tests/sw/`, or `tests/e2e/`) for `<name>`'s
-actual location:
+directory, not the importing file — so `core/soc.act`'s own `import
+"core/interrupt.act"` only resolves when the whole compilation runs with
+`actnow/` as the working directory. `make` handles this; to drive a testbench
+by hand (what `make <name>` does under the hood) -- substitute the right
+subdirectory (`tests/core/`, `tests/peripherals/`, `tests/regression/`,
+`tests/sw/`, or `tests/e2e/`) for `<name>`'s actual location:
 
 ```
 cd actnow

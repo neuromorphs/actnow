@@ -1,6 +1,6 @@
-import "soc.act";
-import "fifo_in.act";
-import "fifo_out.act";
+import "core/soc.act";
+import "core/peripherals/fifo_in.act";
+import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 
 // End-to-end testbench modeling how this chip actually operates: bootload a

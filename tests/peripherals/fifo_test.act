@@ -1,6 +1,6 @@
-import "globals.act";
-import "fifo_in.act";
-import "fifo_out.act";
+import "core/globals.act";
+import "core/peripherals/fifo_in.act";
+import "core/peripherals/fifo_out.act";
 
 // Drives fifo_in and fifo_out directly (no soc involved) to check the
 // peripherals' own push/pop/CPU-side semantics in isolation: FIFO ordering,

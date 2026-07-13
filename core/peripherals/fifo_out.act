@@ -1,6 +1,6 @@
 import std;
 
-import "globals.act";
+import "core/globals.act";
 
 // Output FIFO peripheral: the CPU pushes data in on every write (there's
 // only one meaningful register, so the address offset is ignored); the

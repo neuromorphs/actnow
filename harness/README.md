@@ -22,13 +22,13 @@ Run from this directory:
 Defaults:
 
 - process: `soc`
-- source ACT file: `../soc.act`
+- source ACT file: `../core/soc.act`
 - output directory: `gen/`
 
 Override them when needed:
 
 ```sh
-./convert_verilog.sh -p soc -f soc.act -o gen
+./convert_verilog.sh -p soc -f core/soc.act -o gen
 ```
 
 ## Vivado Flow

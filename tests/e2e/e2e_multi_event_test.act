@@ -1,6 +1,6 @@
-import "soc.act";
-import "fifo_in.act";
-import "fifo_out.act";
+import "core/soc.act";
+import "core/peripherals/fifo_in.act";
+import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 
 // Generality/stress testbench: boots a real compiled program

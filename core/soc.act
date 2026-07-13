@@ -1,9 +1,9 @@
-import "globals.act";
-import "interrupt.act";
-import "regfile.act";
-import "utils.act";
-import "mmu.act";
-import "mem.act";
+import "core/globals.act";
+import "core/interrupt.act";
+import "core/regfile.act";
+import "core/utils.act";
+import "core/mmu.act";
+import "core/peripherals/mem.act";
 
 defproc soc(
     chan?(bool) event_id_0;

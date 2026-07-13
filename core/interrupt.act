@@ -1,4 +1,4 @@
-import "globals.act";
+import "core/globals.act";
 
 // Real interrupt controller: 16 maskable event lines, each with its own
 // software-configured vector register (word-addressed at

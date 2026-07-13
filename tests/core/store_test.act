@@ -1,4 +1,4 @@
-import "soc.act";
+import "core/soc.act";
 
 // Drives soc through LUI (base address in x1), ADDI (all-ones value in x2),
 // then all three STORE variants (SW, SB, SH) against that base, then WFI.

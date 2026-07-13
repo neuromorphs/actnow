@@ -6,31 +6,107 @@ top-to-bottom within a stage — later tasks assume earlier ones are done.
 Checkboxes are meant to be checked off as you go; "Gate" lines are the
 concrete pass/fail criteria before moving on.
 
+## Repo conventions (apply from Stage 0 onward)
+
+- **One `defproc` per file, filename matches the proc name.** Already true
+  today (`mmu.act` → `defproc mmu`, `regfile.act` → `defproc regfile`, ...);
+  keep it true for every new file added in Stages 0-2
+  (`demux.act`/`defproc demux`, `gpio.act`/`defproc gpio`,
+  `spi_boot.act`/`defproc spi_boot`, etc.).
+- **`chips/` (simulation chip variants) vs `harness/` (FPGA/Vivado flow)
+  are unrelated, despite the similar vocabulary.** `harness/` already
+  exists at repo root for the physical FPGA build (`harness/fpga`,
+  `harness/static`, `convert_verilog.sh`, `run_vivado_flow.sh`) — don't
+  merge simulation harness code into it, and don't rename `chips/` to
+  `harness/`.
+- Every `import "x.act"` resolves relative to the working directory the
+  compiler is invoked from (see the top-level `Makefile`'s own comment on
+  this), not relative to the importing file. Any file move below means
+  updating every `import` string that references the moved file, repo-wide
+  — not just the mover's own imports.
+
+## Stage 0 — Source tree reorg
+
+Pure file-move/rename work, done before Stage 1's functional changes so
+those changes land directly in the new layout instead of moving twice.
+Zero behavior change expected anywhere in this stage.
+
+### 0.1 Split the flat root `.act` files into `core/`
+
+Mirrors the split `tests/` already uses (`tests/core` vs
+`tests/peripherals`) on the source side, so the two trees read the same
+way and stay legible as more peripherals land in Stage 1/2.
+
+- [ ] `core/` — core datapath, tightly coupled to `soc`'s own execution:
+  - `core/soc.act`
+  - `core/mmu.act` (becomes the real dual-port PMP mmu in Stage 1.2 — see
+    below; lives here rather than under `peripherals/` because it's
+    soc-internal, not a bus-attached device)
+  - `core/regfile.act`
+  - `core/interrupt.act`
+  - `core/utils.act`
+  - `core/globals.act`
+- [ ] `core/peripherals/` — bus-attached devices, reusable across chip
+  variants:
+  - `core/peripherals/mem.act`
+  - `core/peripherals/fifo_in.act`
+  - `core/peripherals/fifo_out.act`
+  - `core/peripherals/demux.act` (new in Stage 1.1 — the generic address
+    router extracted out of `mmu.act`)
+- [ ] Update every `import "..."` string repo-wide to the new paths:
+  `core/soc.act`, `core/globals.act`, etc. (`gen/file_ids.act` is
+  build-generated and untouched.)
+- [ ] Update the top-level `Makefile`'s `TEST_SRC` resolution and any other
+  path references to match.
+- [ ] **Gate:** `make test` and `make software-tests` both pass with
+  nothing but paths changed.
+
+### 0.2 Tidy `tests/`
+
+- [ ] New `tests/regression/` directory for one-off bug-repro tests, so
+  `tests/peripherals/` stays "one test file per peripheral." Move
+  `tests/peripherals/mode_mem_t_enum_bug_test.act` →
+  `tests/regression/mode_mem_t_enum_bug_test.act` as the first occupant.
+- [ ] `tests/core/`, `tests/peripherals/`, `tests/sw/` stay exactly as they
+  are otherwise — these are chip-agnostic (ISA datapath, standalone
+  peripherals, real-program-through-`soc` runs) and don't belong to any one
+  chip variant.
+- [ ] `tests/e2e/` is retired from the shared tree in Stage 1.5/2.5 below —
+  e2e tests wire through one specific chip variant's harness, so each
+  variant owns its own `tests/e2e/` under `chips/<variant>/` instead of
+  sharing a root-level one.
+- [ ] **Gate:** `make test` passes with the renamed/relocated regression
+  test picked up correctly.
+
 ## Stage 1 — Real PMP MMU, external reset, harness reorg, GPIO, e2e coverage
 
 ### 1.1 Split the generic address router out of `mmu.act` into `demux.act`
 
-The templated router currently living in `mmu.act` (`defproc mmu<N_EXACT,
-EXACT_BASES, CATCHALL_MIN_BASE>`) is just an address demux — it's reused
-today both inside `soc.act` (RAM / interrupt-controller / external routing)
-and inline in the e2e tests (ROM / fifo_in / fifo_out routing). It needs to
-become its own process so the *real* PMP mmu (1.2) can take the `mmu` name.
+The templated router currently living in `core/mmu.act` (`defproc
+mmu<N_EXACT, EXACT_BASES, CATCHALL_MIN_BASE>`) is just an address demux —
+reused today both inside `soc.act` (RAM / interrupt-controller / external
+routing) and inline in the e2e tests (ROM / fifo_in / fifo_out routing). It
+needs to become its own process so the *real* PMP mmu (1.2) can take the
+`mmu` name.
 
-- [ ] Copy the existing template verbatim into a new `demux.act`, renamed
-      `defproc demux<N_EXACT, EXACT_BASES, CATCHALL_MIN_BASE>` (same ports,
-      same body — pure rename, no behavior change).
-- [ ] Update every current consumer to `import "demux.act"` and instantiate
-      `demux<...>` instead of `mmu<...>`:
-  - `soc.act`'s own peripheral router (`SOC_MMU_N_EXACT` / `SOC_MMU_EXACT_BASES`)
+- [ ] Copy the existing template verbatim into
+      `core/peripherals/demux.act`, renamed `defproc demux<N_EXACT,
+      EXACT_BASES, CATCHALL_MIN_BASE>` (same ports, same body — pure
+      rename, no behavior change).
+- [ ] Update every current consumer to `import
+      "core/peripherals/demux.act"` and instantiate `demux<...>` instead of
+      `mmu<...>`:
+  - `core/soc.act`'s own peripheral router (`SOC_MMU_N_EXACT` /
+    `SOC_MMU_EXACT_BASES`)
   - `tests/e2e/e2e_fifo_test.act`
   - `tests/e2e/e2e_multi_event_test.act`
-  - `tests/peripherals/mmu_test.act` — rename to `demux_test.act`
-    (`defproc demux_test`), since it's exercising the generic router, not
-    the new PMP design.
-- [ ] Remove the old generic router's body from `mmu.act`, leaving the file
-      empty/ready for 1.2.
-- [ ] **Gate:** `make test` passes with everything renamed — zero functional
-      change expected from this task alone.
+  - `tests/peripherals/mmu_test.act` — rename to
+    `tests/peripherals/demux_test.act` (`defproc demux_test`), since it's
+    exercising the generic router, not the new PMP design.
+- [ ] Remove the old generic router's body from `core/mmu.act`, leaving the
+      file empty/ready for 1.2.
+- [ ] **Gate:** `make test` passes with everything renamed — zero
+      functional change expected from this task alone.
 
 ### 1.2 Design and implement the real PMP mmu
 
@@ -40,15 +116,17 @@ become its own process so the *real* PMP mmu (1.2) can take the `mmu` name.
       architecture only ever execute out of internal RAM? This determines
       whether the instruction port needs a read-only path through `demux`
       or can go straight to `mem.act`'s RAM route.
-- [ ] Define the new `defproc mmu(...)` in `mmu.act` with two independent
-      core-facing port groups sharing one physical-memory-facing port group:
+- [ ] Define the new `defproc mmu(...)` in `core/mmu.act` with two
+      independent core-facing port groups sharing one physical-memory-facing
+      port group:
   - **instr port group:** `addr_instr` (in), `mode_instr` (in, always
     `op_mem_t.R`), `rdata_instr` (out) — no `wdata` channel at all, since
     fetch never writes.
   - **data port group:** `addr_data`, `mode_data`, `wdata_data`,
     `rdata_data` — full R/W/RMW, same shape as today's `addr_core` group.
   - **physical side:** one addr/mode/wdata/rdata group wired to a single
-    unchanged `mem.act` bank; instr and data traffic arbitrate onto it.
+    unchanged `core/peripherals/mem.act` bank; instr and data traffic
+    arbitrate onto it.
 - [ ] Decide and implement the arbitration policy for a same-cycle
       fetch + load/store race (soc's core is single-issue, so simple
       priority/round-robin is likely sufficient — document the choice).
@@ -81,7 +159,7 @@ become its own process so the *real* PMP mmu (1.2) can take the `mmu` name.
 
 ### 1.4 External reset
 
-- [ ] Add a `chan?(bool) reset_ext` port to `soc.act`, sampled as a
+- [ ] Add a `chan?(bool) reset_ext` port to `core/soc.act`, sampled as a
       top-level alternative (same shape as `interrupt.act`'s `is_reset`
       handling) that re-triggers reset behavior on demand — `pc :=
       ADDR_RESET`, `running := false` — without restarting the simulation.
@@ -95,28 +173,30 @@ become its own process so the *real* PMP mmu (1.2) can take the `mmu` name.
 - [ ] **Gate:** `make test` includes and passes `reset_test`; all
       pre-existing tests still pass.
 
-### 1.5 Reorganize the harness into its own directory
+### 1.5 Reorganize the harness into `chips/bench/`
 
-- [ ] New directory (e.g. `test_grizzly/`) containing:
-  - `test_harness.act` — the 16 `event_id` channels + `fifo_in` + `fifo_out`
-    + `demux` instantiation currently duplicated inline in
+- [ ] New directory `chips/bench/` containing:
+  - `chips/bench/harness.act` — the 16 `event_id` channels + `fifo_in` +
+    `fifo_out` + `demux` instantiation currently duplicated inline in
     `e2e_fifo_test.act` / `e2e_multi_event_test.act`, extracted into one
-    reusable `defproc`.
-  - `test_core.act` — instantiates `soc` + `test_harness` together,
+    reusable `defproc harness`.
+  - `chips/bench/core.act` — instantiates `soc` + `harness` together,
     exposing the 16 event lines, `reset_ext` (1.4), and the GPIO pins added
     in 1.6.
 - [ ] Move the e2e-specific Makefile logic (the `ROM_IMAGE` rebuild dance,
       `e2e_fifo_test` / `e2e_multi_event_test` rules) out of the top-level
-      `Makefile` into a `Makefile` inside this new directory — mirror the
-      existing `software/*/Makefile` sub-make pattern; have the top-level
-      `Makefile` delegate to it.
-- [ ] Update `tests/e2e/e2e_fifo_test.act` and `e2e_multi_event_test.act` to
-      instantiate `test_core` instead of hand-rolling `soc` + `demux` +
-      fifo wiring.
+      `Makefile` into `chips/bench/Makefile` — mirror the existing
+      `software/*/Makefile` sub-make pattern; have the top-level `Makefile`
+      delegate to it.
+- [ ] Move `tests/e2e/e2e_fifo_test.act` and `e2e_multi_event_test.act` to
+      `chips/bench/tests/e2e/`, updating them to instantiate
+      `chips/bench/core.act` instead of hand-rolling `soc` + `demux` + fifo
+      wiring. (Completes the `tests/e2e/` retirement noted in 0.2.)
 - [ ] **Gate:** identical test behavior — `make test` from the top level
-      still runs both e2e tests successfully (directly or via delegation).
+      still runs both e2e tests successfully (directly or via delegation
+      into `chips/bench/`).
 
-### 1.6 Add 8 external GPIO pins to `test_core.act`
+### 1.6 Add 8 external GPIO pins to `chips/bench/core.act`
 
 - [ ] 4 input pins:
   - 2 wired straight to two of the interrupt controller's event lines
@@ -125,9 +205,10 @@ become its own process so the *real* PMP mmu (1.2) can take the `mmu` name.
     hardware needed.
   - 2 reserved for SWD debug — stub ports only, no-op for now.
 - [ ] 4 output pins, driven from a new GPIO regfile peripheral:
-  - New file `gpio.act` — an MMIO register (own address-space base, added
-    to `globals.act`'s `ADDR_*` constants and to `test_harness`'s demux
-    base list) whose bits drive the 4 output pins directly.
+  - New file `core/peripherals/gpio.act` — an MMIO register (own
+    address-space base, added to `core/globals.act`'s `ADDR_*` constants
+    and to `chips/bench/harness.act`'s demux base list) whose bits drive
+    the 4 output pins directly.
 - [ ] New unit test: `tests/peripherals/gpio_test.act` — write the GPIO
       register, observe the corresponding output pin, independent of the
       full core.
@@ -148,45 +229,48 @@ become its own process so the *real* PMP mmu (1.2) can take the `mmu` name.
      `e2e_multi_event_test`'s existing coverage)
   7. GPIO output pin driven by software, observed by the testbench
 - [ ] One new file per scenario (or one consolidated
-      `tests/e2e/e2e_robustness_test.act` if setup is shared enough) under
-      `tests/e2e/`, each wired through `test_core.act` (1.5).
+      `e2e_robustness_test.act` if setup is shared enough) under
+      `chips/bench/tests/e2e/`.
 - [ ] **Gate:** every scenario passes; top-level `make test` stays green
       end to end.
 
 ## Stage 2 — DVS-specific chip
 
-Depends on Stage 1 being complete (`mmu.act`/`demux.act` split, `gpio.act`,
-`test_core.act` pattern all exist and are stable).
+Depends on Stage 1 being complete (`core/mmu.act`/`core/peripherals/demux.act`
+split, `gpio.act`, `chips/bench/` pattern all exist and are stable).
 
 ### 2.1 dvs event topology
 
 - [ ] 3 events total: `event_id_0` driven directly by the new 20-bit AER
       input (replacing `fifo_in`'s role); `event_id_1`/`event_id_2`
-      externally driven, same as `test_core.act`'s spare interrupt lines.
+      externally driven, same as `chips/bench/core.act`'s spare interrupt
+      lines.
 - [ ] Remove `fifo_out` entirely — any chip-to-outside data path goes
       through the bidirectional program/data SPI instead (2.3).
 - [ ] Open design question to resolve first: does the AER input need its
       own edge-triggered wrapper (a `fifo_in`-style "new 20-bit word
-      arrived → fire `event_id_0`" peripheral, e.g. `aer_input.act`), or
-      does it wire straight through as a plain rendezvous? Decide before
-      implementing — it determines whether a new peripheral file is needed.
+      arrived → fire `event_id_0`" peripheral, e.g.
+      `core/peripherals/aer_input.act`), or does it wire straight through
+      as a plain rendezvous? Decide before implementing — it determines
+      whether a new peripheral file is needed.
 
 ### 2.2 GPIO reuse
 
-- [ ] Reuse `gpio.act` and the same 4-in/4-out pin allocation from 1.6
-      unchanged; SWD's 2 pins stay stubbed/no-op.
+- [ ] Reuse `core/peripherals/gpio.act` and the same 4-in/4-out pin
+      allocation from 1.6 unchanged; SWD's 2 pins stay stubbed/no-op.
 
 ### 2.3 SPI peripherals
 
 Transaction framing (both interfaces): 1 bit read(0)/write(1), 20-bit
 address, 32-bit data — one "transmission" per chip-select-low pulse.
 
-- [ ] `spi_boot.act` — unidirectional, read-only from the chip's
-      perspective: loads the bootloader image into RAM once at boot, does
-      nothing thereafter.
-- [ ] `spi_prog.act` — bidirectional: implements the transaction framing
-      above, used both to push programs into memory and to read/write data
-      through the demux (replacing `fifo_out`'s old role).
+- [ ] `core/peripherals/spi_boot.act` — unidirectional, read-only from the
+      chip's perspective: loads the bootloader image into RAM once at
+      boot, does nothing thereafter.
+- [ ] `core/peripherals/spi_prog.act` — bidirectional: implements the
+      transaction framing above, used both to push programs into memory
+      and to read/write data through the demux (replacing `fifo_out`'s old
+      role).
 - [ ] New unit tests: `tests/peripherals/spi_boot_test.act` and
       `tests/peripherals/spi_prog_test.act`, each driving raw SPI-shaped
       transactions and asserting the correct addr/mode/wdata/rdata sequence
@@ -194,23 +278,26 @@ address, 32-bit data — one "transmission" per chip-select-low pulse.
 
 ### 2.4 New demux wiring for dvs
 
-- [ ] A dvs-specific `demux` instantiation (reuse `demux.act` from 1.1 with
-      a new base table) that routes converted addr/mode/wdata streams from
-      both SPI peripherals into RAM (mirroring how `test_harness`'s demux
-      routes ROM traffic today) — with no `fifo_out` route at all.
-- [ ] Document the new address map additions in `globals.act` (new
+- [ ] A dvs-specific `demux` instantiation (reuse
+      `core/peripherals/demux.act` from 1.1 with a new base table) that
+      routes converted addr/mode/wdata streams from both SPI peripherals
+      into RAM (mirroring how `chips/bench/harness.act`'s demux routes ROM
+      traffic today) — with no `fifo_out` route at all.
+- [ ] Document the new address map additions in `core/globals.act` (new
       `ADDR_*` constants for the two SPI bases), alongside a comment
       analogous to the existing `ADDR_EXT_MIN` block.
 
-### 2.5 Assemble `dvs_core.act`
+### 2.5 Assemble `chips/dvs/core.act`
 
-- [ ] `dvs_harness.act` (3 events + AER input + GPIO + both SPIs + the
-      dvs demux, mirroring `test_harness.act`'s role) and `soc` instantiated
-      together into `dvs_core.act` (mirroring `test_core.act`), in a new
-      top-level directory (e.g. `dvs/`).
-- [ ] New `Makefile` (+ supporting scripts as needed) in `dvs/`, modeled on
-      the harness Makefile extracted in 1.5, reusing existing test-running
-      logic where practical.
+- [ ] `chips/dvs/harness.act` (3 events + AER input + GPIO + both SPIs +
+      the dvs demux, mirroring `chips/bench/harness.act`'s role) and `soc`
+      instantiated together into `chips/dvs/core.act` (mirroring
+      `chips/bench/core.act`).
+- [ ] New `chips/dvs/Makefile` (+ supporting scripts as needed), modeled on
+      `chips/bench/Makefile` from 1.5, reusing existing test-running logic
+      where practical.
+- [ ] `chips/dvs/tests/e2e/` holds this variant's e2e tests, same pattern
+      as `chips/bench/tests/e2e/`.
 
 ### 2.6 dvs-specific e2e tests + SPI serialization script
 
@@ -218,19 +305,19 @@ address, 32-bit data — one "transmission" per chip-select-low pulse.
       compiled program images / assembly test vectors as SPI transaction
       streams (R/W bit + 20-bit addr + 32-bit data per transmission) for
       `spi_prog_test` and the dvs e2e tests.
-- [ ] Port the Stage 1 execution-path matrix (1.7) to `dvs_core`,
+- [ ] Port the Stage 1 execution-path matrix (1.7) to `chips/dvs/core.act`,
       substituting AER input for fifo_in-driven events and SPI in/out for
       `fifo_out`, plus at least one test specific to the 20-bit AER data
       width end to end.
-- [ ] **Gate:** `dvs/` has its own green test run, mirroring the
+- [ ] **Gate:** `chips/dvs/` has its own green test run, mirroring the
       top-level `make test` gate structure.
 
 ## Stage 3 — Debugging support (not yet scoped)
 
 The only concrete constraint so far: 2 GPIO pins are reserved for SWD in
-both `test_core.act` (1.6) and `dvs_core.act` (2.2), currently wired to
-nothing. This stage can't be broken into Stage-1/2-style actionable tasks
-until these are answered:
+both `chips/bench/core.act` (1.6) and `chips/dvs/core.act` (2.2), currently
+wired to nothing. This stage can't be broken into Stage-1/2-style
+actionable tasks until these are answered:
 
 - [ ] What protocol — real ARM SWD, or a simplified custom 2-wire scheme?
 - [ ] What's actually debuggable: halt/resume, register read/write, memory
@@ -238,7 +325,7 @@ until these are answered:
 - [ ] Does this live in a new peripheral hanging off the existing
       demux/mmu pattern, or does it need direct core access that bypasses
       both (e.g. forcing `pc`, halting the `chp` loop from outside)?
-- [ ] Is this needed on `test_core`, `dvs_core`, or both?
+- [ ] Is this needed on `chips/bench`, `chips/dvs`, or both?
 
 Once these are answered, expand this section into the same
 checkbox/Gate structure as Stages 1 and 2 before starting implementation.

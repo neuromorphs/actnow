@@ -1,4 +1,4 @@
-import "soc.act";
+import "core/soc.act";
 
 // Drives soc through JAL followed by JALR in one continuous run (no WFI in
 // between, since waking always re-vectors pc rather than resuming -- see

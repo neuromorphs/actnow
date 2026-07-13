@@ -1,4 +1,4 @@
-import "globals.act";
+import "core/globals.act";
 
 function mask_data (int<WIDTH_DATA> data; size_mem_t size) : int<WIDTH_DATA> {
     chp {

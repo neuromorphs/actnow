@@ -1,4 +1,4 @@
-import "soc.act";
+import "core/soc.act";
 
 // Drives soc through two wake/sleep cycles via event_id_1 then event_id_0.
 //

@@ -1,4 +1,4 @@
-import "soc.act";
+import "core/soc.act";
 
 // Drives soc through a single AUIPC instruction. This specifically guards
 // against a real bug that existed here: rd_addr and rd_data got swapped, so

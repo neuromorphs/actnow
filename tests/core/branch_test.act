@@ -1,4 +1,4 @@
-import "soc.act";
+import "core/soc.act";
 
 // Drives soc through a sequence of branches in one continuous run, checking
 // the resulting fetch address after each one (taken -> pc+offset, not taken

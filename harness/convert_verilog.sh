@@ -7,7 +7,7 @@
 #
 #   -p  top-level process name to expand (default: soc)
 #   -f  ACT source file containing the process, relative to the repo root
-#       (default: soc.act)
+#       (default: core/soc.act)
 #   -o  directory to write the generated Verilog into, relative to this
 #       script's directory (default: gen)
 set -euo pipefail
@@ -16,7 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 PROCESS="soc"
-ACT_FILE="soc.act"
+ACT_FILE="core/soc.act"
 OUT_DIR="$SCRIPT_DIR/gen"
 
 usage() {
@@ -56,15 +56,19 @@ if [[ "$PROCESS" != *"<"* ]]; then
 fi
 
 # chp2fpga resolves imports relative to its cwd (not the ACT file's own
-# directory) and segfaults if given an absolute -o path, so it must be run
-# from the ACT file's directory with both arguments passed as relative paths.
-ACT_DIR="$(dirname "$ACT_FILE")"
-ACT_BASENAME="$(basename "$ACT_FILE")"
-REL_OUT_DIR="$(realpath --relative-to="$ACT_DIR" "$OUT_DIR")"
+# directory) and segfaults if given an absolute -o path, so both the ACT
+# file and the output dir must be passed as relative paths. Every .act file
+# in this repo writes its own imports relative to the repo root (e.g.
+# core/soc.act's "import core/globals.act" -- see the top-level Makefile's
+# own comment on this), so chp2fpga must be run with cwd=REPO_ROOT, not the
+# ACT file's own directory -- cd'ing into core/ instead would make
+# core/soc.act's "core/globals.act" import resolve to core/core/globals.act.
+REL_ACT_FILE="$(realpath --relative-to="$REPO_ROOT" "$ACT_FILE")"
+REL_OUT_DIR="$(realpath --relative-to="$REPO_ROOT" "$OUT_DIR")"
 
 # -a emits the round-robin arbiter (module rr) into <out>/arbiter.v. It is
 # only needed for non-deterministic selection, but the generated processes
 # instantiate rr unconditionally, so pass it always to avoid a missing-module
 # error at synth/sim time. arbiter.v must be added to the downstream file list.
-echo "convert_verilog.sh: (cd \"$ACT_DIR\" && chp2fpga -a -p \"$PROCESS\" \"$ACT_BASENAME\" -o \"$REL_OUT_DIR/\")"
-(cd "$ACT_DIR" && chp2fpga -a -p "$PROCESS" "$ACT_BASENAME" -o "$REL_OUT_DIR/")
+echo "convert_verilog.sh: (cd \"$REPO_ROOT\" && chp2fpga -a -p \"$PROCESS\" \"$REL_ACT_FILE\" -o \"$REL_OUT_DIR/\")"
+(cd "$REPO_ROOT" && chp2fpga -a -p "$PROCESS" "$REL_ACT_FILE" -o "$REL_OUT_DIR/")

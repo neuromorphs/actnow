@@ -8,29 +8,31 @@
 #
 # Must be run from this directory (actnow/) -- ACT resolves every `import`
 # relative to the working directory the compiler was invoked from, not
-# relative to the importing file, so soc.act's own imports only resolve
+# relative to the importing file, so core/soc.act's own imports only resolve
 # correctly when this is the cwd. See the README's Toolchain section.
 
 AFLAT  := aflat
 ACTSIM := actsim
 
 # Tests live under tests/core (CPU/ISA datapath unit tests), tests/peripherals
-# (standalone peripheral/infra unit tests), tests/sw (the generic
-# real-program-through-soc runner), and tests/e2e (full boot + real compiled
-# program + real peripheral interaction). e2e tests are discovered separately
-# and given their own rules below -- each needs a specific ROM image (a
-# different software/<name>/ program) that the shared
+# (standalone peripheral/infra unit tests), tests/regression (one-off
+# bug-repro tests, kept separate so tests/peripherals stays one file per
+# peripheral), tests/sw (the generic real-program-through-soc runner), and
+# tests/e2e (full boot + real compiled program + real peripheral
+# interaction). e2e tests are discovered separately and given their own
+# rules below -- each needs a specific ROM image (a different
+# software/<name>/ program) that the shared
 # $(FILE_REGISTRY_GEN)/$(ROM_IMAGE) prerequisite chain can't guarantee (see
 # e2e_fifo_test's own rule comment for why).
-TESTS := $(basename $(notdir $(wildcard tests/core/*.act tests/peripherals/*.act tests/sw/*.act)))
+TESTS := $(basename $(notdir $(wildcard tests/core/*.act tests/peripherals/*.act tests/regression/*.act tests/sw/*.act)))
 FILE_REGISTRY     := tests/files/file_registry.txt
 FILE_REGISTRY_GEN := gen/file_ids.act gen/file_registry.conf
 
 # Resolves a bare test name (e.g. "alu_test") to its actual path under
-# tests/core, tests/peripherals, tests/sw, or tests/e2e -- lets the generic
-# per-test rule and the dedicated e2e rules work by name regardless of which
-# subdirectory a test lives in.
-TEST_SRC = $(firstword $(wildcard tests/core/$(1).act tests/peripherals/$(1).act tests/sw/$(1).act tests/e2e/$(1).act))
+# tests/core, tests/peripherals, tests/regression, tests/sw, or tests/e2e --
+# lets the generic per-test rule and the dedicated e2e rules work by name
+# regardless of which subdirectory a test lives in.
+TEST_SRC = $(firstword $(wildcard tests/core/$(1).act tests/peripherals/$(1).act tests/regression/$(1).act tests/sw/$(1).act tests/e2e/$(1).act))
 
 # Compiled program image consumed by tests/sw/rom_program_test.act, registered as
 # ROM_IMAGE in $(FILE_REGISTRY). It's a build artifact (see software/tests/), so
