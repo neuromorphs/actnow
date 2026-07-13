@@ -1,0 +1,70 @@
+import "core/globals.act";
+
+// A 2-way ROM bank selector: routes the CPU-facing ROM port to whichever of
+// two backing mem<true,...> instances is currently "active". Which bank is
+// active is picked by `flip_bank`, a control input that is entirely
+// independent of core/soc.act's reset_ext -- reset itself stays a pure
+// "reboot from whatever's currently mapped at ADDR_RESET" signal (see
+// soc.act's own comment on reset_ext), exactly like a real dual-bank-boot
+// flash: something else (an operator noticing a hang, an OTA update
+// completing, ...) decides which bank is live, and reset just reboots into
+// whichever one that is.
+//
+// Structurally identical in spirit to demux.act's routing loop (receive
+// addr/mode, conditionally shuttle wdata/rdata depending on op), except the
+// route is chosen by a flip-flop this process owns rather than by an
+// address match, and flip_bank is folded in as a genuine sibling
+// alternative of the routing branch -- not nested inside it -- so a flip
+// can land the instant it's asserted rather than waiting for the mux to
+// finish committing to whichever bank was already selected. See
+// core/soc.act's own reset_ext selection for why a probe guard must be a
+// flat sibling rather than nested behind another branch.
+defproc rom_selector(
+    chan?(addr_t) addr_in;
+    chan?(mode_mem_t) mode_in;
+    chan?(int<WIDTH_DATA>) wdata_in;
+    chan!(int<WIDTH_DATA>) rdata_in;
+
+    chan!(addr_t) addr_a; chan!(mode_mem_t) mode_a;
+    chan!(int<WIDTH_DATA>) wdata_a; chan?(int<WIDTH_DATA>) rdata_a;
+
+    chan!(addr_t) addr_b; chan!(mode_mem_t) mode_b;
+    chan!(int<WIDTH_DATA>) wdata_b; chan?(int<WIDTH_DATA>) rdata_b;
+
+    chan?(bool) flip_bank
+) {
+    addr_t addr;
+    mode_mem_t mode;
+    op_mem_t op;
+    int<WIDTH_DATA> wdata, rdata;
+    bool active_b;
+
+    chp {
+        active_b := false;
+        *[
+            [|
+                #flip_bank -> flip_bank?active_b
+                [] #addr_in ->
+                    addr_in?addr; mode_in?mode;
+                    op := mode.op;
+                    [ op = op_mem_t.W -> wdata_in?wdata [] else -> skip ];
+                    [ active_b ->
+                        addr_b!addr; mode_b!mode;
+                        [
+                            op = op_mem_t.W -> wdata_b!wdata
+                            [] op = op_mem_t.R -> rdata_b?rdata
+                            [] else -> rdata_b?rdata, wdata_b!wdata
+                        ]
+                      [] else ->
+                        addr_a!addr; mode_a!mode;
+                        [
+                            op = op_mem_t.W -> wdata_a!wdata
+                            [] op = op_mem_t.R -> rdata_a?rdata
+                            [] else -> rdata_a?rdata, wdata_a!wdata
+                        ]
+                    ];
+                    [ op = op_mem_t.R -> rdata_in!rdata [] else -> skip ]
+            |]
+        ]
+    }
+}

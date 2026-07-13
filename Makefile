@@ -43,6 +43,15 @@ TEST_SRC = $(firstword $(wildcard tests/core/$(1).act tests/peripherals/$(1).act
 ROM_TEST  ?= simple
 ROM_IMAGE := software/tests/build/rom_image.mem
 
+# Two independent, permanently-registered ROM images (see e2e_reset_reload_test
+# below): one program that's genuinely broken (an infinite loop, never
+# services anything) and one that's correct (the same real interrupt/FIFO
+# program e2e_fifo_test / e2e_reset_test already exercise). Both are built
+# once up front, unlike $(ROM_IMAGE) which gets rebuilt in place per test --
+# a rom_selector mux picks which one soc's ROM port actually talks to.
+ROM_IMAGE_HANG        := software/hang/build/rom_image.mem
+ROM_IMAGE_APPLICATION := software/application/build/rom_image.mem
+
 # BOOT=1 builds the selected program bootloader-enabled: the bootloader copies it
 # into internal SRAM and runs it there (fast memory) instead of executing in
 # place from external ROM. Works with rom_program_test and software-tests.
@@ -69,7 +78,7 @@ SW_TESTS   := $(filter-out $(MEXT_TESTS),$(basename $(notdir $(wildcard \
                   software/tests/*.S software/tests/*.c \
                   software/tests/unit/*.S software/tests/unit/*.c))))
 
-.PHONY: all test list clean help file-registry software-tests force e2e_fifo_test e2e_multi_event_test e2e_reset_test $(TESTS)
+.PHONY: all test list clean help file-registry software-tests force e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test $(TESTS)
 
 all: test
 
@@ -90,6 +99,8 @@ help:
 	@echo "  make e2e_fifo_test           boot + interrupt/FIFO e2e test (application)"
 	@echo "  make e2e_multi_event_test    boot + all-16-events e2e test (multi_event)"
 	@echo "  make e2e_reset_test          boot, run a batch, reset, reboot + run a 2nd batch"
+	@echo "  make e2e_reset_reload_test   boot a hung program, flip ROM banks, reset into a"
+	@echo "                               corrected program, and confirm it runs correctly"
 	@echo "  make rom_program_test        run one program image through soc (see ROM_TEST)"
 	@echo "  make file-registry           (re)generate gen/file_ids.act + gen/file_registry.conf"
 	@echo "  make clean                   remove local simulator artifacts (gen/, history)"
@@ -105,7 +116,7 @@ help:
 	@echo "Must be run from this directory (actnow/) -- see the top of this Makefile and"
 	@echo "the README's Toolchain section for why."
 
-test: $(TESTS) e2e_fifo_test e2e_multi_event_test e2e_reset_test
+test: $(TESTS) e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test
 	@echo "=== all tests passed ==="
 
 file-registry: $(FILE_REGISTRY_GEN)
@@ -121,7 +132,21 @@ else
 endif
 force:
 
-$(FILE_REGISTRY_GEN): $(FILE_REGISTRY) tools/gen_file_registry.py $(ROM_IMAGE)
+# Built once, not force-rebuilt per test like $(ROM_IMAGE) above -- these two
+# are permanent fixtures for e2e_reset_reload_test, not swapped out per run.
+$(ROM_IMAGE_HANG):
+	@mkdir -p $(dir $@)
+	@rm -f software/build/rom.mem
+	$(MAKE) -C software PROG=hang CROSS=$(CROSS)
+	sed 's/^/0b/' software/build/rom.mem > $@
+
+$(ROM_IMAGE_APPLICATION):
+	@mkdir -p $(dir $@)
+	@rm -f software/build/rom.mem
+	$(MAKE) -C software PROG=application CROSS=$(CROSS)
+	sed 's/^/0b/' software/build/rom.mem > $@
+
+$(FILE_REGISTRY_GEN): $(FILE_REGISTRY) tools/gen_file_registry.py $(ROM_IMAGE) $(ROM_IMAGE_HANG) $(ROM_IMAGE_APPLICATION)
 	@python3 tools/gen_file_registry.py $(FILE_REGISTRY) gen
 
 list:
@@ -226,6 +251,33 @@ e2e_reset_test:
 		echo "e2e_reset_test: FAIL (no completion)"; exit 1; \
 	else \
 		echo "e2e_reset_test: PASS"; \
+	fi
+
+# The full "oh shit, wrong firmware -- reset and reboot into the corrected
+# one" scenario: unlike e2e_reset_test above (which reboots the *same*
+# image), this boots a genuinely broken program (software/hang, an infinite
+# loop that never services anything), then flips core/peripherals/
+# rom_selector.act's bank select to the corrected program
+# (software/application) and asserts reset_ext -- reset itself never knows
+# or cares which program it's rebooting into, exactly like a real dual-bank
+# boot flash. $(ROM_IMAGE_HANG)/$(ROM_IMAGE_APPLICATION) are permanent
+# fixtures (built once via file-registry's own prerequisite chain, not
+# rebuilt per test like $(ROM_IMAGE)), so no rebuild/restore dance is needed
+# here.
+e2e_reset_reload_test: $(FILE_REGISTRY_GEN)
+	@echo "--- e2e_reset_reload_test ---"
+	@$(AFLAT) tests/e2e/e2e_reset_reload_test.act
+	@out=$$(printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf tests/e2e/e2e_reset_reload_test.act e2e_reset_reload_test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	if [ $$status -ne 0 ]; then \
+		echo "e2e_reset_reload_test: FAIL"; exit $$status; \
+	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+		echo "e2e_reset_reload_test: FAIL"; exit 1; \
+	elif ! echo "$$out" | grep -qi "test complete"; then \
+		echo "e2e_reset_reload_test: FAIL (no completion)"; exit 1; \
+	else \
+		echo "e2e_reset_reload_test: PASS"; \
 	fi
 
 # Run every RV32I software test through soc's real pipeline. For each test we

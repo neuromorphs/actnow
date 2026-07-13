@@ -226,6 +226,41 @@ with a real compiled program through the real bootloader. Run it with `make
 e2e_reset_test` (or as part of `make test`) — same dedicated-Makefile-rule
 rationale as the other two e2e tests.
 
+## ROM bank selector (`core/peripherals/rom_selector.act`)
+
+A 2-way mux between two backing `mem<true,...>` ROM instances, routing
+whichever one is "active" to a single CPU-facing ROM port. Which bank is
+active is chosen by `flip_bank`, a control input completely independent of
+`reset_ext` — `reset_ext` never carries a target address or program
+identity (see "External reset" above); it always just reboots from whatever
+is currently mapped at `ADDR_RESET`. `rom_selector` is what decides what
+that currently is, modeling a real dual-bank-boot flash: something else (an
+operator, an OTA update) flips the bank, and reset is oblivious to which one
+it lands on. Structurally mirrors `demux.act`'s routing loop, with
+`flip_bank` folded in as a flat sibling alternative rather than nested
+inside the routing branch, so a flip can land between any two fetches
+rather than waiting for the mux to settle into a committed branch first.
+
+## Reset+reload testbench (`tests/e2e/e2e_reset_reload_test.act`)
+
+The complement to `e2e_reset_test.act`: instead of the *same* program
+surviving a reboot, this proves reset recovering into a genuinely
+*different*, corrected program. Boots `software/hang/main.c` (a real,
+verified infinite self-loop — deliberately erroneous, never configures or
+services any peripheral) on ROM bank A; lets it idle rather than trying to
+interactively prove it's unresponsive (pushing into `fifo_in` before it's
+configured would just block forever on `fifo_in.act`'s own `configured`
+gate, deadlocking the testbench itself — the same deadlock class
+`tests/core/reset_test.act`'s `fetch_answerer` comment warns about); flips
+`rom_selector` to bank B (`software/application/main.c`); fires
+`reset_ext`; then runs the same push/expect batch the other e2e tests use.
+Only passes if the corrected program genuinely boots from scratch and
+re-registers its ISR vector, FIFO trigger level, and enable bit. Run it with
+`make e2e_reset_reload_test` (or as part of `make test`) — `ROM_IMAGE_HANG`/
+`ROM_IMAGE_APPLICATION` are permanent registry fixtures (built once via
+`file-registry`'s own prerequisite chain), unlike the shared `ROM_IMAGE`
+slot the other e2e tests rebuild-then-restore in place.
+
 ## Running tests
 
 Everything is driven by `make` from the project root (`actnow/`). There are two

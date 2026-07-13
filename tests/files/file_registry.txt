@@ -1,3 +1,5 @@
 # kind   symbol                path
 input    FILE_MEM_TEST_IMAGE   tests/files/file_mem_image.mem
 input    ROM_IMAGE             software/tests/build/rom_image.mem
+input    ROM_IMAGE_HANG        software/hang/build/rom_image.mem
+input    ROM_IMAGE_APPLICATION software/application/build/rom_image.mem

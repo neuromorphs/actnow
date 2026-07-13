@@ -344,8 +344,8 @@ waiting for the program to voluntarily sleep first — useless for a hang).
   2. boot → load program A → fire event N → ISR → return → WFI
   3. [x] boot → load program A → external reset mid-execution → reboots to
      the reset vector — done, see `tests/e2e/e2e_reset_test.act` below.
-  4. ~~boot → load program A → external reset → load program B → run B to
-     WFI~~ — descoped; see the note below.
+  4. [x] boot → load program A → external reset → load program B → run B to
+     WFI — done, see `tests/e2e/e2e_reset_reload_test.act` below.
   5. GPIO input pin → configured event → ISR jumps to the pc associated
      with that pin
   6. back-to-back event pressure across a reset boundary (extends
@@ -370,39 +370,61 @@ genuinely reboots from scratch and re-registers its ISR vector/FIFO trigger
 level/enable bit against a freshly-cleared interrupt controller. Verified
 `make test`/`make software-tests` both green.
 
-#### Scenario 4, descoped: loading a genuinely *different* program after reset
+#### Scenario 4 (done): `tests/e2e/e2e_reset_reload_test.act`
 
-Attempted first via two separate stitched ROM images
-(`software/hang/main.c` — a real, verified-correct infinite loop, built and
-disassembled to confirm `j <self>` — plus `software/application/main.c`)
-and a test-local `rom_selector` 2-way mux switching which `mem<true,...>`
-instance answers base=4, driven by the same signal that fires `reset_ext`.
-Abandoned after hitting real fragility, not fixed forward:
+The "oh shit, wrong firmware" scenario: a genuinely broken program running,
+noticed, and recovered by resetting into a genuinely different, corrected
+program — not just rebooting the same image (that's scenario 3 above).
 
-- `mem<true,...>`'s one-time preload (zero-fill `SIZE_MEM_WORDS` + file
-  read) costs a huge, hard-to-predict number of simulated-time units *per
-  ROM instance* — with two ROMs, this dominates the whole timeline in a way
-  that's difficult to pace a testbench delay against reliably.
-- A real, reproducible bug was isolated: `software/hang/main.c` run through
-  `soc` + `demux` + `fifo_in` + `fifo_out` (this test's wiring shape)
-  decodes a spurious WFI partway through, even with `rom_selector` removed
-  entirely from the picture (single ROM, direct `demux` wiring) — while the
-  identical stitched image runs correctly forever (verified over 5M+ log
-  lines of pure `JAL`) through `tests/sw/rom_program_test.act`'s plain
-  single-ROM wiring (no `demux`/`fifo_in`/`fifo_out`). Root cause not found;
-  worth investigating separately if this scenario is revisited, since it
-  may point at a real bug in `demux.act` or `fifo_in.act`'s interaction with
-  a fetch-heavy, MMIO-free program, not just a timing artifact.
-- Separately, background `actsim` processes orphaned by killed/timed-out
-  debugging attempts (a shell timeout that only signals the immediate
-  child, not the process group) corrupted at least one earlier diagnostic
-  run by racing on shared files (`gen/file_registry.conf`, ROM image
-  paths) — a process-hygiene lesson for future debugging sessions in this
-  repo, not a finding about the design itself.
+First attempt (abandoned, not fixed forward at the time): two stitched ROM
+images plus a test-local `rom_selector` 2-way mux, with the bank flip driven
+by the *same* signal that fires `reset_ext`. Hit two problems: `mem<true,...>`'s
+one-time preload cost seemed to dominate the timeline unpredictably with two
+ROM instances, and a spurious WFI appeared to decode partway through running
+`software/hang/main.c` through `soc`+`demux`+`fifo_in`+`fifo_out`, even with
+`rom_selector` removed from the picture — while the identical image ran
+correctly forever through `tests/sw/rom_program_test.act`'s plain single-ROM
+wiring. Root cause wasn't found at the time, so the scenario was descoped.
 
-If a "run a different program after reset" scenario is wanted later, revisit
-with either a fix for the `demux`+`fifo_in`/`fifo_out`+ROM interaction above,
-or a different mechanism entirely for presenting a second image at base=4.
+Revisited later and resolved:
+
+- **The spurious WFI was not a real bug.** Re-isolated with a clean repro
+  (`hang` alone, idle, through the exact `demux`+`fifo_in`+`fifo_out`
+  topology, nothing ever pushed to it): ran cleanly for 2.55M log lines /
+  simulated t≈3B, all `is_wfi = 0`, pure `JAL` self-loop, no spurious
+  anything — well past the t≈500340 point where the original run saw it.
+  The most likely explanation is the *other* issue documented at the time in
+  this same debugging session: orphaned `actsim` processes (from a shell
+  timeout that didn't kill the whole process group) racing on shared files
+  including the ROM image build path, corrupting an in-flight preload. Not a
+  defect in `demux.act`/`fifo_in.act`/the fetch path.
+- **The design was corrected per explicit direction:** `reset_ext` must
+  never carry a target address or program identity — it stays the same
+  plain `chan?(bool)` "reboot from whatever's currently mapped at
+  `ADDR_RESET`" signal as scenario 3. Which program is mapped there is
+  decided by a completely independent control,
+  `core/peripherals/rom_selector.act`'s `flip_bank` — modeling a real
+  dual-bank-boot flash, where a human (or an OTA process) picks the bank and
+  reset is oblivious to which one it is.
+- `rom_selector` mirrors `demux.act`'s routing-loop shape, with `flip_bank`
+  folded in as a flat sibling alternative (not nested inside the routing
+  branch) — same "reset must be a genuine sibling, not buried behind another
+  branch" lesson from scenario 3's own design iteration.
+- Test sequence: boot into `software/hang/main.c` (bank A, a real infinite
+  loop, verified via `objdump` to be a genuine `j <self>`) and let it idle —
+  deliberately *not* proving unresponsiveness by pushing into `fifo_in` and
+  expecting it to hang, since `fifo_in.act`'s own `configured` gate means an
+  unconfigured push just blocks forever, which would deadlock the testbench
+  itself (the same deadlock class `tests/core/reset_test.act`'s
+  `fetch_answerer` comment warns about). Then `rs.flip_bank!true` (bank B =
+  `software/application/main.c`), then `s.reset_ext!true`, then run the same
+  push/expect batch `e2e_fifo_test.act`/`e2e_reset_test.act` already use —
+  only possible if the corrected program genuinely booted, registered its
+  ISR vector, configured `fifo_in`'s trigger level, and enabled its event
+  from scratch. Verified `make test`/`make software-tests` both green.
+- `ROM_IMAGE_HANG`/`ROM_IMAGE_APPLICATION` are permanent registry fixtures
+  (built once via `file-registry`'s own prerequisite chain), unlike the
+  shared `ROM_IMAGE` slot the other e2e tests rebuild-then-restore in place.
 
 ## Stage 2 — DVS-specific chip
 
