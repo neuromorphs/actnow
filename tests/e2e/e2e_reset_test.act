@@ -1,0 +1,116 @@
+import "core/soc.act";
+import "core/peripherals/fifo_in.act";
+import "core/peripherals/fifo_out.act";
+import "core/peripherals/demux.act";
+import "gen/file_ids.act";
+
+// End-to-end test for core/soc.act's reset_ext port, using a real compiled
+// program through the real bootloader -- unlike tests/core/reset_test.act,
+// which proves the same mechanism by hand-assembling instructions directly
+// (and separately proves hang recovery and interrupt-controller clearing in
+// detail). This test's job is the complementary, more practical one: does a
+// genuine bootloader+program combination actually survive a real reset and
+// cleanly reboot itself, with no hand-holding from the testbench.
+//
+// Wiring and address layout are identical to e2e_fifo_test.act (base=4 ROM,
+// base=5 input FIFO, base=6 output FIFO) -- this literally reuses
+// software/application/main.c, the same program that test exercises.
+//
+// Sequence: boot, run one batch through the program's real ISR (identical
+// to e2e_fifo_test.act's own batch 1), fire external reset, then run a
+// second batch. Since reset clears the interrupt controller's vector table
+// and enable mask (core/interrupt.act's reset_int_ctrl) but leaves internal
+// RAM untouched, the *same* bootloader+application image sitting in ROM
+// re-runs from scratch after reset: the bootloader re-copies application
+// into SRAM, and application re-registers its ISR vector, re-configures
+// fifo_in's trigger level, and re-enables event_id_0 -- all exactly as it
+// did on the first boot. If any of that didn't genuinely reset and
+// reconfigure correctly, the second batch would either hang (stale/cleared
+// vector never re-armed) or misbehave.
+defproc e2e_reset_test() {
+    soc s;
+
+    pint DEMUX_N = 3;
+    pint DEMUX_BASES[DEMUX_N];
+    DEMUX_BASES = {4, 5, 6};
+    demux<DEMUX_N, DEMUX_BASES, ADDR_NO_CATCHALL> demux;
+
+    demux.addr_in = s.addr_ext;
+    demux.mode_in = s.mode_ext;
+    demux.wdata_in = s.wdata_ext;
+    demux.rdata_in = s.rdata_ext;
+
+    mem<true, ROM_IMAGE> rom;
+    demux.addr_out[0] = rom.addr;
+    demux.mode_out[0] = rom.mode;
+    demux.wdata_out[0] = rom.wdata;
+    demux.rdata_out[0] = rom.rdata;
+
+    fifo_in<4> fin;
+    demux.addr_out[1] = fin.addr;
+    demux.mode_out[1] = fin.mode;
+    demux.wdata_out[1] = fin.wdata;
+    demux.rdata_out[1] = fin.rdata;
+    fin.event_out = s.event_id_0;
+
+    fifo_out<4> fout;
+    demux.addr_out[2] = fout.addr;
+    demux.mode_out[2] = fout.mode;
+    demux.wdata_out[2] = fout.wdata;
+    demux.rdata_out[2] = fout.rdata;
+
+    int<WIDTH_DATA> result;
+    int<32> delay;
+
+    chp {
+        log("======== reset e2e test start ========");
+
+        // --- Batch 1: identical to e2e_fifo_test.act's own batch 1 --
+        // push 41, 42, 43, ISR computes +1 on each, expect 42, 43, 44 out.
+        log("--- batch 1: pushing 41, 42, 43 into the input FIFO ---");
+        fin.push!int(41, WIDTH_DATA);
+        fin.push!int(42, WIDTH_DATA);
+        fin.push!int(43, WIDTH_DATA);
+
+        fout.pop?result;
+        assert(result = 42, "batch 1 result 1: want 42, got ", result);
+        fout.pop?result;
+        assert(result = 43, "batch 1 result 2: want 43, got ", result);
+        fout.pop?result;
+        assert(result = 44, "batch 1 result 3: want 44, got ", result);
+        log("batch 1: got 42, 43, 44 back from the output FIFO");
+
+        // Model some real-world latency before resetting, same style as
+        // e2e_fifo_test.act's own inter-batch delay.
+        delay := 0;
+        *[ delay < 3000 -> delay := delay + 1 ];
+
+        log("--- asserting external reset ---");
+        s.reset_ext!true;
+        log("--- reset done -- bootloader + application should now be rebooting from scratch ---");
+
+        // --- Batch 2: push 41, 42, 43 again. This only works if the
+        // rebooted application genuinely re-registered its ISR vector,
+        // re-configured fifo_in's trigger level, and re-enabled event_id_0
+        // from a clean (post-reset) interrupt controller -- there's no
+        // stale configuration left over to coast on. Self-managed
+        // synchronization the whole way, no guessed delay: this push just
+        // blocks until the freshly-rebooted program is ready for it.
+        log("--- batch 2 (post-reset): pushing 41, 42, 43 into the input FIFO ---");
+        fin.push!int(41, WIDTH_DATA);
+        fin.push!int(42, WIDTH_DATA);
+        fin.push!int(43, WIDTH_DATA);
+
+        fout.pop?result;
+        assert(result = 42, "batch 2 result 1: want 42, got ", result);
+        fout.pop?result;
+        assert(result = 43, "batch 2 result 2: want 43, got ", result);
+        fout.pop?result;
+        assert(result = 44, "batch 2 result 3: want 44, got ", result);
+        log("batch 2: got 42, 43, 44 back from the output FIFO -- real reboot after reset confirmed");
+
+        log("======== reset e2e test complete ========")
+    }
+}
+
+e2e_reset_test ert;

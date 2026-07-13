@@ -342,10 +342,10 @@ waiting for the program to voluntarily sleep first — useless for a hang).
 - [ ] Enumerate the execution-path matrix before writing tests:
   1. boot → load program A → run to WFI
   2. boot → load program A → fire event N → ISR → return → WFI
-  3. boot → load program A → external reset mid-execution → reboots to the
-     reset vector
-  4. boot → load program A → external reset → load program B → run B to
-     WFI
+  3. [x] boot → load program A → external reset mid-execution → reboots to
+     the reset vector — done, see `tests/e2e/e2e_reset_test.act` below.
+  4. ~~boot → load program A → external reset → load program B → run B to
+     WFI~~ — descoped; see the note below.
   5. GPIO input pin → configured event → ISR jumps to the pc associated
      with that pin
   6. back-to-back event pressure across a reset boundary (extends
@@ -356,6 +356,53 @@ waiting for the program to voluntarily sleep first — useless for a hang).
       `chips/bench/tests/e2e/`.
 - [ ] **Gate:** every scenario passes; top-level `make test` stays green
       end to end.
+
+#### Scenario 3 (done): `tests/e2e/e2e_reset_test.act`
+
+Real compiled program (`software/application/main.c`) through the real
+bootloader, not hand-assembled instructions (that's what
+`tests/core/reset_test.act` already covers, along with hang recovery and
+interrupt-controller-clearing verification in tight, deterministic detail —
+this test's job is the complementary, more practical one). Sequence: boot,
+run one batch through the program's real ISR, fire `reset_ext`, then run a
+second batch — which only works if the *same* bootloader+application image
+genuinely reboots from scratch and re-registers its ISR vector/FIFO trigger
+level/enable bit against a freshly-cleared interrupt controller. Verified
+`make test`/`make software-tests` both green.
+
+#### Scenario 4, descoped: loading a genuinely *different* program after reset
+
+Attempted first via two separate stitched ROM images
+(`software/hang/main.c` — a real, verified-correct infinite loop, built and
+disassembled to confirm `j <self>` — plus `software/application/main.c`)
+and a test-local `rom_selector` 2-way mux switching which `mem<true,...>`
+instance answers base=4, driven by the same signal that fires `reset_ext`.
+Abandoned after hitting real fragility, not fixed forward:
+
+- `mem<true,...>`'s one-time preload (zero-fill `SIZE_MEM_WORDS` + file
+  read) costs a huge, hard-to-predict number of simulated-time units *per
+  ROM instance* — with two ROMs, this dominates the whole timeline in a way
+  that's difficult to pace a testbench delay against reliably.
+- A real, reproducible bug was isolated: `software/hang/main.c` run through
+  `soc` + `demux` + `fifo_in` + `fifo_out` (this test's wiring shape)
+  decodes a spurious WFI partway through, even with `rom_selector` removed
+  entirely from the picture (single ROM, direct `demux` wiring) — while the
+  identical stitched image runs correctly forever (verified over 5M+ log
+  lines of pure `JAL`) through `tests/sw/rom_program_test.act`'s plain
+  single-ROM wiring (no `demux`/`fifo_in`/`fifo_out`). Root cause not found;
+  worth investigating separately if this scenario is revisited, since it
+  may point at a real bug in `demux.act` or `fifo_in.act`'s interaction with
+  a fetch-heavy, MMIO-free program, not just a timing artifact.
+- Separately, background `actsim` processes orphaned by killed/timed-out
+  debugging attempts (a shell timeout that only signals the immediate
+  child, not the process group) corrupted at least one earlier diagnostic
+  run by racing on shared files (`gen/file_registry.conf`, ROM image
+  paths) — a process-hygiene lesson for future debugging sessions in this
+  repo, not a finding about the design itself.
+
+If a "run a different program after reset" scenario is wanted later, revisit
+with either a fix for the `demux`+`fifo_in`/`fifo_out`+ROM interaction above,
+or a different mechanism entirely for presenting a second image at base=4.
 
 ## Stage 2 — DVS-specific chip
 

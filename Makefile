@@ -69,7 +69,7 @@ SW_TESTS   := $(filter-out $(MEXT_TESTS),$(basename $(notdir $(wildcard \
                   software/tests/*.S software/tests/*.c \
                   software/tests/unit/*.S software/tests/unit/*.c))))
 
-.PHONY: all test list clean help file-registry software-tests force e2e_fifo_test e2e_multi_event_test $(TESTS)
+.PHONY: all test list clean help file-registry software-tests force e2e_fifo_test e2e_multi_event_test e2e_reset_test $(TESTS)
 
 all: test
 
@@ -89,6 +89,7 @@ help:
 	@echo "                               through soc's real fetch/decode/execute pipeline"
 	@echo "  make e2e_fifo_test           boot + interrupt/FIFO e2e test (application)"
 	@echo "  make e2e_multi_event_test    boot + all-16-events e2e test (multi_event)"
+	@echo "  make e2e_reset_test          boot, run a batch, reset, reboot + run a 2nd batch"
 	@echo "  make rom_program_test        run one program image through soc (see ROM_TEST)"
 	@echo "  make file-registry           (re)generate gen/file_ids.act + gen/file_registry.conf"
 	@echo "  make clean                   remove local simulator artifacts (gen/, history)"
@@ -104,7 +105,7 @@ help:
 	@echo "Must be run from this directory (actnow/) -- see the top of this Makefile and"
 	@echo "the README's Toolchain section for why."
 
-test: $(TESTS) e2e_fifo_test e2e_multi_event_test
+test: $(TESTS) e2e_fifo_test e2e_multi_event_test e2e_reset_test
 	@echo "=== all tests passed ==="
 
 file-registry: $(FILE_REGISTRY_GEN)
@@ -195,6 +196,36 @@ e2e_multi_event_test:
 		echo "e2e_multi_event_test: FAIL (no completion)"; exit 1; \
 	else \
 		echo "e2e_multi_event_test: PASS"; \
+	fi
+
+# Exercises core/soc.act's reset_ext port with a real compiled program
+# through the real bootloader (unlike tests/core/reset_test.act, which
+# hand-assembles instructions directly): boots software/application/main.c,
+# runs one batch through it, fires external reset, then confirms the exact
+# same bootloader+program combination cleanly reboots from scratch --
+# re-copying itself into SRAM and re-configuring its own interrupt vector/
+# FIFO trigger level/enable bit, since reset clears the interrupt
+# controller's config -- and correctly runs a second batch. Same
+# ROM-pinning rationale as e2e_fifo_test above (needs this exact image, not
+# whatever ROM_TEST defaults to).
+e2e_reset_test:
+	@echo "--- e2e_reset_test ---"
+	@rm -f $(ROM_IMAGE) software/tests/build/rom.mem software/build/rom.mem
+	@$(MAKE) -s ROM_TEST=application CROSS=$(CROSS) file-registry
+	@$(AFLAT) tests/e2e/e2e_reset_test.act
+	@out=$$(printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf tests/e2e/e2e_reset_test.act e2e_reset_test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	rm -f $(ROM_IMAGE) software/tests/build/rom.mem software/build/rom.mem; \
+	$(MAKE) -s ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
+	if [ $$status -ne 0 ]; then \
+		echo "e2e_reset_test: FAIL"; exit $$status; \
+	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+		echo "e2e_reset_test: FAIL"; exit 1; \
+	elif ! echo "$$out" | grep -qi "test complete"; then \
+		echo "e2e_reset_test: FAIL (no completion)"; exit 1; \
+	else \
+		echo "e2e_reset_test: PASS"; \
 	fi
 
 # Run every RV32I software test through soc's real pipeline. For each test we

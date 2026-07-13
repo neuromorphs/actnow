@@ -124,7 +124,9 @@ See `tests/core/reset_test.act` for the full scenario: a program hits a
 deliberate infinite self-loop (never reaching WFI) to model a genuine hang,
 and external reset recovers it mid-loop, then the post-reset program reads
 back the vector table/enable mask via real LOAD instructions and confirms
-both are cleared.
+both are cleared. `tests/e2e/e2e_reset_test.act` proves the practical
+complement: a real compiled program through the real bootloader survives
+reset and cleanly reboots itself.
 
 ## FIFO peripherals (`core/peripherals/fifo_in.act` / `core/peripherals/fifo_out.act`)
 
@@ -205,6 +207,24 @@ Run it with `make e2e_multi_event_test` (or as part of `make test`) — it has
 its own dedicated Makefile rule for the same reason `e2e_fifo_test` does
 (needs the `multi_event` ROM image specifically, and the shared
 `$(ROM_IMAGE)` prerequisite only rebuilds once per `make` invocation).
+
+## Reset testbench (`tests/e2e/e2e_reset_test.act`)
+
+Same wiring and program as `e2e_fifo_test.act` (`software/application/main.c`,
+base=4/5/6 ROM/input-FIFO/output-FIFO), but with a real `reset_ext` fired
+between two batches instead of just a delay: batch 1 runs normally, then
+external reset fires, then batch 2 runs again with the *identical*
+push/expect shape as batch 1. This only passes if the same
+bootloader+application image genuinely reboots from scratch after reset —
+the bootloader re-copies application into SRAM, and application
+re-registers its ISR vector, re-configures `fifo_in`'s trigger level, and
+re-enables `event_id_0` against a freshly-cleared interrupt controller (see
+"External reset" above). `tests/core/reset_test.act` proves the same
+mechanism in tighter, hand-assembled detail (exact hang-iteration counts,
+direct vector/enable-mask register readback); this one proves it holds up
+with a real compiled program through the real bootloader. Run it with `make
+e2e_reset_test` (or as part of `make test`) — same dedicated-Makefile-rule
+rationale as the other two e2e tests.
 
 ## Running tests
 
