@@ -570,18 +570,37 @@ split, `gpio.act`, `chips/bench/` pattern all exist and are stable).
 
 ### 2.1 dvs event topology
 
-- [ ] 3 events total: `event_id_0` driven directly by the new 20-bit AER
-      input (replacing `fifo_in`'s role); `event_id_1`/`event_id_2`
-      externally driven, same as `chips/bench/core.act`'s spare interrupt
-      lines.
+- [x] **Resolved the open design question:** the AER input needs an
+      edge-triggered wrapper (something has to hold a pixel-event's value
+      between when it asynchronously arrives and when the CPU's ISR reads
+      it, and buffer more than one in case the sensor bursts faster than
+      software drains it) — but **not** a new peripheral file.
+      `core/peripherals/fifo_in.act` already *is* that wrapper; the only
+      thing tying it to 32-bit data was its buffer/push element type, so it
+      gained a second template parameter, `WIDTH`
+      (`template<pint DEPTH; pint WIDTH>`), governing `buf[]`/`push`'s
+      element width while `addr`/`mode`/`wdata`/`rdata` (the CPU-facing MMIO
+      bus) stay fixed at `WIDTH_DATA` — `rdata` zero-extends a narrower
+      buffered word via `int(buf[head], WIDTH_DATA)`. The dvs chip variant
+      will instantiate `fifo_in<DEPTH, WIDTH_ADDR>` for its 20-bit AER
+      input in 2.5 (`WIDTH_ADDR` — already defined in `core/globals.act`,
+      previously unused — is this project's own address width, which an
+      AER pixel-event payload naturally matches). Existing callers
+      (`chips/bench/harness.act`, `tests/peripherals/fifo_test.act`,
+      `chips/bench/tests/e2e/e2e_reset_reload_test.act`) updated to
+      `fifo_in<4, WIDTH_DATA>`, preserving today's behavior exactly.
+- [ ] 3 events total: `event_id_0` driven directly by `fifo_in<DEPTH,
+      WIDTH_ADDR>`'s `event_out` (replacing `chips/bench`'s fifo_in-role);
+      `event_id_1`/`event_id_2` externally driven, same as
+      `chips/bench/core.act`'s spare interrupt lines. Lands in
+      `chips/dvs/harness.act` (2.5) — nothing to wire yet, since
+      `chips/dvs/` doesn't exist until GPIO reuse (2.2) and the SPI
+      peripherals (2.3) are also in place.
 - [ ] Remove `fifo_out` entirely — any chip-to-outside data path goes
-      through the bidirectional program/data SPI instead (2.3).
-- [ ] Open design question to resolve first: does the AER input need its
-      own edge-triggered wrapper (a `fifo_in`-style "new 20-bit word
-      arrived → fire `event_id_0`" peripheral, e.g.
-      `core/peripherals/aer_input.act`), or does it wire straight through
-      as a plain rendezvous? Decide before implementing — it determines
-      whether a new peripheral file is needed.
+      through the bidirectional program/data SPI instead (2.3). Same as
+      above: a `chips/dvs/harness.act` decision, not yet implementable.
+- [x] **Gate:** `make test`/`make software-tests` both still pass with
+      `fifo_in`'s new signature — verified end to end.
 
 ### 2.2 GPIO reuse
 

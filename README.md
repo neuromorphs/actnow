@@ -89,12 +89,15 @@ compiled program.
 Fixed-depth circular-buffer FIFOs, each memory-mapped as a single data
 register.
 
-**`fifo_in<DEPTH>`**: an external `push` port feeds it; the CPU pops the
-oldest entry on every read. CPU writes configure a **trigger level** instead
-of being rejected: once `count` reaches it, `fifo_in` fires its own
-`event_out` port, wired to one of soc's `event_id_N` inputs — so filling the
-FIFO to the configured level *is* what raises the interrupt. Pushes are
-gated on the trigger level having been explicitly configured at least once.
+**`fifo_in<DEPTH, WIDTH>`**: an external `push` port feeds it (`WIDTH` bits
+per word — `WIDTH_DATA` for a generic 32-bit producer, or narrower for a
+domain-specific one); the CPU pops the oldest entry on every read, always
+zero-extended to the full 32-bit CPU-facing word. CPU writes configure a
+**trigger level** instead of being rejected: once `count` reaches it,
+`fifo_in` fires its own `event_out` port, wired to one of soc's `event_id_N`
+inputs — so filling the FIFO to the configured level *is* what raises the
+interrupt. Pushes are gated on the trigger level having been explicitly
+configured at least once.
 
 **Pitfall:** `event_out!true` is a plain blocking send. If nothing is wired
 to it when `count` reaches `trigger_level`, this deadlocks `fifo_in`

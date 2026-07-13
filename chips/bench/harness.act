@@ -49,7 +49,7 @@ defproc harness(
     demux.wdata_out[0] = rom.wdata;
     demux.rdata_out[0] = rom.rdata;
 
-    fifo_in<4> fin;
+    fifo_in<4, WIDTH_DATA> fin;
     demux.addr_out[1] = fin.addr;
     demux.mode_out[1] = fin.mode;
     demux.wdata_out[1] = fin.wdata;

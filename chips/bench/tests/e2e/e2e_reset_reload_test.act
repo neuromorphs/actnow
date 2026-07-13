@@ -60,7 +60,7 @@ defproc e2e_reset_reload_test() {
     rs.wdata_b = rom_b.wdata;
     rs.rdata_b = rom_b.rdata;
 
-    fifo_in<4> fin;
+    fifo_in<4, WIDTH_DATA> fin;
     demux.addr_out[1] = fin.addr;
     demux.mode_out[1] = fin.mode;
     demux.wdata_out[1] = fin.wdata;

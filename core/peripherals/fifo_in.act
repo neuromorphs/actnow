@@ -4,7 +4,11 @@ import "core/globals.act";
 
 // Input FIFO: the outside world pushes data in via `push`; the CPU pops the
 // oldest entry on every read (there's only one register, so the address
-// offset is ignored).
+// offset is ignored). Buffered words are WIDTH bits wide (WIDTH_DATA for a
+// generic 32-bit producer, or narrower for a domain-specific one, e.g. the
+// dvs chip variant instantiates fifo_in<DEPTH, WIDTH_ADDR> for its 20-bit
+// AER pixel-address input instead of a separate peripheral) -- rdata always
+// zero-extends into the full 32-bit CPU-facing word.
 //
 // A CPU write instead configures the trigger level: once `count` reaches
 // it, fifo_in fires `event_out` itself -- wire it to one of soc's
@@ -24,15 +28,15 @@ import "core/globals.act";
 // A CPU read of an empty FIFO can't be handled the same way without risking
 // deadlock, so it's asserted instead: whoever drives the interrupt that
 // wakes the CPU to read this FIFO must push first.
-template<pint DEPTH>
+template<pint DEPTH; pint WIDTH>
 defproc fifo_in(
     chan?(addr_t) addr; chan?(mode_mem_t) mode;
     chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata;
-    chan?(int<WIDTH_DATA>) push;
+    chan?(int<WIDTH>) push;
     chan!(bool) event_out
 ) {
     pint IDX_BITS = std::ceil_log2(DEPTH);
-    int<WIDTH_DATA> buf[DEPTH];
+    int<WIDTH> buf[DEPTH];
     int<IDX_BITS> head, tail;
     int<32> count;
     int<WIDTH_DATA> trigger_level;
@@ -50,7 +54,7 @@ defproc fifo_in(
                     [
                         md.op = op_mem_t.R ->
                             assert(count > 0, "fifo_in: CPU read from empty FIFO");
-                            rdata!buf[head];
+                            rdata!int(buf[head], WIDTH_DATA);
                             head := (head + 1 = DEPTH) ? 0 : head + 1;
                             count := count - 1
                         [] else ->
