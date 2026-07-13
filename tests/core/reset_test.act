@@ -1,0 +1,180 @@
+import "core/soc.act";
+
+// Exercises core/mmu.act's external reset: soc.act's own comment explains
+// why reset is raced directly against both "keep running" and "idle,
+// waiting for a wake-up pc" as three flat siblings in one selection,
+// rather than checked only while idle -- this test is what actually proves
+// that in simulation, on the real core, not just in the scratch probe
+// experiments used to design it.
+//
+// Boot sequence (pass 0), fetched from ADDR_RESET (0x40000, base=4):
+//   LUI  x3, 0x10    -- x3 = 0x10000 (int_ctrl base, i.e. base=1 in addr_t)
+//   LUI  x1, 0x41    -- x1 = 0x41000 (an arbitrary ISR vector to configure)
+//   SW   x1, 0(x3)   -- vectors[0] = 0x41000
+//   ADDI x4, x0, 1   -- x4 = 1 (enable bit for event_id_0)
+//   SW   x4, 64(x3)  -- enable_mask = 1
+//   JAL  x0, 0       -- infinite self-loop: pc stays at this same address
+//                       forever, modeling a program that never reaches WFI
+//                       (a genuine hang, not a deliberate sleep)
+//
+// The self-loop's fetch (always the same address) repeats for a while --
+// proving the "hang" -- before external reset fires. Reset must recover
+// this without needing the program to ever cooperate (it never does; it's
+// an infinite loop by construction).
+//
+// Boot sequence (pass 1, after reset returns pc to ADDR_RESET again):
+//   LUI  x3, 0x10    -- re-establish int_ctrl base fresh, as any real
+//                       reset-vector code would (registers aren't cleared
+//                       by reset -- real RISC-V leaves them undefined --
+//                       but a real boot routine doesn't rely on stale
+//                       register contents either)
+//   LUI  x1, 0x40    -- x1 = 0x40000 (external scratch base, to make the
+//                       readback below observable to this testbench)
+//   LW   x5, 0(x3)   -- x5 = vectors[0] -- must now read back 0: this is
+//                       the actual assertion that external reset clears
+//                       the interrupt controller's configured state, not
+//                       just soc's own pc
+//   LW   x6, 64(x3)  -- x6 = enable_mask -- must now read back 0
+//   SW   x5, 0x100(x1) -- write x5 out externally so this testbench can
+//                          observe/assert it directly (LOADs from
+//                          base=ADDR_INT_CTRL never reach addr_ext --
+//                          they're serviced entirely inside soc)
+//   SW   x6, 0x104(x1) -- ditto for x6
+//   WFI              -- done
+defproc fetch_answerer(
+    chan?(addr_t) addr_ext; chan?(mode_mem_t) mode_ext;
+    chan!(int<WIDTH_DATA>) rdata_ext; chan?(int<WIDTH_DATA>) wdata_ext;
+    chan!(bool) done
+) {
+    addr_t addr;
+    mode_mem_t mode;
+    int<WIDTH_DATA> wdata;
+    int<32> insn, off;
+    bool seen_loop, past_reset, wfi_served;
+    int loop_count;
+
+    chp {
+        seen_loop := false;
+        past_reset := false;
+        wfi_served := false;
+        loop_count := 0;
+        *[
+            addr_ext?addr; mode_ext?mode;
+            assert(addr.base = 4, "unexpected fetch/store base: want 4 (external), got ", addr.base);
+            [
+                mode.op = op_mem_t.W ->
+                    // The two post-reset verification stores -- assert
+                    // directly that the interrupt controller's state
+                    // really was cleared.
+                    wdata_ext?wdata;
+                    [ addr.offset = 0x100 ->
+                        assert(wdata = 0, "vectors[0] readback after reset: want 0, got ", wdata)
+                      [] addr.offset = 0x104 ->
+                        assert(wdata = 0, "enable_mask readback after reset: want 0, got ", wdata)
+                      [] else ->
+                        assert(false, "unexpected store to external offset ", addr.offset)
+                    ]
+                [] else ->
+                    // instruction fetch
+                    [ ~seen_loop & (addr.offset = 0) ->
+                        insn := (int(0x10,32) << 12) | (int(3,32) << 7) | OPCODE_LUI
+                      [] ~seen_loop & (addr.offset = 4) ->
+                        insn := (int(0x41,32) << 12) | (int(1,32) << 7) | OPCODE_LUI
+                      [] ~seen_loop & (addr.offset = 8) ->
+                        // SW x1, 0(x3) -- vectors[0] = 0x41000
+                        off := int(0,32);
+                        insn := (off{11..5} << 25) | (int(1,32) << 20) | (int(3,32) << 15)
+                              | (0b010 << 12) | (off{4..0} << 7) | OPCODE_STORE
+                      [] ~seen_loop & (addr.offset = 12) ->
+                        insn := (0b000000000001 << 20) | (int(0,32) << 15) | (0b000 << 12) | (int(4,32) << 7) | OPCODE_OP_IMM
+                      [] ~seen_loop & (addr.offset = 16) ->
+                        // SW x4, 64(x3) -- enable_mask = 1
+                        off := int(64,32);
+                        insn := (off{11..5} << 25) | (int(4,32) << 20) | (int(3,32) << 15)
+                              | (0b010 << 12) | (off{4..0} << 7) | OPCODE_STORE
+                      [] ~seen_loop & (addr.offset = 20) ->
+                        seen_loop := true;
+                        loop_count := 1;
+                        log("fetch_answerer: reached the JAL self-loop -- program is now hung");
+                        insn := OPCODE_JAL // JAL x0, 0 -- rd=0, imm=0
+                      [] seen_loop & ~past_reset & (addr.offset = 20) ->
+                        loop_count := loop_count + 1;
+                        log("fetch_answerer: self-loop repeated (count=", loop_count, ") -- still hung, no cooperation from the program");
+                        insn := OPCODE_JAL
+                      [] seen_loop & (addr.offset = 0) ->
+                        assert(loop_count >= 2, "expected the self-loop to repeat at least twice before reset recovered it, only saw ", loop_count);
+                        past_reset := true;
+                        log("fetch_answerer: pc is back at ADDR_RESET -- external reset recovered the hung program");
+                        insn := (int(0x10,32) << 12) | (int(3,32) << 7) | OPCODE_LUI
+                      [] past_reset & (addr.offset = 4) ->
+                        insn := (int(0x40,32) << 12) | (int(1,32) << 7) | OPCODE_LUI
+                      [] past_reset & (addr.offset = 8) ->
+                        // LW x5, 0(x3) -- x5 = vectors[0]
+                        insn := (0b000000000000 << 20) | (int(3,32) << 15) | (0b010 << 12) | (int(5,32) << 7) | OPCODE_LOAD
+                      [] past_reset & (addr.offset = 12) ->
+                        // LW x6, 64(x3) -- x6 = enable_mask
+                        insn := (0b000001000000 << 20) | (int(3,32) << 15) | (0b010 << 12) | (int(6,32) << 7) | OPCODE_LOAD
+                      [] past_reset & (addr.offset = 16) ->
+                        // SW x5, 0x100(x1)
+                        off := int(0x100,32);
+                        insn := (off{11..5} << 25) | (int(5,32) << 20) | (int(1,32) << 15)
+                              | (0b010 << 12) | (off{4..0} << 7) | OPCODE_STORE
+                      [] past_reset & (addr.offset = 20) ->
+                        // SW x6, 0x104(x1)
+                        off := int(0x104,32);
+                        insn := (off{11..5} << 25) | (int(6,32) << 20) | (int(1,32) << 15)
+                              | (0b010 << 12) | (off{4..0} << 7) | OPCODE_STORE
+                      [] past_reset & (addr.offset = 24) ->
+                        wfi_served := true;
+                        insn := OPCODE_WFI
+                      [] else ->
+                        assert(false, "unexpected fetch offset ", addr.offset); insn := 0
+                    ];
+                    rdata_ext!insn;
+                    [ wfi_served -> done!true [] else -> skip ]
+            ]
+        ]
+    }
+}
+
+defproc reset_test() {
+    soc s;
+    fetch_answerer fa;
+    chan(bool) done;
+
+    fa.addr_ext = s.addr_ext;
+    fa.mode_ext = s.mode_ext;
+    fa.rdata_ext = s.rdata_ext;
+    fa.wdata_ext = s.wdata_ext;
+    fa.done = done;
+
+    int<32> delay;
+    bool done_recv;
+
+    chp {
+        log("======== reset_test start ========");
+
+        // Let the self-loop actually spin for a while (fetch_answerer will
+        // keep answering it indefinitely, concurrently with this delay --
+        // it never stops being ready, so however many times soc's own
+        // internal arbiter happens to pick "keep running" before it picks
+        // reset, fetch_answerer just keeps serving them) before asserting
+        // external reset.
+        delay := 2000;
+        *[ delay > 0 -> delay := delay - 1 ];
+
+        log("--- asserting external reset ---");
+        s.reset_ext!true;
+
+        // Wait for fetch_answerer to actually finish serving the full
+        // post-reset verification sequence (through WFI) before declaring
+        // the test complete -- otherwise this log line would print the
+        // moment the reset send itself completes, well before the
+        // vectors[0]/enable_mask readback assertions have even run.
+        done?done_recv;
+
+        log("======== reset_test complete ========")
+    }
+}
+
+reset_test rt;

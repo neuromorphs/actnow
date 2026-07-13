@@ -39,6 +39,14 @@ defproc interrupt(
     chan?(bool) event_id_13;
     chan?(bool) event_id_14;
     chan?(bool) event_id_15;
+    // Relayed from soc's own external reset_ext (soc.act consumes the
+    // external signal itself, to jump pc back to ADDR_RESET, then relays it
+    // here so this controller's own configured state -- the vector table
+    // and enable mask -- gets cleared too, matching real hardware. Not
+    // gated by any enable bit, same as the reset vector itself: it's
+    // unconditional, independent of whatever software has or hasn't
+    // configured yet.
+    chan?(bool) reset_int_ctrl;
     // MMU-facing port group (base=ADDR_INT_CTRL) -- lets the CPU configure
     // (and read back) the vector table via ordinary LOAD/STORE.
     chan?(addr_t) addr;
@@ -78,7 +86,13 @@ defproc interrupt(
             is_reset := false;
 
             [|
-            #addr ->
+            #reset_int_ctrl ->
+                reset_int_ctrl?event_id_recv;
+                log("interrupt controller: cleared by external reset");
+                init_i := 0;
+                *[ init_i < 16 -> vectors[int(init_i,4)] := 0; init_i := init_i + 1 ];
+                enable_mask := 0
+            [] #addr ->
                 addr?a; mode?md;
                 [
                     a.offset = ADDR_INT_CTRL_ENABLE ->

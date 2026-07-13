@@ -137,71 +137,164 @@ off-chip) and needed to become its own named process: `demux`.
 
 ### 1.2 Design and implement the real dual-port PMP mmu
 
-- [ ] Resolve the open design question before writing code: does
-      instruction fetch ever need to reach the external bus (XIP from
-      external ROM, per the Makefile's non-`BOOT` path), or does this
-      architecture only ever execute out of internal RAM? This determines
-      whether the instruction port needs a read-only path through `mmu`'s
-      own catch-all (→ `demux`) or can go straight to `mem.act`'s RAM route.
-- [ ] Define the new `defproc mmu(...)` in `core/mmu.act` with two
-      independent core-facing port groups sharing one physical-memory-facing
+- [x] Resolved the open design question: **yes**, instruction fetch needs
+      the external bus. soc always boots by fetching the reset vector from
+      `ADDR_RESET` (base=4, external ROM, via the catch-all), and the
+      top-level Makefile's default (non-`BOOT`) mode executes straight from
+      there ("XIP") — confirmed by actually running `make BOOT=1
+      ROM_TEST=addi rom_program_test` (fetch from internal RAM via the
+      exact-match route) and the default `ROM_TEST=addi rom_program_test`
+      (fetch from external ROM via the catch-all route), both against the
+      new mmu. So the instr port needs the *same* exact-bases-plus-catch-all
+      table as the data port, not just a private path to RAM.
+- [x] Defined the new `defproc mmu(...)` in `core/mmu.act` with two
+      independent core-facing port groups sharing one physical-resource-facing
       port group:
-  - **instr port group:** `addr_instr` (in), `mode_instr` (in, always
-    `op_mem_t.R`), `rdata_instr` (out) — no `wdata` channel at all, since
-    fetch never writes.
+  - **instr port group:** `addr_instr` (in), `mode_instr` (in), `rdata_instr`
+    (out) — no `wdata` channel at all, since fetch never writes. A
+    defensive `assert(mode.op = op_mem_t.R, ...)` catches a caller mistake,
+    but the actual protection is structural (no channel exists to carry a
+    write payload, regardless of what `mode` says).
   - **data port group:** `addr_data`, `mode_data`, `wdata_data`,
-    `rdata_data` — full R/W/RMW, same shape as today's `addr_core` group.
-  - **physical side:** one addr/mode/wdata/rdata group wired to a single
-    unchanged `core/peripherals/mem.act` bank; instr and data traffic
-    arbitrate onto it.
-- [ ] Decide and implement the arbitration policy for a same-cycle
-      fetch + load/store race (soc's core is single-issue, so simple
-      priority/round-robin is likely sufficient — document the choice).
-- [ ] Protection is structural (no `wdata` on the instr side means no write
-      is representable), but add a defensive `assert`/log if `mode_instr`
-      ever carries `op_mem_t.W`, in case a future caller misuses the port.
-- [ ] Rewrite `tests/peripherals/mmu_test.act` for the new dual-port shape
-      (it currently tests the interim single-port, 2-exact+catch-all
-      router from 1.1) — drive the instr port with reads only, the data
-      port with reads/writes/RMW against the same backing addresses,
-      assert writes through the data port are visible to instr-port reads,
-      and that a manufactured illegal instr-port write is
-      rejected/asserted.
-- [ ] **Gate:** rewritten `mmu_test` passes; `demux_test` (1.1) still
-      passes unmodified; `core/soc.act` rewired in 1.3 still boots.
+    `rdata_data` — full R/W/RMW, same shape as the old single `addr_core`
+    group.
+  - **shared side:** *both* ports route through the same
+    `EXACT_BASES`/`CATCHALL_MIN_BASE` table and the same
+    `addr_out[]`/`mode_out[]`/`wdata_out[]`/`rdata_out[]` array (not just a
+    RAM bank) — this is what "share the same physical memory" means
+    concretely, and it's also what makes the resolved XIP question work:
+    the instr port's catch-all reaches the same external boundary the data
+    port's catch-all does. The instr branch technically has routing access
+    to every `EXACT_BASES` entry (including the interrupt controller), not
+    just RAM — restricting *which* addresses fetch may target isn't a
+    protection property this project asked for (only "never allow a write
+    through the instruction port" was), so it isn't modeled.
+- [x] Arbitration: a top-level probed selection (`[| #addr_instr -> ... []
+      #addr_data -> ... |]`) picks whichever port has a pending request.
+      soc's core is single-issue and strictly sequential (fetch runs to
+      completion, then decode/execute — at most one load/store — runs to
+      completion, then back to fetch), so the two ports are never both
+      pending at once in practice; the probed selection is what makes that
+      safe structurally rather than by convention.
+- [x] Protection is structural (no `wdata_instr` channel), plus the
+      defensive assert above for a misbehaving caller.
+- [x] Rewrote `tests/peripherals/mmu_test.act` for the dual-port shape:
+      drives the data port through RAM/interrupt-controller/external-catch-all
+      (reads/writes/RMW, same masking coverage as before) using a new small
+      *stateful* `ram_backend` (unlike the stateless echo-testers used for
+      interrupt-controller/external), then drives the instr port to (a) read
+      back the exact RAM address the data port just wrote — proving the two
+      ports genuinely share one physical resource — and (b) read through the
+      catch-all, proving XIP. Didn't add a test that deliberately triggers
+      the new defensive assert and expects it to pass: this codebase's
+      existing convention (e.g. `mem.act`'s own "write attempted to
+      read-only memory" assert) is that should-never-happen asserts are
+      implemented but not exercised by the automated suite, since the
+      Makefile's pass/fail classification treats any triggered assertion as
+      an overall test failure.
+- [x] **Gate:** `mmu_test` passes (including the cross-port and XIP
+      scenarios above) and `demux_test` (1.1) still passes unmodified.
 
 ### 1.3 Rewire `soc.act` onto the new dual-port mmu
 
-- [ ] Replace the single `mmu.addr_core/mode_core/wdata_core/rdata_core`
+Folded into the same change as 1.2 rather than done as a separate step:
+changing `core/mmu.act`'s port shape without also updating its only real
+consumer left `core/soc.act` (and everything that imports it — most of the
+test suite) uncompilable, which breaks this project's "all tests still
+pass" gate at every stage. Confirmed by trying `aflat core/soc.act` right
+after the 1.2 port-shape change: `ERROR: Port name 'addr_core' does not
+exist for the identifier: mmu`.
+
+- [x] Replaced the single `mmu.addr_core/mode_core/wdata_core/rdata_core`
       handshake with two call sites in the existing `chp`: the instruction
       fetch sequence targets `addr_instr/mode_instr/rdata_instr`; the
-      `OPCODE_LOAD`/`OPCODE_STORE` branches target
-      `addr_data/mode_data/wdata_data/rdata_data`.
-- [ ] soc's existing on-chip routing (RAM / interrupt controller /
-      external catch-all, `mmu`'s own exact+catch-all logic) sits
-      downstream of the **data** port only. Per the 1.2 design decision: if
-      fetch never needs the external bus, wire the instr port straight to
-      `mem.act`'s RAM and skip the exact/catch-all routing (and `demux`)
-      for instruction traffic entirely.
-- [ ] **Gate:** `make test`, `make software-tests`, and both existing e2e
-      tests (`e2e_fifo_test`, `e2e_multi_event_test`) all still pass
-      unmodified.
+      `OPCODE_STORE` branch targets `addr_data/mode_data/wdata_data`
+      (write-only, no `rdata_data`); the `OPCODE_LOAD` branch targets
+      `addr_data/mode_data/rdata_data`. soc's own local scratch variables
+      (`addr_core`/`mode_core`/`wdata_core`/`rdata_core`) keep their names
+      unchanged — only which mmu port they're sent to/received from changed.
+- [x] soc's existing on-chip routing (RAM / interrupt controller / external
+      catch-all, `mmu`'s own exact+catch-all logic, wired via
+      `mmu.addr_out[]`/etc.) is completely unchanged — same instantiation,
+      same `SOC_MMU_N_EXACT`/`SOC_MMU_EXACT_BASES`/`ADDR_EXT_MIN`. Per the
+      resolved design question above, the instr port needs this same
+      routing (not a private RAM-only path), so nothing here needed to
+      change to accommodate it.
+- [x] **Gate:** `make test` (all unit + regression + e2e tests) and `make
+      software-tests` (38/38) both pass. Explicitly re-verified both
+      instruction-fetch paths against the real core: `make BOOT=1
+      ROM_TEST=addi rom_program_test` (fetch from internal RAM) and the
+      default XIP path (fetch from external ROM) both PASS.
 
 ### 1.4 External reset
 
-- [ ] Add a `chan?(bool) reset_ext` port to `core/soc.act`, sampled as a
-      top-level alternative (same shape as `interrupt.act`'s `is_reset`
-      handling) that re-triggers reset behavior on demand — `pc :=
-      ADDR_RESET`, `running := false` — without restarting the simulation.
-- [ ] Decide whether reset also needs to clear `interrupt.act`'s vector
-      table / `enable_mask` (real hardware would) — if yes, plumb an
-      equivalent reset line into `interrupt.act` too.
-- [ ] New unit test: `tests/core/reset_test.act` — boot, execute a few
-      instructions/events, assert external reset returns `pc` to
-      `ADDR_RESET` and `running=false`, then confirm normal execution
-      resumes correctly afterward.
-- [ ] **Gate:** `make test` includes and passes `reset_test`; all
-      pre-existing tests still pass.
+Requirement resolved up front: reset must recover a **genuinely hung**
+program (an infinite loop of otherwise-normal instructions that never
+reaches WFI), not just wake a deliberately idle one. That ruled out routing
+reset through `interrupt.act`'s existing `event_pc` pipeline (tried first;
+`event_pc` is only ever read while idle, so reset would've been stuck
+waiting for the program to voluntarily sleep first — useless for a hang).
+
+- [x] Added `chan?(bool) reset_ext` to `core/soc.act`. The main `chp` loop's
+      top-level dispatch is a **flat three-way non-deterministic selection**
+      (`[| #reset_ext -> ... [] running -> skip [] (~running) & #event_pc ->
+      event_pc?pc |]`), not reset nested inside a catch-all branch. This
+      went through two iterations before landing here, both driven by
+      empirical testing (see below) rather than assumption:
+  1. First attempt nested the idle-wait inside a `true` branch racing
+     `#reset_ext`. Compiles and mostly works, but has a real gap: if the
+     selection ever picked `true` while idle (legal, since `true` is always
+     ready) instead of `#reset_ext`, execution commits to blocking on
+     `event_pc?pc` and won't reconsider `reset_ext` until a real event
+     happens to arrive.
+  2. Flattening `running` and `(~running) & #event_pc` out as direct
+     siblings of `#reset_ext` — instead of nesting the wait inside a
+     `true` catch-all — closes that gap: reset is now a genuine sibling of
+     every wait point, not of a branch that merely contains one. Verified
+     both that this compiles (probes and plain-boolean guards *can* mix in
+     one `[|...|]`, confirmed empirically since there's no precedent for it
+     elsewhere in this codebase) and that it actually recovers a core
+     that's genuinely idle (blocked on `event_pc?pc` with no event coming)
+     purely via `reset_ext`, with no `event_pc` send involved at all.
+  - Reset can't interrupt an instruction already in flight (no abort
+    mid-transaction) — only between instructions. That's a deliberate
+    safety property, not a limitation: no instruction is ever left
+    half-executed when reset takes hold.
+  - A real, separate bug class discovered and ruled out along the way: a
+    testbench that answers a hung program's repeated fetch a few times and
+    then *sequentially switches* to a plain blocking `reset_ext!true` can
+    deadlock — soc's own arbiter is free to pick "run the next instruction"
+    one more time even while reset is pending, and if the testbench has
+    already stopped offering to answer fetches by then, that fetch send has
+    no receiver, forever. The fix (used in `reset_test.act` below) is an
+    always-live fetch-answering process that never stops, with reset sent
+    from a separate, independent process — not a sequential hand-off.
+- [x] Decided **yes**: reset also clears `interrupt.act`'s vector table and
+      enable mask. Rationale: if a new program loads after reset and
+      something fires an event before that program reconfigures its own
+      vectors, it would otherwise vector through a stale ISR address left
+      over from whatever ran before. Implementation: `soc.act` can't fan the
+      single external `reset_ext` signal out to both itself and
+      `interrupt.act` directly (a channel send has exactly one receiver), so
+      it consumes `reset_ext` itself and relays it onward via a second,
+      internal `reset_int_ctrl` channel; `interrupt.act` gained a matching
+      `reset_int_ctrl` port and an unconditional (not enable-bit-gated)
+      branch that re-zeros `vectors[]`/`enable_mask`, reusing the same
+      clearing loop already used at cold boot. Register file contents are
+      *not* cleared on reset, matching real RISC-V semantics (x1-x31 are
+      undefined after reset, not zeroed).
+- [x] New unit test: `tests/core/reset_test.act`. Boots a program that
+      configures an interrupt vector and enable bit, then hits an
+      intentional infinite self-loop (`JAL x0, 0`) modeling a genuine hang
+      (never reaches WFI on its own). An always-live `fetch_answerer`
+      sub-process keeps answering the repeated self-loop fetch (135
+      iterations in a real run) while the top-level test independently
+      fires `reset_ext`. Post-reset, the program reads back
+      `vectors[0]`/`enable_mask` via real LOAD instructions and stores them
+      to external memory, where the testbench asserts both are 0, then
+      reaches WFI cleanly, proving normal execution resumes correctly.
+- [x] **Gate:** `make test` (including `reset_test`) and `make
+      software-tests` (38/38) all pass.
 
 ### 1.5 Reorganize the harness into `chips/bench/`
 

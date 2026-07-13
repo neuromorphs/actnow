@@ -22,6 +22,12 @@ defproc soc(
     chan?(bool) event_id_13;
     chan?(bool) event_id_14;
     chan?(bool) event_id_15;
+    // External reset: puts the core back into its boot state (pc=ADDR_RESET)
+    // and clears the interrupt controller's configured vector table/enable
+    // mask, same as a cold boot -- see the main chp loop's own comment for
+    // why this has to be checked at the very top of every instruction cycle
+    // rather than only while idle.
+    chan?(bool) reset_ext;
     chan!(addr_t) addr_ext;
     chan!(mode_mem_t) mode_ext;
     chan!(int<WIDTH_DATA>) wdata_ext;
@@ -45,6 +51,7 @@ defproc soc(
 
     bool is_wfi;
     bool running;
+    bool reset_recv;
 
     reg_req req_pkt;
     reg_resp resp_pkt;
@@ -60,9 +67,17 @@ defproc soc(
     chan(int<WIDTH_DATA>) wdata_int_ctrl;
     chan(int<WIDTH_DATA>) rdata_int_ctrl;
 
+    // Relays reset_ext onward to the interrupt controller so its configured
+    // vector table/enable mask gets cleared too -- soc's own chp loop below
+    // consumes reset_ext itself (a channel send can only be received once,
+    // so it can't fan out to both places directly) and re-sends this once
+    // it has.
+    chan(bool) reset_int_ctrl;
+
     interrupt inter(event_id_0, event_id_1, event_id_2, event_id_3, event_id_4, event_id_5,
                      event_id_6, event_id_7, event_id_8, event_id_9, event_id_10, event_id_11,
                      event_id_12, event_id_13, event_id_14, event_id_15,
+                     reset_int_ctrl,
                      addr_int_ctrl, mode_int_ctrl, wdata_int_ctrl, rdata_int_ctrl, event_pc);
 
     regfile rf;
@@ -109,15 +124,46 @@ defproc soc(
     chp {
         running := false;
         *[
-            [ running -> skip [] else -> event_pc?pc ];
+            // Racing external reset directly against both "keep running"
+            // and "idle, waiting for a wake-up pc" -- as three flat
+            // siblings in one non-deterministic selection, not reset
+            // nested against a single "true" catch-all -- is what lets
+            // reset recover the core in either state: a genuinely hung
+            // program (stuck in an infinite loop of otherwise-normal
+            // instructions, never reaching WFI) *and* a core that's
+            // legitimately idle at WFI waiting on a real event. Nesting
+            // the idle wait inside a "true" branch instead would have left
+            // a gap: if the selection ever picked "true" while idle even
+            // once (a perfectly legal choice, since it's always ready),
+            // execution would commit to blocking on event_pc?pc and
+            // wouldn't reconsider reset_ext again until a real event
+            // happened to arrive. Flattened like this, reset is a genuine
+            // sibling of the wait itself, not of a branch that merely
+            // contains it. Reset can't interrupt an instruction already in
+            // flight (there's no abort mid-transaction here), only ever
+            // between them -- which is also what keeps this safe: no
+            // instruction is ever left half-executed when reset takes hold.
+            [|
+                #reset_ext ->
+                    reset_ext?reset_recv;
+                    log("external reset: pc ", ADDR_RESET);
+                    pc := ADDR_RESET;
+                    running := true;
+                    // Consumed reset_ext ourselves above (a channel send can
+                    // only be received once), so relay it onward to clear
+                    // the interrupt controller's own configured state too.
+                    reset_int_ctrl!true
+                [] running -> skip
+                [] (~running) & #event_pc -> event_pc?pc
+            |];
             running := true;
 
             // instruction fetch
             addr_core.base := pc{19..16}, addr_core.offset := pc{15..0},
             mode_core.op := op_mem_t.R, mode_core.size := size_mem_t.WORD;
 
-            mmu.addr_core!addr_core; mmu.mode_core!mode_core;   // Match sequential handshake in mmu.act
-            mmu.rdata_core?instr;
+            mmu.addr_instr!addr_core; mmu.mode_instr!mode_core;   // Match sequential handshake in mmu.act
+            mmu.rdata_instr?instr;
 
             // all six fields are independent slices of the same already-resolved
             // instr, and write disjoint variables -- safe to do concurrently
@@ -265,8 +311,8 @@ defproc soc(
                     addr_core := compute_addr(resp_pkt.rs1_data, imm);
 
                     // no rd write-back and no response from the MMU for a plain
-                    // write -- mmu only sends rdata_core back for reads
-                    mmu.addr_core!addr_core; mmu.mode_core!mode_core; mmu.wdata_core!resp_pkt.rs2_data
+                    // write -- mmu only sends rdata_data back for reads
+                    mmu.addr_data!addr_core; mmu.mode_data!mode_core; mmu.wdata_data!resp_pkt.rs2_data
                 // U-type (AUIPC)
                 [] (opcode = OPCODE_AUIPC) ->
                     log("U-type instruction (AUIPC)");
@@ -353,8 +399,8 @@ defproc soc(
                     // address depends on imm and rs1_data, both ready now
                     addr_core := compute_addr(resp_pkt.rs1_data, imm);
 
-                    mmu.addr_core!addr_core; mmu.mode_core!mode_core;
-                    mmu.rdata_core?rdata_core;
+                    mmu.addr_data!addr_core; mmu.mode_data!mode_core;
+                    mmu.rdata_data?rdata_core;
 
                     // sign-extend for LB/LH; LBU/LHU/LW pass through untouched --
                     // mmu already zero-extended/masked to the requested size

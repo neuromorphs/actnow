@@ -8,24 +8,24 @@ returns to waiting.
 ## Implemented ISA
 
 The full RV32I base integer set is implemented in `core/soc.act`, including
-loads (LB/LH/LW/LBU/LHU) and stores (SB/SH/SW), both routed through the MMU
-(`core/mmu.act`) to either internal RAM (`core/peripherals/mem.act`) or
-external memory (`addr_ext`/`mode_ext`/`wdata_ext`/`rdata_ext`). Loads
-sign/zero-extend in `core/soc.act` after the MMU's masking; stores rely on
-the MMU masking the write value down to the requested size before it
-reaches the peripheral. The M-extension (multiply/divide) is not
-implemented.
+loads (LB/LH/LW/LBU/LHU) and stores (SB/SH/SW), routed through the MMU's
+(`core/mmu.act`) **data** port to either internal RAM
+(`core/peripherals/mem.act`) or external memory
+(`addr_ext`/`mode_ext`/`wdata_ext`/`rdata_ext`); instruction fetch goes
+through the MMU's separate **instr** port, which can read the same RAM and
+external memory but can never write either. Loads sign/zero-extend in
+`core/soc.act` after the MMU's masking; stores rely on the MMU masking the
+write value down to the requested size before it reaches the peripheral.
+The M-extension (multiply/divide) is not implemented.
 
 There are two distinct address routers, not one — see the next section:
 `core/mmu.act` decides what's on-chip, `core/peripherals/demux.act` splits
-whatever isn't. A real dual-port PMP design for `core/mmu.act` (isolated
-read-only instruction port / read-write data port over one shared physical
-memory) is still on the roadmap; see `robustness.md`.
+whatever isn't.
 
 ## Address routers (`core/mmu.act` and `core/peripherals/demux.act`)
 
-Both are instantiations of the same underlying shape — `N_EXACT` downstream
-ports selected by an exact match against `EXACT_BASES[k]`, plus one further
+Both route on the same underlying shape — `N_EXACT` downstream ports
+selected by an exact match against `EXACT_BASES[k]`, plus one further
 optional downstream port (index `N_EXACT`, the last one) that catches any
 address with `base >= CATCHALL_MIN_BASE` that didn't already match. An
 address matching neither is silently dropped — reads are never answered,
@@ -34,17 +34,33 @@ do (undefined, but doesn't hang waiting on a response). But they're separate
 processes with distinct architectural roles, not two uses of one shared file:
 
 - **`core/mmu.act`'s `mmu`** is core-facing — it's the unit soc's own
-  fetch/load-store logic talks to directly. Instantiated inside
-  `core/soc.act` with 2 exact routes (`ADDR_MEM`=0 → internal RAM,
+  fetch/load-store logic talks to directly, and it's a real dual-port PMP
+  (physical memory protection) design: an **instr** port group
+  (`addr_instr`/`mode_instr`/`rdata_instr` — no `wdata` channel at all,
+  since fetch never writes) and a **data** port group
+  (`addr_data`/`mode_data`/`wdata_data`/`rdata_data` — full R/W/RMW), both
+  routed by the *same* `EXACT_BASES`/`CATCHALL_MIN_BASE` table onto one
+  shared downstream array — this is what makes instruction and data
+  genuinely share one physical RAM rather than each having a private copy,
+  while a write is structurally impossible through the instr port (there's
+  no channel to carry one, regardless of what `mode_instr` claims — a
+  defensive `assert` also catches a misbehaving caller). Instantiated
+  inside `core/soc.act` with 2 exact routes (`ADDR_MEM`=0 → internal RAM,
   `ADDR_INT_CTRL`=1 → interrupt controller) plus a catch-all at `base >=
   ADDR_EXT_MIN` (4) that passes anything not on-chip straight through to
-  soc's own `addr_ext`/`mode_ext`/`wdata_ext`/`rdata_ext` boundary. Bases 2
-  and 3 fall in the gap and are unreachable by construction. (A real
-  dual-port PMP redesign is still pending — see `robustness.md`.)
+  soc's own `addr_ext`/`mode_ext`/`wdata_ext`/`rdata_ext` boundary — the
+  instr port needs this catch-all too, not just the RAM route, since soc
+  always boots by fetching the reset vector from external ROM (`ADDR_RESET`,
+  base=4) and the default (non-`BOOT`) mode executes straight from there
+  ("XIP"). Bases 2 and 3 fall in the gap and are unreachable by
+  construction. A top-level probed selection arbitrates between the two
+  ports; soc's core is single-issue and strictly sequential, so in practice
+  they're never both pending at once.
 - **`core/peripherals/demux.act`'s `demux`** is periphery-facing — it never
   talks to the core directly, only to whatever's already been decided to be
-  off-chip. `tests/e2e/e2e_fifo_test.act` wires it straight to soc's
-  `addr_ext` boundary with no catch-all at all (`ADDR_NO_CATCHALL` for
+  off-chip (i.e. whatever fell through `mmu`'s own catch-all).
+  `tests/e2e/e2e_fifo_test.act` wires it straight to soc's `addr_ext`
+  boundary with no catch-all at all (`ADDR_NO_CATCHALL` for
   `CATCHALL_MIN_BASE`, which — since `addr_t`'s base field is only
   `WIDTH_ADDR_BASE` bits wide — can never actually match, so the router's
   last downstream port just goes unused), splitting it into distinct
@@ -79,6 +95,36 @@ is what makes "wait for the program to finish booting" self-managed instead
 of needing a guessed delay: fire the interrupt any time, even at simulated
 time 0, and it'll naturally wait for the program's own vector-then-enable
 sequence — see `tests/e2e/e2e_fifo_test.act`, which does exactly that.
+
+## External reset (`reset_ext`)
+
+`core/soc.act` exposes a `chan?(bool) reset_ext` port that puts the core
+back into its boot state on demand, without restarting the simulation. The
+main `chp` loop's top-level dispatch is a flat, three-way non-deterministic
+selection between `#reset_ext`, `running` (keep executing), and `(~running)
+& #event_pc` (idle, waiting on a wake-up) — reset is a direct sibling of
+every wait point, not nested inside a catch-all branch, which is what lets
+it recover a core that's genuinely hung (stuck in an infinite loop of
+otherwise-normal instructions, never reaching WFI) as well as one that's
+legitimately idle at WFI. It can't interrupt an instruction already in
+flight — only between instructions — which is deliberate: no instruction is
+ever left half-executed when reset takes hold.
+
+Reset also clears `core/interrupt.act`'s configured vector table and enable
+mask, reusing the same clearing loop already used at cold boot, so a
+newly-loaded program can't be vectored through a stale ISR address left
+over from whatever ran before. Since a channel send has exactly one
+receiver, `soc.act` can't fan `reset_ext` out to both itself and
+`interrupt.act` directly — it consumes the signal itself (to reset `pc`)
+and relays it onward via a second, internal `reset_int_ctrl` channel.
+Register file contents are *not* cleared, matching real RISC-V semantics
+(x1-x31 are undefined after reset).
+
+See `tests/core/reset_test.act` for the full scenario: a program hits a
+deliberate infinite self-loop (never reaching WFI) to model a genuine hang,
+and external reset recovers it mid-loop, then the post-reset program reads
+back the vector table/enable mask via real LOAD instructions and confirms
+both are cleared.
 
 ## FIFO peripherals (`core/peripherals/fifo_in.act` / `core/peripherals/fifo_out.act`)
 
