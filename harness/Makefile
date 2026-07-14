@@ -128,7 +128,7 @@ $(BUILD):
 	@mkdir -p $(BUILD)
 
 # Compile the generated RTL + testbench once; every scenario elaborates the same
-# work library with a different TEST parameter. -i $(GEN) so each module's
+# work library with a different TEST parameter. -i $(GEN) so each module's$(GEN)
 # `include "func.v"` resolves.
 $(BUILD)/.compiled: $(GEN_SRCS) $(TB) | $(BUILD)
 	@echo "--- xvlog: $(words $(GEN_SRCS)) generated modules + $(notdir $(TB)) ---"
@@ -208,7 +208,7 @@ fpga: project synth impl xsa
 # --- cleaning -----------------------------------------------------------------
 
 clean:
-	rm -drf $(BUILD)
+	rm -drf $(BUILD) 
 
-clean-vivado:
-	rm -drf $(VIVADO_DIR)
+clean-all: clean
+	rm -drf $(VIVADO_DIR) $(GEN)
