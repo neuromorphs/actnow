@@ -1,0 +1,36 @@
+import std::cells;
+import "core/globals.act";
+
+// Shared real delay-line clock source for two SPI masters that are never
+// simultaneously active -- spi_boot and spi_prog, since this project's
+// core is single-issue: only one peripheral is ever mid-transaction at a
+// time. Exists because two SEPARATE spi_clock (spi_clock.act) instances,
+// each with their own live prs delay line, corrupt each other's timing
+// when both exist in the same simulation: confirmed directly by isolating
+// a real e2e scenario (spi_boot booting, spi_prog wired to even a
+// completely inert external device) down to a single reproducible
+// corrupted instruction fetch, then confirming the fix by replacing
+// spi_prog's own spi_clock with a trivial instant loopback -- which made
+// the corruption disappear entirely. One real delay line, shared, fixes
+// the corruption while keeping the clock generation physically real
+// rather than falling back to an idealized/instant stand-in.
+//
+// req_a XORed with req_b is safe precisely because only one of them is
+// ever actually toggling at a time: whichever peripheral isn't currently
+// running holds its own req steady, so the XOR just passes the active
+// one's toggles through unchanged. The delayed ack is fanned out to both
+// -- the idle peripheral isn't watching its own ack at that moment, so it
+// never sees (or cares about) the other's edges.
+defproc spi_clock_shared(bool? req_a; bool! ack_a; bool? req_b; bool! ack_b) {
+    bool combined_req, combined_ack;
+    std::cells::XOR2X1 combiner;
+    combiner.A = req_a; combiner.B = req_b; combiner.Y = combined_req;
+
+    prs {
+        [after=SPI_CLOCK_DELAY_N] combined_req => combined_ack+
+        [after=SPI_CLOCK_DELAY_N] ~combined_req => combined_ack-
+    }
+
+    ack_a = combined_ack;
+    ack_b = combined_ack;
+}

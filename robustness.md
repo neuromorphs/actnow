@@ -905,10 +905,24 @@ of `spi_boot` via `spi_flash_stub.act` (2.5) — no ROM:
       one position -- caught immediately by a garbage address value in the
       very first assertion, fixed by sampling and discarding that bit
       first, matching the existing `external_device` pattern.
+- [x] **Coverage gap caught after the fact:** every test above (and both
+      of `chips/bench`'s own equivalents) only ever drives `spi_prog`'s
+      *write* direction -- `tests/peripherals/spi_prog_test.act` covers the
+      read direction in isolation (no `soc` involved), but nothing
+      exercised a real program, running through the real bootloader,
+      actually pulling data in over SPI and using it. Closed with
+      `software/dvs_spi_read_demo/main.c` (stages an address via
+      `spi_prog`'s address register, reads its data register -- the read
+      itself is what triggers the SPI transaction -- and drives a
+      self-checking pattern onto GPIO: `0b1111` if the value matches a
+      known constant, `0b0000` if not) and `e2e_spi_read_test.act` (new
+      `external_source` process answers the read; the test just checks
+      GPIO landed on `0b1111`).
 - [x] `chips/dvs/Makefile` gained `e2e_aer_test`, `e2e_reset_test`,
-      `e2e_gpio_test`, and a `test` target running all four dvs e2e tests
-      together (mirroring the top-level `make test`'s own role).
-- [x] **Gate:** `make -C chips/dvs test` (all 4 green); `make test` (26/26)
+      `e2e_gpio_test`, `e2e_spi_read_test`, and a `test` target running all
+      five dvs e2e tests together (mirroring the top-level `make test`'s
+      own role).
+- [x] **Gate:** `make -C chips/dvs test` (all 5 green); `make test` (26/26)
       and `make software-tests` (38/38) at the top level both still pass
       unaffected.
 
@@ -937,17 +951,26 @@ actionable tasks until these are answered:
 
 - [ ] Add a sentinel value to transmission
 
-- [ ] Confirm bootloader is XIP
-
--  [ ] 0 for read, 1 for write, Spi master would receive an address, emit data from rom, thats what we feed to core (bootloader is XIP)
-
--  [ ] Bootloader will tell you how much stuff to copy from the program SPI
+- [x] Confirm bootloader is XIP — done in Stage 2.5: `spi_boot` has no
+      backing store, every CPU fetch (including the bootloader's own
+      instructions) is a live SPI transaction; R/W bit convention (0=read,
+      1=write) landed in Stage 2.3/2.5. `software/bootloader/main.c` reads
+      its own length-prefixed payload the same way and copies it into SRAM
+      itself, verified end to end by `e2e_boot_test`.
 
 - [ ] untemplate the ram
 
-- [ ] Ensure programs can actually be loaded thru spi prog
+- [x] Ensure programs can actually be loaded thru spi prog, and that data
+      can be read/written — the narrow version of this (a real program,
+      through the real bootloader, genuinely reading a value through
+      `spi_prog` and using it) is done: `e2e_spi_read_test` (Stage 2.6).
+      Still open: a *multi-word* load through `spi_prog` that actually
+      writes the result into RAM (closer to "load a program"-scale, rather
+      than one value staged through a GPIO pass/fail check).
 
-- [ ] ANd that data can be written to
+- [ ] Remove the three arbitrations that replace running
+
+- [ ] SPI boot and SPI prog share the same clk instance. We have to find a way to test this reliably and safely. THIS CLK FEATURE IS NOT WORKING IN GENERAL
 
 Once these are answered, expand this section into the same
 checkbox/Gate structure as Stages 1 and 2 before starting implementation.

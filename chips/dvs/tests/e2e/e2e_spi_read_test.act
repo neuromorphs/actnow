@@ -1,0 +1,89 @@
+import "chips/dvs/core.act";
+import "chips/dvs/tests/e2e/spi_flash_stub.act";
+import "gen/file_ids.act";
+
+// Closes a real gap: every other dvs e2e test only ever drives spi_prog's
+// *write* direction (CPU pushes data out over SPI) -- e2e_aer_test.act and
+// e2e_reset_test.act both do this via dvs_application's own ISR, and
+// nothing at the e2e level ever exercised the read direction (CPU pulls
+// data in from an external device). tests/peripherals/spi_prog_test.act
+// covers it in isolation (no soc involved), but that's not the same as a
+// real program, running through the real bootloader, actually doing a
+// read through spi_prog and using the result.
+//
+// Boots software/dvs_spi_read_demo/main.c (genuinely XIP out of spi_boot,
+// same as every other dvs e2e test), which stages an address via
+// spi_prog's address register, reads its data register -- triggering a
+// real SPI READ transaction against external_source below -- and drives a
+// self-checking pattern onto GPIO (0b1111 if the value read back matches
+// what external_source answers with, 0b0000 otherwise). Observing
+// gpio_out_0..3 = 0b1111 is the whole test.
+defproc external_source(
+    bool? cs; bool? sclk; bool? mosi;
+    bool! miso
+) {
+    int<WIDTH_DATA> addr_shift, data_shift;
+    int i;
+    bool rw, bit;
+
+    chp {
+        miso := false;
+
+        [cs];
+        [sclk]; rw := mosi; [~sclk];
+        assert(~rw, "external_source: expected a read");
+
+        addr_shift := 0; i := 0;
+        *[ i < WIDTH_ADDR ->
+            [sclk]; bit := mosi;
+            addr_shift := (addr_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+            [~sclk];
+            i := i + 1
+        ];
+        assert(addr_shift = 0x10, "external_source: read addr: want 0x10, got ", addr_shift);
+
+        data_shift := int(0x1234ABCD, WIDTH_DATA); i := 0;
+        *[ i < WIDTH_DATA ->
+            miso := (data_shift{31} = 1); data_shift := data_shift << 1;
+            [sclk]; [~sclk];
+            i := i + 1
+        ];
+        log("external_source: read answered with 0x1234abcd");
+        [~cs]
+    }
+}
+
+defproc e2e_spi_read_test() {
+    core<8> c;
+    spi_flash_stub<ROM_IMAGE> flash;
+    external_source src;
+
+    bool spi_boot_cs, spi_boot_sclk, spi_boot_mosi, spi_boot_miso;
+    c.spi_boot_cs = spi_boot_cs; c.spi_boot_sclk = spi_boot_sclk;
+    c.spi_boot_mosi = spi_boot_mosi; c.spi_boot_miso = spi_boot_miso;
+    flash.cs = spi_boot_cs; flash.sclk = spi_boot_sclk;
+    flash.mosi = spi_boot_mosi; flash.miso = spi_boot_miso;
+
+    bool spi_prog_cs, spi_prog_sclk, spi_prog_mosi, spi_prog_miso;
+    c.spi_prog_cs = spi_prog_cs; c.spi_prog_sclk = spi_prog_sclk;
+    c.spi_prog_mosi = spi_prog_mosi; c.spi_prog_miso = spi_prog_miso;
+    src.cs = spi_prog_cs; src.sclk = spi_prog_sclk;
+    src.mosi = spi_prog_mosi; src.miso = spi_prog_miso;
+
+    bool p0, p1, p2, p3;
+
+    chp {
+        log("======== dvs spi_prog read e2e test start ========");
+
+        c.gpio_out_0?p0; c.gpio_out_1?p1; c.gpio_out_2?p2; c.gpio_out_3?p3;
+        assert(p0, "spi_prog read: pin_0 should be high (0b1111 -- value matched)");
+        assert(p1, "spi_prog read: pin_1 should be high (0b1111 -- value matched)");
+        assert(p2, "spi_prog read: pin_2 should be high (0b1111 -- value matched)");
+        assert(p3, "spi_prog read: pin_3 should be high (0b1111 -- value matched)");
+        log("spi_prog read: observed 0b1111 -- value read back over SPI matched");
+
+        log("======== dvs spi_prog read e2e test complete ========")
+    }
+}
+
+e2e_spi_read_test esrt;

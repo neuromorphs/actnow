@@ -3,7 +3,7 @@ import "core/peripherals/fifo_in.act";
 import "core/peripherals/demux.act";
 import "core/peripherals/spi_boot.act";
 import "core/peripherals/spi_prog.act";
-import "core/peripherals/spi_clock.act";
+import "core/peripherals/spi_clock_shared.act";
 import "core/peripherals/gpio.act";
 
 // dvs's off-chip periphery: the AER (address-event) input, both SPI
@@ -23,9 +23,16 @@ import "core/peripherals/gpio.act";
 // chip-to-outside data path goes through spi_prog instead. Both spi_boot
 // and spi_prog are ordinary CPU-facing demux routes, same as every other
 // peripheral here -- neither is a RAM bus master (robustness.md Stage
-// 2.3/2.4) -- so each just needs its own spi_clock sibling (the real
-// async clock source, spi_clock.act) to drive its req/ack ports; nothing
-// else about wiring them in differs from aer.
+// 2.3/2.4). They share ONE spi_clock_shared instance (not one each) --
+// two separate real spi_clock (spi_clock.act) instances corrupt each
+// other's timing when both exist simultaneously in the same simulation, a
+// genuine actsim limitation with multiple independent prs delay-line
+// instances (found and root-caused chasing a corrupted spi_boot fetch
+// that only ever appeared once spi_prog's pins were also connected to
+// anything -- see spi_clock_shared.act's own header for the full
+// account). Sharing is safe here specifically because spi_boot and
+// spi_prog are never mid-transaction at the same time (this core is
+// single-issue).
 template<pint AER_DEPTH>
 defproc harness(
     chan?(addr_t) addr_in;
@@ -66,8 +73,6 @@ defproc harness(
     demux.wdata_out[0] = sb.wdata;
     demux.rdata_out[0] = sb.rdata;
     sb.cs = spi_boot_cs; sb.sclk = spi_boot_sclk; sb.mosi = spi_boot_mosi; sb.miso = spi_boot_miso;
-    spi_clock sb_clk;
-    sb.req = sb_clk.req; sb.ack = sb_clk.ack;
 
     spi_prog sp;
     demux.addr_out[2] = sp.addr;
@@ -75,8 +80,10 @@ defproc harness(
     demux.wdata_out[2] = sp.wdata;
     demux.rdata_out[2] = sp.rdata;
     sp.cs = spi_prog_cs; sp.sclk = spi_prog_sclk; sp.mosi = spi_prog_mosi; sp.miso = spi_prog_miso;
-    spi_clock sp_clk;
-    sp.req = sp_clk.req; sp.ack = sp_clk.ack;
+
+    spi_clock_shared shared_clk;
+    sb.req = shared_clk.req_a; sb.ack = shared_clk.ack_a;
+    sp.req = shared_clk.req_b; sp.ack = shared_clk.ack_b;
 
     gpio gp;
     demux.addr_out[3] = gp.addr;
