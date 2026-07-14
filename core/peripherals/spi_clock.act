@@ -1,0 +1,30 @@
+import "core/globals.act";
+
+// Real request-attached-to-acknowledge-through-a-delay-line clock source
+// for spi_boot/spi_prog (both SPI masters -- see their header comments for
+// why they need to self-time sclk rather than pace it against rendezvous
+// with the external device). Deliberately its own tiny, purely structural
+// process, kept separate from spi_boot/spi_prog themselves: actsim crashes
+// (core.cc:2814, an internal multi-driver-conflict assertion) on any
+// single chp process that both exposes a plain bool port to its own
+// parent and has a local variable wired to prs circuitry -- keeping
+// req/ack as spi_boot/spi_prog's own ports (not an internal instance)
+// and putting the actual prs here, in a process with no chp body of its
+// own, means neither process individually hits that combination.
+//
+// Uses an explicit `[after=N]` timing annotation rather than a physical
+// delay chain built from real inverter pairs (std::delay_lines::
+// chain_delay_buffer, tried first): the inverter-chain version is a
+// genuine switch-level circuit, and toggling it back-to-back across a
+// full SPI transaction (dozens of edges with no recovery time between
+// them) produced real hazards -- `unstable transition`/`weak-interference`
+// warnings and `ack` reading X -- that persisted even at very large N,
+// since more delay stages doesn't fix a circuit not given time to settle
+// between toggles. `[after=N]` is an ideal, simulator-only delay with none
+// of that switch-level dynamics, so it doesn't have this failure mode.
+defproc spi_clock(bool? req; bool! ack) {
+    prs {
+        [after=SPI_CLOCK_DELAY_N] req => ack+
+        [after=SPI_CLOCK_DELAY_N] ~req => ack-
+    }
+}

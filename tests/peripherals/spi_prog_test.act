@@ -1,102 +1,122 @@
 import "core/globals.act";
 import "core/peripherals/spi_prog.act";
+import "core/peripherals/spi_clock.act";
 
-// RAM-facing stub: answers spi_prog's own read requests (spi_prog is the
-// bus master toward RAM here, not the CPU) with fixed known values at the
-// two offsets this test's spi_prog<8, 2> instance will read.
-defproc backend(
-    chan?(addr_t) addr; chan?(mode_mem_t) mode;
-    chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata
+// Plays the external SPI device's role: a slave gated purely by observing
+// cs/sclk/mosi/miso transitions, matching a real (non-ACT) external SPI
+// memory/logger -- spi_prog (the master) never rendezvous with it, exactly
+// like spi_boot_test's external_flash. Handles both directions: a WRITE
+// transaction (R/W=1) is checked against the one expected address/data
+// pair; a READ transaction (R/W=0) answers with a fixed known value
+// regardless of address, since this test only issues one of each.
+defproc external_device(
+    bool? cs; bool? sclk; bool? mosi;
+    bool! miso
 ) {
-    addr_t a;
-    mode_mem_t md;
+    int<WIDTH_DATA> addr_shift, data_shift;
+    int i;
+    bool rw, bit;
 
     chp {
-        *[
-            addr?a; mode?md;
-            assert(md.op = op_mem_t.R, "backend: spi_prog should only ever read RAM");
-            [
-                a.offset = 8 -> rdata!int(0x11223344, WIDTH_DATA)
-                [] a.offset = 12 -> rdata!int(0xCAFEBABE, WIDTH_DATA)
-                [] else -> assert(false, "backend: unexpected offset ", a.offset)
-            ]
-        ]
+        miso := false;
+
+        // --- expect the write first ---
+        [cs];
+        [sclk]; rw := mosi; [~sclk];
+
+        addr_shift := 0; i := 0;
+        *[ i < WIDTH_ADDR ->
+            [sclk]; bit := mosi;
+            addr_shift := (addr_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+            [~sclk];
+            i := i + 1
+        ];
+        assert(rw, "external_device: expected a write first");
+        assert(addr_shift = 0x50, "external_device: write addr: want 0x50, got ", addr_shift);
+
+        data_shift := 0; i := 0;
+        *[ i < WIDTH_DATA ->
+            [sclk]; bit := mosi;
+            data_shift := (data_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+            [~sclk];
+            i := i + 1
+        ];
+        assert(data_shift = 0xAABBCCDD, "external_device: write data: want 0xAABBCCDD, got ", data_shift);
+        log("%xexternal_device: write observed 0x", data_shift, " at addr 0x50, as expected");
+        [~cs];
+
+        // --- then the read ---
+        [cs];
+        [sclk]; rw := mosi; [~sclk];
+
+        addr_shift := 0; i := 0;
+        *[ i < WIDTH_ADDR ->
+            [sclk]; bit := mosi;
+            addr_shift := (addr_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+            [~sclk];
+            i := i + 1
+        ];
+        assert(~rw, "external_device: expected a read second");
+        assert(addr_shift = 0x60, "external_device: read addr: want 0x60, got ", addr_shift);
+
+        data_shift := int(0x99887766, WIDTH_DATA); i := 0;
+        *[ i < WIDTH_DATA ->
+            miso := (data_shift{31} = 1); data_shift := data_shift << 1;
+            [sclk]; [~sclk];
+            i := i + 1
+        ];
+        log("external_device: read answered with 0x99887766");
+        [~cs]
     }
 }
 
-// Plays the external SPI device's role that spi_prog (the master) streams
-// RAM contents out to: a slave gated purely by observing cs/sclk/mosi
-// transitions, matching a real (non-ACT) external SPI memory/logger --
-// spi_prog never hands anything back to check against, so this is where
-// the actual verification of what got sent lives.
-defproc external_sink(
-    bool? cs; bool? sclk; bool? mosi
-) {
-    int<WIDTH_DATA> expect_addr[2], expect_data[2];
-    int<WIDTH_DATA> addr_shift, data_shift, exp_addr, exp_data;
-    int i, w;
-    bool bit;
-
-    chp {
-        expect_addr[0] := int(8, WIDTH_DATA);  expect_data[0] := int(0x11223344, WIDTH_DATA);
-        expect_addr[1] := int(12, WIDTH_DATA); expect_data[1] := int(0xCAFEBABE, WIDTH_DATA);
-
-        w := 0;
-        *[ w < 2 ->
-            [cs];
-            exp_addr := expect_addr[w]; exp_data := expect_data[w];
-
-            addr_shift := 0; i := 0;
-            *[ i < WIDTH_ADDR ->
-                [sclk];
-                bit := mosi;
-                addr_shift := (addr_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
-                [~sclk];
-                i := i + 1
-            ];
-            assert(addr_shift = exp_addr, "external_sink: addr mismatch, want ", exp_addr);
-
-            data_shift := 0; i := 0;
-            *[ i < WIDTH_DATA ->
-                [sclk];
-                bit := mosi;
-                data_shift := (data_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
-                [~sclk];
-                i := i + 1
-            ];
-            assert(data_shift = exp_data, "external_sink: data mismatch, want ", exp_data);
-            log("external_sink: word ", w, " matched"); log("%xexternal_sink: data=0x", data_shift);
-
-            [~cs];
-            w := w + 1
-        ]
-    }
-}
-
-// Wires spi_prog (as the SPI master, and separately as a RAM-facing bus
-// master) to backend (RAM) and external_sink (the SPI device it streams
-// to). spi_prog<8, 2> reads offsets 8 and 12 from backend once, at
-// startup, and pushes both out over SPI -- external_sink's asserts are
-// the actual pass/fail check.
+// Drives spi_prog directly (no soc involved), playing the CPU's role over
+// its two MMIO registers: writes the address register then the data
+// register (triggering an outbound SPI write, checked by external_device
+// above), then writes a new address and reads the data register
+// (triggering an outbound SPI read, checked against what external_device
+// answers with).
 defproc spi_prog_test() {
-    spi_prog<8, 2> sp;
-    backend be;
-    external_sink es;
+    spi_prog sp;
+    external_device ed;
+    spi_clock clk;
 
     chan(addr_t) addr;
     chan(mode_mem_t) mode;
     chan(int<WIDTH_DATA>) wdata;
     chan(int<WIDTH_DATA>) rdata;
-    bool cs, sclk, mosi;
+    bool cs, sclk, mosi, miso, req, ack;
 
     sp.addr = addr; sp.mode = mode; sp.wdata = wdata; sp.rdata = rdata;
-    be.addr = addr; be.mode = mode; be.wdata = wdata; be.rdata = rdata;
+    sp.cs = cs; sp.sclk = sclk; sp.mosi = mosi; sp.miso = miso;
+    ed.cs = cs; ed.sclk = sclk; ed.mosi = mosi; ed.miso = miso;
+    sp.req = req; sp.ack = ack;
+    clk.req = req; clk.ack = ack;
 
-    sp.cs = cs; sp.sclk = sclk; sp.mosi = mosi;
-    es.cs = cs; es.sclk = sclk; es.mosi = mosi;
+    addr_t a;
+    mode_mem_t md;
+    int<WIDTH_DATA> r;
 
     chp {
-        log("======== spi_prog test start ========")
+        log("======== spi_prog test start ========");
+
+        // --- write: stage addr=0x50, then write data=0xAABBCCDD ---
+        a.base := 0; a.offset := 0; md.op := op_mem_t.W; md.size := size_mem_t.WORD;
+        addr!a; mode!md; wdata!int(0x50, WIDTH_DATA);
+
+        a.offset := 4;
+        addr!a; mode!md; wdata!int(0xAABBCCDD, WIDTH_DATA);
+
+        // --- read: stage addr=0x60, then read data register ---
+        a.offset := 0;
+        addr!a; mode!md; wdata!int(0x60, WIDTH_DATA);
+
+        a.offset := 4; md.op := op_mem_t.R;
+        addr!a; mode!md; rdata?r;
+        assert(r = 0x99887766, "spi_prog: read want 0x99887766, got ", r);
+        log("%xspi_prog: read back 0x", r);
+
+        log("======== spi_prog test complete ========")
     }
 }
 

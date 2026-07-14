@@ -1,0 +1,67 @@
+import "chips/dvs/core.act";
+import "chips/dvs/tests/e2e/spi_flash_stub.act";
+import "gen/file_ids.act";
+
+// dvs equivalent of chips/bench/tests/e2e/e2e_gpio_test.act: end-to-end
+// test for GPIO, exercising both directions in one real compiled program
+// (software/dvs_gpio_demo/main.c), booted genuinely XIP out of spi_boot
+// (no ROM):
+//   - input: firing one of core's two GPIO input pins (gpio_in_0/
+//     gpio_in_1 -- pure wiring onto soc's event_id_1/event_id_2, dvs's two
+//     spare lines, unlike chips/bench's event_id_14/event_id_15) wakes the
+//     CPU through the existing interrupt-controller vectoring, exactly
+//     like any other event line.
+//   - output: each ISR responds with a real MMIO store to the GPIO output
+//     register (unchanged, base=ADDR_GPIO), observed here on
+//     gpio_out_0..gpio_out_3.
+//
+// spi_prog's pins and aer_in are left unconnected -- this test never
+// touches either.
+defproc e2e_gpio_test() {
+    core<8> c;
+    spi_flash_stub<ROM_IMAGE> flash;
+
+    bool spi_boot_cs, spi_boot_sclk, spi_boot_mosi, spi_boot_miso;
+    c.spi_boot_cs = spi_boot_cs; c.spi_boot_sclk = spi_boot_sclk;
+    c.spi_boot_mosi = spi_boot_mosi; c.spi_boot_miso = spi_boot_miso;
+    flash.cs = spi_boot_cs; flash.sclk = spi_boot_sclk;
+    flash.mosi = spi_boot_mosi; flash.miso = spi_boot_miso;
+
+    bool p0, p1, p2, p3;
+
+    chp {
+        log("======== dvs gpio e2e test start ========");
+
+        // --- gpio_in_0 -> isr_gpio_in_0 writes 0b0101 ---
+        log("--- firing gpio_in_0, expect GPIO output 0b0101 ---");
+        (
+            c.gpio_in_0!true
+        ),
+        (
+            c.gpio_out_0?p0; c.gpio_out_1?p1; c.gpio_out_2?p2; c.gpio_out_3?p3
+        );
+        assert(p0, "gpio_in_0: pin_0 should be high (0b0101)");
+        assert(~p1, "gpio_in_0: pin_1 should be low (0b0101)");
+        assert(p2, "gpio_in_0: pin_2 should be high (0b0101)");
+        assert(~p3, "gpio_in_0: pin_3 should be low (0b0101)");
+        log("gpio_in_0: observed 0b0101 as expected");
+
+        // --- gpio_in_1 -> isr_gpio_in_1 writes 0b1010 ---
+        log("--- firing gpio_in_1, expect GPIO output 0b1010 ---");
+        (
+            c.gpio_in_1!true
+        ),
+        (
+            c.gpio_out_0?p0; c.gpio_out_1?p1; c.gpio_out_2?p2; c.gpio_out_3?p3
+        );
+        assert(~p0, "gpio_in_1: pin_0 should be low (0b1010)");
+        assert(p1, "gpio_in_1: pin_1 should be high (0b1010)");
+        assert(~p2, "gpio_in_1: pin_2 should be low (0b1010)");
+        assert(p3, "gpio_in_1: pin_3 should be high (0b1010)");
+        log("gpio_in_1: observed 0b1010 as expected");
+
+        log("======== dvs gpio e2e test complete ========")
+    }
+}
+
+e2e_gpio_test egt;

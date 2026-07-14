@@ -47,7 +47,6 @@ defproc soc(
     int<WIDTH_DATA> next_pc;
 
     bool is_wfi;
-    bool running;
     bool reset_recv;
 
     reg_req req_pkt;
@@ -113,28 +112,42 @@ defproc soc(
     mmu.rdata_out[2] = rdata_ext;
 
     chp {
-        running := false;
+        // Idle wait: block until either an external reset or a wake-up pc
+        // arrives. This used to be folded into the main loop's own
+        // top-level selection, gated by a `running` bool guard that was
+        // set once and re-read arbitrarily far in the future -- a plain
+        // bool used as a probed-selection guard, held across a long
+        // stretch of unrelated activity (e.g. this core's own fetch
+        // blocking on a slow off-chip peripheral), reads back its
+        // stale/reset value instead of its actual last write on this
+        // toolchain (confirmed directly: a canary int set on the same
+        // line survives such a gap correctly; the bool guard next to it
+        // doesn't). Structuring "idle vs running" via which block of code
+        // is executing, instead of via a variable read back after an
+        // unbounded gap, sidesteps that entirely -- this wait is only
+        // ever entered right when it's about to block, never held onto.
+        [|
+            #reset_ext ->
+                reset_ext?reset_recv;
+                log("external reset: pc ", ADDR_RESET);
+                pc := ADDR_RESET;
+                reset_int_ctrl!true  // relay onward to clear interrupt.act's own state
+            [] #event_pc -> event_pc?pc
+        |];
+
         *[
-            // reset_ext races as a flat sibling of "keep running" and
-            // "idle, waiting for a wake-up pc" -- not nested inside a
-            // catch-all -- so it can recover the core whether it's hung
-            // (stuck in a loop that never reaches WFI) or legitimately
-            // idle. Nesting the idle wait inside a "true" branch instead
-            // would leave a gap: once that branch is chosen, execution
-            // commits to blocking on event_pc?pc and won't reconsider
-            // reset_ext until a real event arrives. Reset only ever takes
-            // effect between instructions, never mid-instruction.
-            [|
+            // Already running: reset_ext still races as a flat sibling of
+            // "keep going" -- a probe alone (not blocking) catches it
+            // between any two instructions without needing a guard held
+            // across the fetch below.
+            [
                 #reset_ext ->
                     reset_ext?reset_recv;
                     log("external reset: pc ", ADDR_RESET);
                     pc := ADDR_RESET;
-                    running := true;
-                    reset_int_ctrl!true  // relay onward to clear interrupt.act's own state
-                [] running -> skip
-                [] (~running) & #event_pc -> event_pc?pc
-            |];
-            running := true;
+                    reset_int_ctrl!true
+                [] ~#reset_ext -> skip
+            ];
 
             // instruction fetch
             addr_core.base := pc{19..16}, addr_core.offset := pc{15..0},
@@ -396,7 +409,17 @@ defproc soc(
             log("is_wfi = ", is_wfi);
 
             [ is_wfi ->
-                running := false
+                // idle again -- same wait as before the loop, repeated
+                // rather than factored out, to keep this a plain
+                // straight-line wait instead of a guard held across time
+                [|
+                    #reset_ext ->
+                        reset_ext?reset_recv;
+                        log("external reset: pc ", ADDR_RESET);
+                        pc := ADDR_RESET;
+                        reset_int_ctrl!true
+                    [] #event_pc -> event_pc?pc
+                |]
                 [] else ->
                 pc := next_pc
             ]
