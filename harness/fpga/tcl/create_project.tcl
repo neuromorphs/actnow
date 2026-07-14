@@ -12,7 +12,7 @@ create_project $proj_name $proj_dir -part $part_name -force
 add_files [glob [file join $harness_dir "static/*.v"]]
 add_files [glob [file join $harness_dir "gen/*.v"]]
 
-source [file join $tcl_dir "create_bd.tcl"]
+source [file join $tcl_dir "create_bd_skeleton.tcl"]
 
 set bd_files [get_files -quiet "*${design_name}.bd"]
 if {[llength $bd_files] == 0} {

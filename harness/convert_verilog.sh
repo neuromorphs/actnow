@@ -15,8 +15,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-PROCESS="soc"
-ACT_FILE="core/soc.act"
+PROCESS="core<4>"
+ACT_FILE="chips/fpga/core.act"
 OUT_DIR="$SCRIPT_DIR/gen"
 
 usage() {
@@ -66,9 +66,44 @@ fi
 REL_ACT_FILE="$(realpath --relative-to="$REPO_ROOT" "$ACT_FILE")"
 REL_OUT_DIR="$(realpath --relative-to="$REPO_ROOT" "$OUT_DIR")"
 
+# Use the patched chp2fpga build by default: the stock /usr/local/cad build
+# drops the data of channels whose payload is an enum/struct-of-enum (e.g.
+# mode_mem_t's op/size), so every op/size-dependent path -- the demux's
+# read/write routing, mem's size masking -- stalls in the generated RTL. The
+# patched build emits those data buses (\*_mode.op / \*_mode.size). Override
+# with CHP2FPGA=... if needed.
+CHP2FPGA="${CHP2FPGA:-/share/fpga_proto/chp/chp2fpga.x86_64_linux6_17_0}"
+
 # -a emits the round-robin arbiter (module rr) into <out>/arbiter.v. It is
 # only needed for non-deterministic selection, but the generated processes
 # instantiate rr unconditionally, so pass it always to avoid a missing-module
 # error at synth/sim time. arbiter.v must be added to the downstream file list.
-echo "convert_verilog.sh: (cd \"$REPO_ROOT\" && chp2fpga -a -p \"$PROCESS\" \"$REL_ACT_FILE\" -o \"$REL_OUT_DIR/\")"
-(cd "$REPO_ROOT" && chp2fpga -a -p "$PROCESS" "$REL_ACT_FILE" -o "$REL_OUT_DIR/")
+echo "convert_verilog.sh: (cd \"$REPO_ROOT\" && \"$CHP2FPGA\" -a -p \"$PROCESS\" \"$REL_ACT_FILE\" -o \"$REL_OUT_DIR/\")"
+(cd "$REPO_ROOT" && "$CHP2FPGA" -a -p "$PROCESS" "$REL_ACT_FILE" -o "$REL_OUT_DIR/")
+
+# Post-generation fix for a chp2fpga naming bug (present in both the stock and
+# patched builds): the internal `event_pc` channel probe in soc's main loop is
+# emitted as the bare name `\event_pc_valid`, but the channel is aliased to the
+# `inter` subinstance port and only declared as `\inter.event_pc_valid`. Left
+# unfixed, soc.v fails to compile ("event_pc_valid is not declared"). Only the
+# guard expression uses the bare name; the port connection below it is correct.
+if [[ -f "$OUT_DIR/soc.v" ]]; then
+    sed -i 's/(\\event_pc_valid )/(\\inter.event_pc_valid )/' "$OUT_DIR/soc.v"
+fi
+
+# chp2fpga derives module/file names from template array params, e.g.
+# demux<3,{4,5,6},16> -> module \demux3{456}16 in demux3{456}16.v. Vivado's Tcl
+# file list rejects '{' '}' in filenames (add_files: "Illegal file or directory
+# name"), so sanitize braces to '_' in both the module-name token (everywhere it
+# appears -- definition and instantiations) and the filename. Braces are matched
+# literally in sed BRE, and these tokens never collide with Verilog {..}
+# concatenations, so this is safe. (The older committed gen/ used this same
+# brace-free convention, e.g. mmu2_01_4.v.)
+shopt -s nullglob
+for f in "$OUT_DIR"/*'{'*.v; do
+    base="$(basename "$f" .v)"                 # e.g. demux3{456}16
+    safe="$(printf '%s' "$base" | tr '{}' '__')"   # e.g. demux3_456_16
+    sed -i "s/$base/$safe/g" "$OUT_DIR"/*.v
+    mv "$f" "$OUT_DIR/$safe.v"
+done
+shopt -u nullglob

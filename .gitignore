@@ -7,6 +7,7 @@ software/**/build/
 
 # test suite artifacts
 /gen/
+/prs_list.txt
 __pycache__/
 
 .claude/*
