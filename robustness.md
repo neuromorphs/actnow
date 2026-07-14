@@ -949,8 +949,6 @@ actionable tasks until these are answered:
 
 - [ ] Make the number of events templated in core
 
-- [ ] Add a sentinel value to transmission
-
 - [x] Confirm bootloader is XIP — done in Stage 2.5: `spi_boot` has no
       backing store, every CPU fetch (including the bootloader's own
       instructions) is a live SPI transaction; R/W bit convention (0=read,
@@ -970,7 +968,7 @@ actionable tasks until these are answered:
 
 - [ ] Remove the three arbitrations that replace running
 
-- [ ] SPI boot and SPI prog share the same clk instance. We have to find a way to test this reliably and safely. THIS CLK FEATURE IS NOT WORKING IN GENERAL
+- [x] SPI boot and SPI prog share the same clk instance. We have to find a way to test this reliably and safely. (using explicit delays )
 
 Once these are answered, expand this section into the same
 checkbox/Gate structure as Stages 1 and 2 before starting implementation.

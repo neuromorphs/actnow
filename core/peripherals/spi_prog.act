@@ -20,36 +20,27 @@ import "core/globals.act";
 //
 // spi_prog is still the SPI *master* on its external side (drives cs/
 // sclk/mosi, only listens on miso) -- see spi_boot.act's header comment
-// for why that means self-timing sclk via req/ack + a spi_clock.act
-// sibling rather than pacing it against rendezvous with the external
-// device.
+// for why that means self-timing sclk via a plain busy-wait loop
+// (SPI_CLOCK_DELAY_N) rather than pacing it against rendezvous with the
+// external device.
 defproc spi_prog(
     chan?(addr_t) addr; chan?(mode_mem_t) mode;
     chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata;
 
     bool! cs; bool! sclk; bool! mosi;
-    bool? miso;
-    bool! req; bool? ack
+    bool? miso
 ) {
     addr_t a;
     mode_mem_t md;
     int<WIDTH_DATA> spi_addr_reg;
     int<WIDTH_DATA> shift, tmp;
-    int i;
+    int i, k;
     bool bit;
 
     chp {
-        cs := false; sclk := false; mosi := false; req := false;
+        cs := false; sclk := false; mosi := false;
         spi_addr_reg := 0;
 
-        // No priming toggle here, unlike spi_boot.act -- both peripherals
-        // share one real delay-line clock (spi_clock_shared.act) that only
-        // needs its ack resolved out of X once, and spi_boot always runs
-        // first (it services every fetch from boot, before the CPU could
-        // possibly reach code touching spi_prog). A second, redundant prime
-        // here would fire concurrently with spi_boot's at simulation start,
-        // both toggling req into the shared XOR combiner at once -- genuine
-        // electrical contention, not just redundant work.
         *[
             addr?a; mode?md;
             [
@@ -64,22 +55,22 @@ defproc spi_prog(
                             wdata?shift;
                             cs := true;
                             mosi := true;  // R/W bit: write
-                            sclk := true;  req := ~req; [ ack = req ];
-                            sclk := false; req := ~req; [ ack = req ];
+                            sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                            sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
 
                             tmp := spi_addr_reg << (WIDTH_DATA - WIDTH_ADDR); i := 0;
                             *[ i < WIDTH_ADDR ->
                                 mosi := (tmp{31} = 1); tmp := tmp << 1;
-                                sclk := true;  req := ~req; [ ack = req ];
-                                sclk := false; req := ~req; [ ack = req ];
+                                sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                                sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
                                 i := i + 1
                             ];
 
                             i := 0;
                             *[ i < WIDTH_DATA ->
                                 mosi := (shift{31} = 1); shift := shift << 1;
-                                sclk := true;  req := ~req; [ ack = req ];
-                                sclk := false; req := ~req; [ ack = req ];
+                                sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                                sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
                                 i := i + 1
                             ];
 
@@ -87,22 +78,22 @@ defproc spi_prog(
                         [] else ->
                             cs := true;
                             mosi := false;  // R/W bit: read
-                            sclk := true;  req := ~req; [ ack = req ];
-                            sclk := false; req := ~req; [ ack = req ];
+                            sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                            sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
 
                             tmp := spi_addr_reg << (WIDTH_DATA - WIDTH_ADDR); i := 0;
                             *[ i < WIDTH_ADDR ->
                                 mosi := (tmp{31} = 1); tmp := tmp << 1;
-                                sclk := true;  req := ~req; [ ack = req ];
-                                sclk := false; req := ~req; [ ack = req ];
+                                sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                                sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
                                 i := i + 1
                             ];
 
                             shift := 0; i := 0;
                             *[ i < WIDTH_DATA ->
-                                sclk := true; req := ~req; [ ack = req ];
+                                sclk := true; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
                                 bit := miso;
-                                sclk := false; req := ~req; [ ack = req ];
+                                sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
                                 shift := (shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
                                 i := i + 1
                             ];

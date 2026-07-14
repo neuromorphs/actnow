@@ -1,6 +1,5 @@
 import "core/globals.act";
 import "core/peripherals/spi_prog.act";
-import "core/peripherals/spi_clock.act";
 
 // Plays the external SPI device's role: a slave gated purely by observing
 // cs/sclk/mosi/miso transitions, matching a real (non-ACT) external SPI
@@ -79,19 +78,16 @@ defproc external_device(
 defproc spi_prog_test() {
     spi_prog sp;
     external_device ed;
-    spi_clock clk;
 
     chan(addr_t) addr;
     chan(mode_mem_t) mode;
     chan(int<WIDTH_DATA>) wdata;
     chan(int<WIDTH_DATA>) rdata;
-    bool cs, sclk, mosi, miso, req, ack;
+    bool cs, sclk, mosi, miso;
 
     sp.addr = addr; sp.mode = mode; sp.wdata = wdata; sp.rdata = rdata;
     sp.cs = cs; sp.sclk = sclk; sp.mosi = mosi; sp.miso = miso;
     ed.cs = cs; ed.sclk = sclk; ed.mosi = mosi; ed.miso = miso;
-    sp.req = req; sp.ack = ack;
-    clk.req = req; clk.ack = ack;
 
     addr_t a;
     mode_mem_t md;

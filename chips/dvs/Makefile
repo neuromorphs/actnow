@@ -22,9 +22,9 @@ ROM_TEST ?= simple
 
 ROM_IMAGE := software/tests/build/rom_image.mem
 
-.PHONY: test e2e_boot_test e2e_aer_test e2e_reset_test e2e_gpio_test e2e_spi_read_test
+.PHONY: test e2e_boot_test e2e_aer_test e2e_reset_test e2e_gpio_test e2e_spi_read_test e2e_full_test
 
-test: e2e_boot_test e2e_aer_test e2e_reset_test e2e_gpio_test e2e_spi_read_test
+test: e2e_boot_test e2e_aer_test e2e_reset_test e2e_gpio_test e2e_spi_read_test e2e_full_test
 	@echo "=== dvs: all e2e tests passed ==="
 
 # Baseline scenario: boot software/boot_only/main.c (zero peripheral
@@ -148,4 +148,31 @@ e2e_spi_read_test:
 		echo "dvs e2e_spi_read_test: FAIL (no completion)"; exit 1; \
 	else \
 		echo "dvs e2e_spi_read_test: PASS"; \
+	fi
+
+# The full pipeline in one test: boot XIP out of spi_boot, load a data blob
+# via spi_prog's read direction (not XIP), push AER events, let the
+# interrupt fire, and observe each result (loaded value + pushed value)
+# written back out over SPI via spi_prog's write direction --
+# chips/dvs/tests/e2e/e2e_full_test.act chains every dvs mechanism through
+# one real program (software/dvs_full_e2e/main.c) so a wiring mistake
+# anywhere shows up as a wrong final value, not a silently-skipped step.
+e2e_full_test:
+	@echo "--- dvs e2e_full_test ---"
+	@rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem
+	@$(MAKE) -s -C $(ROOT) ROM_TEST=dvs_full_e2e CROSS=$(CROSS) file-registry
+	@cd $(ROOT) && $(AFLAT) chips/dvs/tests/e2e/e2e_full_test.act
+	@out=$$(cd $(ROOT) && printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf chips/dvs/tests/e2e/e2e_full_test.act e2e_full_test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem; \
+	$(MAKE) -s -C $(ROOT) ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
+	if [ $$status -ne 0 ]; then \
+		echo "dvs e2e_full_test: FAIL"; exit $$status; \
+	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+		echo "dvs e2e_full_test: FAIL"; exit 1; \
+	elif ! echo "$$out" | grep -qi "test complete"; then \
+		echo "dvs e2e_full_test: FAIL (no completion)"; exit 1; \
+	else \
+		echo "dvs e2e_full_test: PASS"; \
 	fi

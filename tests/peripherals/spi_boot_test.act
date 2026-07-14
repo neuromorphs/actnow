@@ -1,6 +1,5 @@
 import "core/globals.act";
 import "core/peripherals/spi_boot.act";
-import "core/peripherals/spi_clock.act";
 
 // Plays the external SPI flash's role: a slave that spi_boot (the master)
 // initiates transmissions with. Real SPI slaves never hand anything back
@@ -70,19 +69,16 @@ defproc external_flash(
 defproc spi_boot_test() {
     spi_boot sb;
     external_flash ef;
-    spi_clock clk;
 
     chan(addr_t) addr;
     chan(mode_mem_t) mode;
     chan(int<WIDTH_DATA>) wdata;
     chan(int<WIDTH_DATA>) rdata;
-    bool cs, sclk, mosi, miso, req, ack;
+    bool cs, sclk, mosi, miso;
 
     sb.addr = addr; sb.mode = mode; sb.wdata = wdata; sb.rdata = rdata;
     sb.cs = cs; sb.sclk = sclk; sb.mosi = mosi; sb.miso = miso;
     ef.cs = cs; ef.sclk = sclk; ef.mosi = mosi; ef.miso = miso;
-    sb.req = req; sb.ack = ack;
-    clk.req = req; clk.ack = ack;
 
     addr_t a;
     mode_mem_t md;
