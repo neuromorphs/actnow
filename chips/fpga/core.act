@@ -12,9 +12,9 @@ import "chips/fpga/harness.act";
 //   - a raw ROM read interface (rom_*) the core boots XIP from (base 4).
 //   - the FIFO's external push port (fifo_push, base 5).
 //   - a raw external read/write interface (io_*, base 6).
-//   - reset_ext, for a warm reboot. A cold boot doesn't need it -- interrupt.act
-//     fires event_pc!ADDR_RESET once at startup -- but it's exposed like every
-//     other chip variant's.
+//   - reset_ext, which is how the core boots *and* how it warm-reboots. soc.act
+//     blocks on it before executing anything, so nothing here runs until whoever
+//     owns this chip asserts it once -- there is no implicit power-on-and-go.
 template<pint FIFO_DEPTH>
 defproc core(
     chan?(bool) reset_ext;

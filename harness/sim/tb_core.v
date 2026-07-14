@@ -211,24 +211,23 @@ module tb_core;
         ,.\io_rdata        (32'b0)
     );
 
-    // ---- completion detection: the core's own decode signals ----
-    // \is_wfi pulses high the cycle the WFI (or EBREAK) is decoded; \running
-    // drops to 0 and stays there once parked. boot_only has no peripheral
-    // interaction to observe, so -- exactly like e2e_fpga_boot_test, which
-    // greps soc's "decoded wfi" log line -- WFI *is* the pass condition there.
-    // The application scenarios hit WFI on every ISR exit, so they judge from
-    // the base-6 results instead.
-    wire dut_is_wfi  = uut.\s .\is_wfi ;
-    wire dut_running = uut.\s .\running ;
+    // ---- completion detection: the core's own decode signal ----
+    // \is_wfi pulses high the cycle the WFI (or EBREAK) is decoded. boot_only has
+    // no peripheral interaction to observe, so -- exactly like e2e_fpga_boot_test,
+    // which greps soc's "decoded wfi" log line -- WFI *is* the pass condition
+    // there. The application scenarios hit WFI on every ISR exit, so they judge
+    // from the base-6 results instead.
+    //
+    // (soc's \running bool is gone as of the core-dvs merge: reset_ext is now the
+    // only way to boot, so there is no "am I running yet" state left to track.)
+    wire dut_is_wfi = uut.\s .\is_wfi ;
 
-    reg seen_running = 1'b0;
     integer cycles = 0;
     integer i;
 
     always @(posedge clk) begin
         if (!rst) begin
             cycles <= cycles + 1;
-            if (dut_running) seen_running <= 1'b1;
             if (dut_is_wfi && TEST == T_BOOT) begin
                 $display("[%0t] PASS: core decoded WFI (is_wfi=1) after %0d cycles", $time, cycles);
                 #50 $finish;
@@ -341,8 +340,16 @@ module tb_core;
         rst = 1'b0;
         $display("[%0t] reset released", $time);
 
+        // Cold boot. soc.act blocks on reset_ext before executing anything -- there
+        // is no implicit power-on-and-go -- so every scenario must assert it once
+        // to boot the core at all, exactly as the ACT e2e tests now do. (In the
+        // real KR260 build this is the PS pulsing gpio_ctrl bit 0; see
+        // static/reset_ext_send.v.)
+        $display("[%0t] --- cold boot: asserting reset_ext ---", $time);
+        send_reset_ext();
+
         case (TEST)
-            // boot_only: nothing to drive; the WFI watcher above ends the run.
+            // boot_only: nothing more to drive; the WFI watcher above ends the run.
             T_BOOT: ;
 
             // Two batches through the program's real ISR, no reconfiguration in
@@ -370,6 +377,8 @@ module tb_core;
             // flip the ROM bank to the corrected application (bank B), reset, and
             // run a batch -- e2e_fpga_reset_reload_test.
             T_RELOAD: begin
+                // The cold boot above ran with rom_selector still on bank A, so the
+                // core is executing the *broken* image -- the condition to recover from.
                 $display("[%0t] --- booted into hang (bank A) -- letting it idle ---", $time);
                 repeat (3000) @(posedge clk);
                 $display("[%0t] --- operator notices no progress: flipping ROM bank to the corrected program ---", $time);
@@ -385,8 +394,8 @@ module tb_core;
     // ---- timeout ----
     initial begin
         #TIMEOUT_NS;
-        $display("FAIL: timeout after %0d cycles -- %0d base-6 results, %0d ROM fetches (seen_running=%0b)",
-                 cycles, nresults, nfetch, seen_running);
+        $display("FAIL: timeout after %0d cycles -- %0d base-6 results, %0d ROM fetches (0 fetches = the core never booted: was reset_ext accepted?)",
+                 cycles, nresults, nfetch);
         $finish;
     end
 

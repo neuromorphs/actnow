@@ -60,6 +60,11 @@ defproc e2e_fpga_reset_reload_test() {
     chp {
         log("======== reset+reload e2e test start (fpga) ========");
 
+        // soc no longer boots itself -- assert reset_ext once to boot it. With
+        // rom_selector still on bank A, that boots the *broken* image, which is
+        // the starting condition this test recovers from.
+        c.reset_ext!true;
+
         // rom_selector defaults to bank A (hang) at elaboration.
         log("--- booted into hang (bank A) -- letting it idle ---");
         delay := 0;

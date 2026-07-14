@@ -9,8 +9,11 @@ Sequence:
   1. load the overlay from the .xsa (bitstream + hwh, so PYNQ resolves the DMAs,
      the BRAM controller and the GPIOs by name);
   2. write the firmware image (software/build/rom.mem) into the firmware BRAM;
-  3. pulse the core's reset_ext -- it reboots and XIP-boots the image we just
-     wrote out of base 4. Changing firmware is this, not a bitstream rebuild;
+  3. pulse the core's reset_ext -- this is the ONLY way the core ever starts:
+     soc.act blocks on reset_ext before executing anything, so until this pulse
+     the core is idle, fetches nothing, and produces nothing. The same pulse is
+     also how a firmware change takes effect -- write the BRAM, pulse, done, no
+     bitstream rebuild;
   4. set the decimation for the core's stream (the core is ~100x slower than the
      sensor -- see BD_AER_BRAINSTORM.md D6);
   5. run one DMA-receive loop per stream, forwarding each completed packet as a
@@ -76,7 +79,10 @@ def load_firmware(ol, mem_path):
 
 def reset_core(ol):
     """One 0->1->0 pulse on gpio_ctrl bit 0 -> one send on the core's reset_ext
-    channel -> the core reboots and re-fetches its reset vector from the BRAM."""
+    channel -> the core (re)boots and fetches its reset vector from the BRAM.
+
+    Mandatory, not optional: the core does not self-boot (see the module docstring),
+    so without this it never executes an instruction."""
     ch = ol.gpio_ctrl.channel1
     ch.write(0, 0xFFFFFFFF)
     time.sleep(0.01)
@@ -152,8 +158,8 @@ def main():
     time.sleep(0.2)
     c = counters(ol)
     if c["fetch"] == 0:
-        print("WARNING: the core has fetched nothing from the BRAM -- it is not booting. "
-              "See HW_BRINGUP.md step 4.")
+        print("WARNING: the core has fetched nothing from the BRAM -- it never booted. "
+              "The reset_ext pulse is what starts it; check reset_count. See HW_BRINGUP.md step 3.")
     else:
         print(f"core is fetching ({c['fetch']} ROM reads) -- it booted")
 

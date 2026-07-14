@@ -187,7 +187,18 @@ module tb_pl;
         resetn = 1'b0;
         repeat (16) @(posedge clk);
         resetn = 1'b1;
-        $display("[%0t] reset released -- core boots from BRAM (base 4, XIP)", $time);
+        $display("[%0t] reset released", $time);
+
+        // Cold boot. soc.act blocks on reset_ext before executing anything, so the
+        // core does *nothing* until this bit is pulsed -- on hardware this is the PS
+        // writing gpio_ctrl bit 0 (pynq/actnow_dvs_send.py's reset_core()), which
+        // static/reset_ext_send.v turns into one send on the core's reset_ext
+        // channel. Exercising it here is the same path, not a simulation shortcut.
+        $display("[%0t] --- cold boot: pulsing ctrl[0] (reset_ext) ---", $time);
+        ctrl = 32'h1;
+        repeat (4) @(posedge clk);
+        ctrl = 32'h0;
+        $display("[%0t] core booting from BRAM (base 4, XIP)", $time);
 
         // --- phase 1: no decimation, one batch (BATCH=3 in software/application) ---
         // The events are sent immediately, long before the core has finished
