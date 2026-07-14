@@ -1,0 +1,124 @@
+# e2e test rules for chips/fpga -- run as `$(MAKE) -C chips/fpga <target>`.
+#
+# Same conventions as chips/bench/Makefile: shared infrastructure (file-registry
+# / $(ROM_IMAGE)) stays owned by the top-level Makefile and is invoked via an
+# explicit sub-make ($(MAKE) -C $(ROOT) ...); every aflat/actsim invocation
+# `cd`s to $(ROOT) first, because ACT resolves every `import` relative to the
+# compiler's invocation directory, not the importing file.
+
+ROOT   := ../..
+AFLAT  := aflat
+ACTSIM := actsim
+
+CROSS ?= $(firstword \
+    $(foreach p,riscv32-unknown-elf- riscv64-unknown-elf- riscv-none-elf-, \
+        $(if $(shell command -v $(p)gcc 2>/dev/null),$(p))) \
+    riscv64-unknown-elf-)
+
+BOOT     ?=
+ROM_TEST ?= simple
+
+ROM_IMAGE := software/tests/build/rom_image.mem
+
+.PHONY: test e2e_fpga_boot_test e2e_fpga_fifo_test e2e_fpga_reset_test e2e_fpga_reset_reload_test
+
+# Run every fpga e2e test. multi_event / gpio scenarios from chips/bench are
+# deliberately absent: this variant wires only a single interrupt (event_id_0)
+# and has no GPIO peripheral, so neither is applicable here.
+test: e2e_fpga_boot_test e2e_fpga_fifo_test e2e_fpga_reset_test e2e_fpga_reset_reload_test
+	@echo "=== all fpga e2e tests passed ==="
+
+# Boot software/boot_only/main.c XIP from the raw ROM route and confirm it
+# reaches WFI. Like chips/bench's e2e_boot_test, completion is judged from soc's
+# own "decoded wfi" log line (the test has no chp body to emit a "test complete"
+# line). Force a fresh boot_only image via an explicit sub-make, then restore
+# the default ROM afterward so a later `make rom_program_test` stays
+# deterministic -- same ROM-pinning rationale as chips/bench/Makefile.
+e2e_fpga_boot_test:
+	@echo "--- e2e_fpga_boot_test ---"
+	@rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem
+	@$(MAKE) -s -C $(ROOT) ROM_TEST=boot_only CROSS=$(CROSS) file-registry
+	@cd $(ROOT) && $(AFLAT) chips/fpga/tests/e2e/e2e_fpga_boot_test.act
+	@out=$$(cd $(ROOT) && printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf chips/fpga/tests/e2e/e2e_fpga_boot_test.act e2e_fpga_boot_test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem; \
+	$(MAKE) -s -C $(ROOT) ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
+	if [ $$status -ne 0 ]; then \
+		echo "e2e_fpga_boot_test: FAIL"; exit $$status; \
+	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+		echo "e2e_fpga_boot_test: FAIL"; exit 1; \
+	elif ! echo "$$out" | grep -qi "decoded wfi"; then \
+		echo "e2e_fpga_boot_test: FAIL (no completion)"; exit 1; \
+	else \
+		echo "e2e_fpga_boot_test: PASS"; \
+	fi
+
+# Boot software/application through the bootloader and run two batches through
+# its real ISR: input events on base 5, results captured on the base-6 raw route
+# (modelled by a testbench fifo_out). Force a fresh application image via an
+# explicit sub-make, then restore the default ROM afterward -- same ROM-pinning
+# rationale as chips/bench/Makefile.
+e2e_fpga_fifo_test:
+	@echo "--- e2e_fpga_fifo_test ---"
+	@rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem
+	@$(MAKE) -s -C $(ROOT) ROM_TEST=application CROSS=$(CROSS) file-registry
+	@cd $(ROOT) && $(AFLAT) chips/fpga/tests/e2e/e2e_fpga_fifo_test.act
+	@out=$$(cd $(ROOT) && printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf chips/fpga/tests/e2e/e2e_fpga_fifo_test.act e2e_fpga_fifo_test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem; \
+	$(MAKE) -s -C $(ROOT) ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
+	if [ $$status -ne 0 ]; then \
+		echo "e2e_fpga_fifo_test: FAIL"; exit $$status; \
+	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+		echo "e2e_fpga_fifo_test: FAIL"; exit 1; \
+	elif ! echo "$$out" | grep -qi "test complete"; then \
+		echo "e2e_fpga_fifo_test: FAIL (no completion)"; exit 1; \
+	else \
+		echo "e2e_fpga_fifo_test: PASS"; \
+	fi
+
+# Same as e2e_fpga_fifo_test, but fires reset_ext between two batches to prove a
+# clean reboot of the same bootloader+application image.
+e2e_fpga_reset_test:
+	@echo "--- e2e_fpga_reset_test ---"
+	@rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem
+	@$(MAKE) -s -C $(ROOT) ROM_TEST=application CROSS=$(CROSS) file-registry
+	@cd $(ROOT) && $(AFLAT) chips/fpga/tests/e2e/e2e_fpga_reset_test.act
+	@out=$$(cd $(ROOT) && printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf chips/fpga/tests/e2e/e2e_fpga_reset_test.act e2e_fpga_reset_test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem; \
+	$(MAKE) -s -C $(ROOT) ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
+	if [ $$status -ne 0 ]; then \
+		echo "e2e_fpga_reset_test: FAIL"; exit $$status; \
+	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+		echo "e2e_fpga_reset_test: FAIL"; exit 1; \
+	elif ! echo "$$out" | grep -qi "test complete"; then \
+		echo "e2e_fpga_reset_test: FAIL (no completion)"; exit 1; \
+	else \
+		echo "e2e_fpga_reset_test: PASS"; \
+	fi
+
+# Dual-bank boot recovery: boot the broken software/hang image (bank A), flip a
+# rom_selector to the corrected software/application (bank B), reset, and run a
+# batch. Uses the permanent ROM_IMAGE_HANG / ROM_IMAGE_APPLICATION fixtures the
+# top-level Makefile's file-registry chain builds once -- no per-test ROM rebuild
+# dance needed, just ensure gen/ (and those fixtures) exist.
+e2e_fpga_reset_reload_test:
+	@echo "--- e2e_fpga_reset_reload_test ---"
+	@$(MAKE) -s -C $(ROOT) file-registry
+	@cd $(ROOT) && $(AFLAT) chips/fpga/tests/e2e/e2e_fpga_reset_reload_test.act
+	@out=$$(cd $(ROOT) && printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf chips/fpga/tests/e2e/e2e_fpga_reset_reload_test.act e2e_fpga_reset_reload_test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	if [ $$status -ne 0 ]; then \
+		echo "e2e_fpga_reset_reload_test: FAIL"; exit $$status; \
+	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+		echo "e2e_fpga_reset_reload_test: FAIL"; exit 1; \
+	elif ! echo "$$out" | grep -qi "test complete"; then \
+		echo "e2e_fpga_reset_reload_test: FAIL (no completion)"; exit 1; \
+	else \
+		echo "e2e_fpga_reset_reload_test: PASS"; \
+	fi

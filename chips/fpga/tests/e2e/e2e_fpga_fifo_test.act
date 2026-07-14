@@ -1,0 +1,80 @@
+import "chips/fpga/core.act";
+import "core/peripherals/mem.act";
+import "core/peripherals/fifo_out.act";
+import "gen/file_ids.act";
+
+// FPGA-variant port of chips/bench/tests/e2e/e2e_fifo_test.act: boots
+// software/application/main.c through the bootloader, lets it configure its
+// event_id_0 vector + input-FIFO trigger level (BATCH=3), then sleep. Two
+// 3-word batches are pushed into the input FIFO (base 5); fifo_in fires the
+// single interrupt itself once each batch lands, the program's ISR adds 1 to
+// each word and writes the results out base 6, observed here.
+//
+// The differences from the bench version are purely structural, and are exactly
+// the three things this chip variant changes:
+//   - the single interrupt (fifo_in.event_out -> event_id_0) is wired *inside*
+//     chips/fpga/core.act, so there's no `c.event_id_0 = c.fifo_event` here;
+//   - the ROM is external -- modelled by a file-preloaded mem<true,...> on the
+//     raw rom_* route (base 4) rather than living in the harness;
+//   - there is no output FIFO peripheral -- base 6 is the raw io_* route, and
+//     the program's writes there are captured by a fifo_out modelled *in the
+//     testbench* as the observable "outside".
+defproc e2e_fpga_fifo_test() {
+    core<4> c;
+
+    mem<true, ROM_IMAGE> rom;
+    rom.addr = c.rom_addr;
+    rom.mode = c.rom_mode;
+    rom.rdata = c.rom_rdata;
+
+    fifo_out<4> fout;
+    fout.addr = c.io_addr;
+    fout.mode = c.io_mode;
+    fout.wdata = c.io_wdata;
+    fout.rdata = c.io_rdata;
+
+    int<WIDTH_DATA> result;
+    int<32> delay;
+
+    chp {
+        log("======== end-to-end interrupt/FIFO test start (fpga) ========");
+
+        // Each push just blocks until the program has configured its vector
+        // and trigger level; the interrupt fires itself once a batch lands.
+        log("--- batch 1: pushing 41, 42, 43 into the input FIFO ---");
+        c.fifo_push!int(41, WIDTH_DATA);
+        c.fifo_push!int(42, WIDTH_DATA);
+        c.fifo_push!int(43, WIDTH_DATA);
+
+        fout.pop?result;
+        assert(result = 42, "batch 1 result 1: want 42, got ", result);
+        fout.pop?result;
+        assert(result = 43, "batch 1 result 2: want 43, got ", result);
+        fout.pop?result;
+        assert(result = 44, "batch 1 result 3: want 44, got ", result);
+        log("batch 1: got 42, 43, 44 back from the base-6 output");
+
+        // Model some real-world latency between events.
+        delay := 0;
+        *[ delay < 3000 -> delay := delay + 1 ];
+
+        // --- Batch 2: push 100, 200, 300, expect 101, 201, 301 out. Same ISR
+        // and config, reused without reconfiguring anything.
+        log("--- batch 2: pushing 100, 200, 300 into the input FIFO ---");
+        c.fifo_push!int(100, WIDTH_DATA);
+        c.fifo_push!int(200, WIDTH_DATA);
+        c.fifo_push!int(300, WIDTH_DATA);
+
+        fout.pop?result;
+        assert(result = 101, "batch 2 result 1: want 101, got ", result);
+        fout.pop?result;
+        assert(result = 201, "batch 2 result 2: want 201, got ", result);
+        fout.pop?result;
+        assert(result = 301, "batch 2 result 3: want 301, got ", result);
+        log("batch 2: got 101, 201, 301 back from the base-6 output");
+
+        log("======== end-to-end interrupt/FIFO test complete ========")
+    }
+}
+
+e2e_fpga_fifo_test e2e;

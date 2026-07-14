@@ -1,0 +1,81 @@
+import "core/globals.act";
+import "core/peripherals/fifo_in.act";
+import "core/peripherals/demux.act";
+
+// chips/fpga's off-chip periphery: an input event FIFO plus two *raw*
+// pass-through routes -- a read-only ROM and a read/write external interface --
+// behind a 3-way demux (base=4/5/6, no catch-all), wired to whatever soc
+// instance's addr_ext/mode_ext/wdata_ext/rdata_ext boundary is connected to
+// addr_in/mode_in/wdata_in/rdata_in below.
+//
+// Unlike chips/bench (ROM + fifo_in + fifo_out + gpio) or chips/dvs
+// (AER-only), the FPGA variant keeps just what the FPGA build needs:
+//   - base 4: a *raw* read-only ROM interface. Instead of a file-preloaded
+//     mem<true,...>, the demux's route-0 addr/mode/rdata channels are exposed
+//     straight to the chip boundary, so the actual ROM lives outside the chip
+//     (a BRAM on the FPGA side). soc still boots XIP from base 4 exactly like
+//     chips/bench -- ADDR_RESET's base nibble is 4, so the first fetch lands
+//     here. demux.wdata_out[0] is deliberately left unconnected: the ROM is
+//     read-only and soc never issues a base-4 write, so that send never fires
+//     (same way the bench demux leaves its disabled catch-all slot unwired).
+//   - base 5: the input event FIFO (fifo_in), a generic 32-bit producer. Its
+//     event_out auto-fire is exposed as `fifo_event`; chips/fpga/core.act
+//     wires it to soc's single used interrupt line (event_id_0).
+//   - base 6: a *raw* read/write external interface. Replaces bench's
+//     fifo_out with a plain pass-through of the demux's route-2 quad to the
+//     chip boundary -- what it binds to off-chip (PS/AXI, PL pins) is decided
+//     one level up / on the Vivado side, not here.
+template<pint FIFO_DEPTH>
+defproc harness(
+    chan?(addr_t) addr_in;
+    chan?(mode_mem_t) mode_in;
+    chan?(int<WIDTH_DATA>) wdata_in;
+    chan!(int<WIDTH_DATA>) rdata_in;
+
+    // base 4 -- raw ROM (read-only). Same direction as the demux ports these
+    // alias: demux sends addr/mode, receives rdata.
+    chan!(addr_t) rom_addr;
+    chan!(mode_mem_t) rom_mode;
+    chan?(int<WIDTH_DATA>) rom_rdata;
+
+    // base 5 -- input event FIFO
+    chan?(int<WIDTH_DATA>) fifo_push;
+    chan!(bool) fifo_event;
+
+    // base 6 -- raw external read/write interface
+    chan!(addr_t) io_addr;
+    chan!(mode_mem_t) io_mode;
+    chan!(int<WIDTH_DATA>) io_wdata;
+    chan?(int<WIDTH_DATA>) io_rdata
+) {
+    pint DEMUX_N = 3;
+    pint DEMUX_BASES[DEMUX_N];
+    DEMUX_BASES = {4, 5, 6};   // ROM, input FIFO, raw IO
+    demux<DEMUX_N, DEMUX_BASES, ADDR_NO_CATCHALL> demux;
+
+    demux.addr_in = addr_in;
+    demux.mode_in = mode_in;
+    demux.wdata_in = wdata_in;
+    demux.rdata_in = rdata_in;
+
+    // route 0: base 4 -- raw ROM read interface (XIP boot). wdata_out[0] left
+    // unconnected on purpose (read-only; the write branch never executes).
+    demux.addr_out[0] = rom_addr;
+    demux.mode_out[0] = rom_mode;
+    demux.rdata_out[0] = rom_rdata;
+
+    // route 1: base 5 -- input event FIFO
+    fifo_in<FIFO_DEPTH, WIDTH_DATA> fin;
+    demux.addr_out[1] = fin.addr;
+    demux.mode_out[1] = fin.mode;
+    demux.wdata_out[1] = fin.wdata;
+    demux.rdata_out[1] = fin.rdata;
+    fin.push = fifo_push;
+    fin.event_out = fifo_event;
+
+    // route 2: base 6 -- raw external read/write interface
+    demux.addr_out[2] = io_addr;
+    demux.mode_out[2] = io_mode;
+    demux.wdata_out[2] = io_wdata;
+    demux.rdata_out[2] = io_rdata;
+}

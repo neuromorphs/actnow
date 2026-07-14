@@ -1,6 +1,7 @@
-gen/
-fpga/vivado/
-fpga/bd/
+/gen/
+/fpga/vivado/
+/fpga/bd/
+/sim/xsim_build/
 *.log
 *.jou
 .Xil

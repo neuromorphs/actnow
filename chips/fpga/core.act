@@ -1,0 +1,61 @@
+import "core/globals.act";
+import "core/soc.act";
+import "chips/fpga/harness.act";
+
+// chips/fpga's whole chip: soc + its off-chip periphery (harness.act) wired
+// together for the FPGA build. Exposes only what this variant uses:
+//   - a single interrupt: the input FIFO's auto-fire (event_out) drives soc's
+//     event_id_0. soc's other 15 event lines are intentionally left
+//     unconnected -- interrupt.act never offers to receive on a line whose
+//     enable bit is clear, and only event_id_0 is ever enabled here, so those
+//     lines are never driven or received on.
+//   - a raw ROM read interface (rom_*) the core boots XIP from (base 4).
+//   - the FIFO's external push port (fifo_push, base 5).
+//   - a raw external read/write interface (io_*, base 6).
+//   - reset_ext, for a warm reboot. A cold boot doesn't need it -- interrupt.act
+//     fires event_pc!ADDR_RESET once at startup -- but it's exposed like every
+//     other chip variant's.
+template<pint FIFO_DEPTH>
+defproc core(
+    chan?(bool) reset_ext;
+
+    // raw ROM read interface (XIP boot)
+    chan!(addr_t) rom_addr;
+    chan!(mode_mem_t) rom_mode;
+    chan?(int<WIDTH_DATA>) rom_rdata;
+
+    // input event FIFO
+    chan?(int<WIDTH_DATA>) fifo_push;
+
+    // raw external read/write interface
+    chan!(addr_t) io_addr;
+    chan!(mode_mem_t) io_mode;
+    chan!(int<WIDTH_DATA>) io_wdata;
+    chan?(int<WIDTH_DATA>) io_rdata
+) {
+    soc s;
+    harness<FIFO_DEPTH> h;
+
+    h.addr_in = s.addr_ext;
+    h.mode_in = s.mode_ext;
+    h.wdata_in = s.wdata_ext;
+    h.rdata_in = s.rdata_ext;
+
+    h.rom_addr = rom_addr;
+    h.rom_mode = rom_mode;
+    h.rom_rdata = rom_rdata;
+
+    h.fifo_push = fifo_push;
+
+    h.io_addr = io_addr;
+    h.io_mode = io_mode;
+    h.io_wdata = io_wdata;
+    h.io_rdata = io_rdata;
+
+    // Single interrupt: input FIFO auto-fire -> event_id_0.
+    chan(bool) fifo_event;
+    h.fifo_event = fifo_event;
+    s.event_id_0 = fifo_event;
+
+    s.reset_ext = reset_ext;
+}
