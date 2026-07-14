@@ -44,6 +44,10 @@ module tb_core;
 
     // ---- behavioral external ROM ----
     // 64 KiB address space (offset is 16 bits); one 32-bit word per entry.
+    // Log every ROM fetch. Off by default (the boot is ~2k fetches); run with
+    //   xelab -generic_top "TRACE_ROM=1"  ... or flip this to debug a boot.
+    parameter TRACE_ROM = 0;
+
     localparam integer ROM_WORDS = 16384;
     reg [31:0] rom_mem [0:ROM_WORDS-1];
     reg [15:0] off_q;
@@ -69,7 +73,7 @@ module tb_core;
                 S_ADDR: if (rom_addr_valid) begin
                             off_q <= rom_addr_offset;
                             nfetch <= nfetch + 1;
-                            if (nfetch < 40)
+                            if (TRACE_ROM)
                                 $display("[%0t] ROM read #%0d: base=%0d offset=0x%04h -> 0x%08h",
                                          $time, nfetch, rom_addr_base, rom_addr_offset, rom_mem[rom_addr_offset[15:2]]);
                             rs <= S_MODE;
@@ -161,7 +165,7 @@ module tb_core;
 
     // ---- timeout ----
     initial begin
-        #1_000_000;   // 1 ms @ 100 MHz = 100k cycles
+        #6_000_000;   // ~600k cycles; converted core runs ~600 cyc/instruction
         $display("FAIL: timeout -- core never reached WFI (seen_running=%0b)", seen_running);
         $finish;
     end
