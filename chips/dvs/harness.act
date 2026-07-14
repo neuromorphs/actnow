@@ -1,10 +1,14 @@
 import "core/globals.act";
 import "core/peripherals/fifo_in.act";
 import "core/peripherals/demux.act";
+import "core/peripherals/spi_boot.act";
+import "core/peripherals/spi_prog.act";
+import "core/peripherals/gpio.act";
 
-// dvs's off-chip periphery -- so far just the AER (address-event) input,
-// behind a demux (base=ADDR_AER, no catch-all), wired to whatever soc
-// instance's addr_ext/mode_ext/wdata_ext/rdata_ext boundary is connected to
+// dvs's off-chip periphery: the AER (address-event) input, both SPI
+// peripherals, and GPIO, all behind one demux (no catch-all -- nothing
+// here needs to reach further off-chip), wired to whatever soc instance's
+// addr_ext/mode_ext/wdata_ext/rdata_ext boundary is connected to
 // addr_in/mode_in/wdata_in/rdata_in below.
 //
 // The AER input is fifo_in<AER_DEPTH, WIDTH_ADDR> -- core/peripherals/
@@ -15,12 +19,12 @@ import "core/peripherals/demux.act";
 // matches.
 //
 // No fifo_out here or anywhere else in this chip variant -- any
-// chip-to-outside data path goes through spi_prog instead (Stage 2.3, not
-// yet added). spi_boot (base=ADDR_AER-1) and spi_prog (base=ADDR_AER+1)
-// will become two more demux routes here once they exist; GPIO
-// (core/peripherals/gpio.act, unchanged from chips/bench, Stage 2.2) will
-// become a fourth. Kept to just the one route for now rather than adding
-// placeholder ports for peripherals that don't exist yet.
+// chip-to-outside data path goes through spi_prog instead. Both spi_boot
+// and spi_prog are ordinary CPU-facing demux routes, same as every other
+// peripheral here -- neither is a RAM bus master (robustness.md Stage
+// 2.3/2.4). Each paces its own sclk independently via a plain busy-wait
+// loop (see spi_boot.act's header comment) -- no shared clock process
+// needed between them at all.
 template<pint AER_DEPTH>
 defproc harness(
     chan?(addr_t) addr_in;
@@ -29,11 +33,17 @@ defproc harness(
     chan!(int<WIDTH_DATA>) rdata_in;
 
     chan?(int<WIDTH_ADDR>) aer_in;
-    chan!(bool) aer_event
+    chan!(bool) aer_event;
+
+    bool! spi_boot_cs; bool! spi_boot_sclk; bool! spi_boot_mosi; bool? spi_boot_miso;
+    bool! spi_prog_cs; bool! spi_prog_sclk; bool! spi_prog_mosi; bool? spi_prog_miso;
+
+    chan!(bool) gpio_out_0; chan!(bool) gpio_out_1;
+    chan!(bool) gpio_out_2; chan!(bool) gpio_out_3
 ) {
-    pint DEMUX_N = 1;
+    pint DEMUX_N = 4;
     pint DEMUX_BASES[DEMUX_N];
-    DEMUX_BASES = {ADDR_AER};
+    DEMUX_BASES = {ADDR_SPI_BOOT, ADDR_AER, ADDR_SPI_PROG, ADDR_GPIO};
     demux<DEMUX_N, DEMUX_BASES, ADDR_NO_CATCHALL> demux;
 
     demux.addr_in = addr_in;
@@ -42,10 +52,34 @@ defproc harness(
     demux.rdata_in = rdata_in;
 
     fifo_in<AER_DEPTH, WIDTH_ADDR> aer;
-    demux.addr_out[0] = aer.addr;
-    demux.mode_out[0] = aer.mode;
-    demux.wdata_out[0] = aer.wdata;
-    demux.rdata_out[0] = aer.rdata;
+    demux.addr_out[1] = aer.addr;
+    demux.mode_out[1] = aer.mode;
+    demux.wdata_out[1] = aer.wdata;
+    demux.rdata_out[1] = aer.rdata;
     aer.push = aer_in;
     aer.event_out = aer_event;
+
+    spi_boot sb;
+    demux.addr_out[0] = sb.addr;
+    demux.mode_out[0] = sb.mode;
+    demux.wdata_out[0] = sb.wdata;
+    demux.rdata_out[0] = sb.rdata;
+    sb.cs = spi_boot_cs; sb.sclk = spi_boot_sclk; sb.mosi = spi_boot_mosi; sb.miso = spi_boot_miso;
+
+    spi_prog sp;
+    demux.addr_out[2] = sp.addr;
+    demux.mode_out[2] = sp.mode;
+    demux.wdata_out[2] = sp.wdata;
+    demux.rdata_out[2] = sp.rdata;
+    sp.cs = spi_prog_cs; sp.sclk = spi_prog_sclk; sp.mosi = spi_prog_mosi; sp.miso = spi_prog_miso;
+
+    gpio gp;
+    demux.addr_out[3] = gp.addr;
+    demux.mode_out[3] = gp.mode;
+    demux.wdata_out[3] = gp.wdata;
+    demux.rdata_out[3] = gp.rdata;
+    gp.pin_0 = gpio_out_0;
+    gp.pin_1 = gpio_out_1;
+    gp.pin_2 = gpio_out_2;
+    gp.pin_3 = gpio_out_3;
 }

@@ -1,35 +1,44 @@
 import "core/globals.act";
-import "core/peripherals/mem.act";
 
 // SPI boot loader: what answers soc's very first fetch on the dvs chip
-// (ADDR_RESET, base=4, hardcoded in core/soc.act for every chip variant).
-// Unlike chips/bench's ROM (core/peripherals/mem.act's READ_ONLY mode,
-// preloaded from a file at elaboration), spi_boot pulls its content from a
-// real external SPI flash at simulated boot time -- dvs reuses
-// software/bootloader/main.c completely unchanged, since it already just
-// XIP-reads from base=4 and copies into SRAM (base=0), the exact shape
-// this serves, as long as the image is loaded before the CPU's first fetch.
+// (ADDR_RESET, base=4, hardcoded in core/soc.act for every chip variant),
+// and every fetch/read after that. Unlike chips/bench's ROM
+// (core/peripherals/mem.act's READ_ONLY mode, preloaded from a file at
+// elaboration and backed by real storage), spi_boot holds no image of its
+// own at all -- it's a thin relay: every CPU read is forwarded, address
+// and all, as a live SPI transaction to the external flash, and whatever
+// comes back over miso is what the CPU gets. This is genuine XIP, not
+// "pull everything in once, then serve from a copy" -- dvs reuses
+// software/bootloader/main.c completely unchanged: it runs directly out of
+// spi_boot (each of its own instruction fetches becomes its own SPI
+// transaction), reads the length prefix in front of the real program image,
+// and copies exactly that many bytes into SRAM (base=0) itself, one real
+// LOAD at a time -- spi_boot doesn't need to know anything about image
+// sizes or copying; it only ever relays one word per request.
 //
 // spi_boot is the SPI *master*: it drives cs/sclk/mosi and only listens on
 // miso, exactly like a real MCU reading its own boot flash. A real SPI
 // slave never hands anything back except on miso -- there's no handshake
 // to pace sclk against, so each edge has to be self-timed instead of paced
-// by rendezvous with the external device (the earlier, incorrect design
-// used channel rendezvous with the external device as the implicit
-// clock). The real mechanism for that is request-attached-to-acknowledge
-// through a delay line (std::delay_lines::chain_delay_buffer); a fixed
-// busy-wait loop (SPI_CLOCK_DELAY_N, core/globals.act) stands in for it
-// here -- actsim currently crashes on any chp process that mixes a plain
-// bool port with prs-connected circuitry (core.cc:2814), so the real delay
-// line isn't simulatable yet. Swap sclk_wait's body for the real thing
-// once that's resolved; nothing else here should need to change.
+// by rendezvous with the external device. Timed here by a plain busy-wait
+// loop (SPI_CLOCK_DELAY_N, core/globals.act) between edges -- an earlier
+// version paced this through a shared real delay-line clock process
+// (req/ack rendezvous with a spi_clock sibling, so spi_boot and spi_prog
+// could each stay a plain chp process without also exposing a variable
+// wired to prs circuitry, which used to crash actsim). That bought
+// physical realism at a real cost: two independent delay-line instances
+// corrupted each other's timing when both spi_boot and spi_prog were
+// simultaneously wired to live external devices, and even a single shared
+// instance still needed the two peripherals to prime it without racing
+// each other. A busy-wait loop has no electrical behavior to corrupt or
+// race in the first place -- it's just an ordinary local variable, so this
+// sidesteps that entire class of bug rather than continuing to patch it.
 //
-// Protocol (simplest possible, since spi_boot only ever reads): one
-// transmission per word, MSB-first, no R/W bit needed -- 20 address bits
-// out via mosi, then 32 data bits in via miso. IMAGE_WORDS consecutive
-// words are pulled from external offset 0 into backing at boot; after
-// that, spi_boot just answers the CPU's own reads from backing forever.
-template<pint IMAGE_WORDS>
+// Protocol: one transmission per CPU read, MSB-first -- 1 R/W bit (always
+// 0, read; spi_boot never writes to the flash), 20 address bits (the CPU's
+// own real requested offset, not a counter), then 32 data bits in via
+// miso. A CPU write is rejected via assert, same as chips/bench's
+// READ_ONLY ROM.
 defproc spi_boot(
     chan?(addr_t) addr; chan?(mode_mem_t) mode;
     chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata;
@@ -37,30 +46,25 @@ defproc spi_boot(
     bool! cs; bool! sclk; bool! mosi;
     bool? miso
 ) {
-    mem<false, 0> backing;
-
-    addr_t spi_addr;
-    mode_mem_t wr_mode;
-    int<WIDTH_DATA> shift;
-    int i, w, k;
-    bool bit;
-
     addr_t a;
     mode_mem_t md;
-    int<WIDTH_DATA> r;
+    int<WIDTH_DATA> shift;
+    int i, k;
+    bool bit;
 
     chp {
         cs := false; sclk := false; mosi := false;
-        wr_mode.op := op_mem_t.W; wr_mode.size := size_mem_t.WORD;
 
-        // --- boot load: pull IMAGE_WORDS sequential words from the
-        // external flash (offsets 0, 4, 8, ...) into backing ---
-        w := 0;
-        *[ w < IMAGE_WORDS ->
+        *[
+            addr?a; mode?md;
+            assert(md.op = op_mem_t.R, "spi_boot: write attempted to read-only memory");
+
             cs := true;
+            mosi := false;  // R/W bit: 0 = read
+            sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+            sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
 
-            spi_addr.base := 0; spi_addr.offset := int(w * 4, WIDTH_ADDR_OFFSET);
-            shift := int(w * 4, WIDTH_DATA) << (WIDTH_DATA - WIDTH_ADDR); i := 0;
+            shift := int(a.offset, WIDTH_DATA) << (WIDTH_DATA - WIDTH_ADDR); i := 0;
             *[ i < WIDTH_ADDR ->
                 mosi := (shift{31} = 1); shift := shift << 1;
                 sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
@@ -78,17 +82,7 @@ defproc spi_boot(
             ];
 
             cs := false;
-            backing.addr!spi_addr; backing.mode!wr_mode; backing.wdata!shift;
-            w := w + 1
-        ];
-
-        // --- after boot load, service CPU-facing reads forever ---
-        *[
-            addr?a; mode?md;
-            assert(md.op = op_mem_t.R, "spi_boot: write attempted to read-only memory");
-            backing.addr!a; backing.mode!md;
-            backing.rdata?r;
-            rdata!r
+            rdata!shift
         ]
     }
 }

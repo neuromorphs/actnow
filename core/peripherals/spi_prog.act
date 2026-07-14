@@ -1,71 +1,107 @@
 import "core/globals.act";
 
-// SPI data-streaming interface: a bus *master* toward RAM (addr/mode/wdata/
-// rdata are outward-facing, arbitrated into RAM alongside spi_boot's own
-// writes and the CPU's own accesses -- chips/dvs's own demux wiring,
-// robustness.md Stage 2.4) that is *also* an SPI master on its external
-// side, exactly like spi_boot: a real SPI master always drives cs/sclk/
-// mosi and only listens on miso, so there's no external commander left to
-// tell spi_prog what address/data to use the way the old (incorrect)
-// design assumed -- it decides for itself, autonomously.
+// SPI programming/data interface: a small, CPU-facing MMIO peripheral --
+// routed by chips/dvs/harness.act's demux exactly like any other
+// peripheral (fifo_in/gpio/spi_boot), not a RAM bus master. This mirrors
+// how real, simple SPI controller IP actually works: the CPU orchestrates
+// data movement between RAM and the peripheral itself via ordinary
+// loads/stores to a couple of staging registers; the peripheral only knows
+// how to shift bits over the external SPI bus, not how to walk memory on
+// its own.
 //
-// Placeholder policy (simplest protocol possible, easy to redirect if the
-// intended use is different): spi_prog walks a WORD_COUNT-word window of
-// RAM starting at BASE_OFFSET once, reads each word, and pushes it out
-// over SPI to an external device -- a one-shot RAM-to-external dump, the
-// mirror image of spi_boot's one-shot external-to-RAM boot load (and, like
-// it, bounded rather than free-running: an unbounded loop here would never
-// let the simulator reach quiescence). No R/W bit is needed since the
-// direction is fixed, and no miso either, since this direction never reads
-// anything back.
+//   offset 0 (address register): CPU write stages the 20-bit address used
+//     by the next transaction; CPU read returns whatever's currently
+//     staged (no side effect).
+//   offset 4 (data register): CPU write stages a 32-bit value and
+//     immediately triggers an outbound SPI WRITE (R/W=1, staged address,
+//     this data); CPU read triggers an outbound SPI READ (R/W=0, staged
+//     address), blocks until the 32-bit result has shifted back in over
+//     miso, and returns it.
 //
-// Clock generation matches spi_boot: each sclk edge is self-timed by a
-// fixed busy-wait (SPI_CLOCK_DELAY_N, core/globals.act) -- a CHP-
-// behavioral stand-in for the real request-attached-to-acknowledge-
-// through-a-delay-line circuit (std::delay_lines::chain_delay_buffer),
-// which actsim can't currently simulate here (core.cc:2814 -- see
-// spi_boot.act's header comment for the full explanation).
-template<pint BASE_OFFSET; pint WORD_COUNT>
+// spi_prog is still the SPI *master* on its external side (drives cs/
+// sclk/mosi, only listens on miso) -- see spi_boot.act's header comment
+// for why that means self-timing sclk via a plain busy-wait loop
+// (SPI_CLOCK_DELAY_N) rather than pacing it against rendezvous with the
+// external device.
 defproc spi_prog(
-    chan!(addr_t) addr; chan!(mode_mem_t) mode;
-    chan!(int<WIDTH_DATA>) wdata; chan?(int<WIDTH_DATA>) rdata;
+    chan?(addr_t) addr; chan?(mode_mem_t) mode;
+    chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata;
 
-    bool! cs; bool! sclk; bool! mosi
+    bool! cs; bool! sclk; bool! mosi;
+    bool? miso
 ) {
     addr_t a;
-    mode_mem_t rd_mode;
-    int<WIDTH_DATA> shift, val;
-    int i, w, k;
+    mode_mem_t md;
+    int<WIDTH_DATA> spi_addr_reg;
+    int<WIDTH_DATA> shift, tmp;
+    int i, k;
+    bool bit;
 
     chp {
         cs := false; sclk := false; mosi := false;
-        rd_mode.op := op_mem_t.R; rd_mode.size := size_mem_t.WORD;
+        spi_addr_reg := 0;
 
-        w := 0;
-        *[ w < WORD_COUNT ->
-            a.base := 0; a.offset := int(BASE_OFFSET + w * 4, WIDTH_ADDR_OFFSET);
-            addr!a; mode!rd_mode; rdata?val;
+        *[
+            addr?a; mode?md;
+            [
+                a.offset = 0 ->
+                    [
+                        md.op = op_mem_t.W -> wdata?spi_addr_reg
+                        [] else -> rdata!spi_addr_reg
+                    ]
+                [] else ->  // offset 4: data register, triggers a transaction
+                    [
+                        md.op = op_mem_t.W ->
+                            wdata?shift;
+                            cs := true;
+                            mosi := true;  // R/W bit: write
+                            sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                            sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
 
-            cs := true;
+                            tmp := spi_addr_reg << (WIDTH_DATA - WIDTH_ADDR); i := 0;
+                            *[ i < WIDTH_ADDR ->
+                                mosi := (tmp{31} = 1); tmp := tmp << 1;
+                                sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                                sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                                i := i + 1
+                            ];
 
-            shift := int(BASE_OFFSET + w * 4, WIDTH_DATA) << (WIDTH_DATA - WIDTH_ADDR); i := 0;
-            *[ i < WIDTH_ADDR ->
-                mosi := (shift{31} = 1); shift := shift << 1;
-                sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
-                sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
-                i := i + 1
-            ];
+                            i := 0;
+                            *[ i < WIDTH_DATA ->
+                                mosi := (shift{31} = 1); shift := shift << 1;
+                                sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                                sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                                i := i + 1
+                            ];
 
-            shift := val; i := 0;
-            *[ i < WIDTH_DATA ->
-                mosi := (shift{31} = 1); shift := shift << 1;
-                sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
-                sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
-                i := i + 1
-            ];
+                            cs := false
+                        [] else ->
+                            cs := true;
+                            mosi := false;  // R/W bit: read
+                            sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                            sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
 
-            cs := false;
-            w := w + 1
+                            tmp := spi_addr_reg << (WIDTH_DATA - WIDTH_ADDR); i := 0;
+                            *[ i < WIDTH_ADDR ->
+                                mosi := (tmp{31} = 1); tmp := tmp << 1;
+                                sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                                sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                                i := i + 1
+                            ];
+
+                            shift := 0; i := 0;
+                            *[ i < WIDTH_DATA ->
+                                sclk := true; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                                bit := miso;
+                                sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                                shift := (shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+                                i := i + 1
+                            ];
+
+                            cs := false;
+                            rdata!shift
+                    ]
+            ]
         ]
     }
 }

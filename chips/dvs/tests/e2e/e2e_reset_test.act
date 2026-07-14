@@ -1,0 +1,136 @@
+import "chips/dvs/core.act";
+import "chips/dvs/tests/e2e/spi_flash_stub.act";
+import "gen/file_ids.act";
+
+// dvs equivalent of chips/bench/tests/e2e/e2e_reset_test.act: end-to-end
+// test for core/soc.act's reset_ext using a real compiled program through
+// the real bootloader (genuinely XIP out of spi_boot).
+//
+// Sequence: boot, run one batch through the program's real ISR (same as
+// e2e_aer_test.act's batch), fire external reset, then run the identical
+// batch again. Reset clears the interrupt controller's vector table and
+// enable mask but leaves internal RAM untouched, so the same bootloader +
+// dvs_application image re-runs from scratch: the bootloader re-copies
+// dvs_application into SRAM, which re-registers its ISR vector,
+// re-configures the AER input's trigger level, and re-enables event_id_0.
+// If any of that didn't genuinely reset and reconfigure, the second batch
+// would hang or misbehave.
+//
+// spi_sink hands each observed (address, data) pair straight back to the
+// driver after every word (unlike e2e_aer_test.act's own, which just
+// asserts internally and signals `done` once at the end) -- the driver
+// needs to know exactly when the first 3-word batch has actually
+// completed before it's safe to assert reset_ext, otherwise a reset
+// mid-transaction would corrupt spi_sink's own in-flight bit shifting.
+defproc spi_sink(
+    bool? cs; bool? sclk; bool? mosi;
+    chan!(int<WIDTH_DATA>) word_addr; chan!(int<WIDTH_DATA>) word_data
+) {
+    int<WIDTH_DATA> addr_shift, data_shift;
+    int i;
+    bool bit, rw;
+
+    chp {
+        *[
+            [cs];
+
+            [sclk]; rw := mosi; [~sclk];
+            assert(rw, "spi_sink: expected a write (R/W bit)");
+
+            addr_shift := 0; i := 0;
+            *[ i < WIDTH_ADDR ->
+                [sclk]; bit := mosi;
+                addr_shift := (addr_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+                [~sclk];
+                i := i + 1
+            ];
+
+            data_shift := 0; i := 0;
+            *[ i < WIDTH_DATA ->
+                [sclk]; bit := mosi;
+                data_shift := (data_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+                [~sclk];
+                i := i + 1
+            ];
+
+            [~cs];
+            word_addr!addr_shift; word_data!data_shift
+        ]
+    }
+}
+
+defproc e2e_reset_test() {
+    core<8> c;
+    spi_flash_stub<ROM_IMAGE> flash;
+    spi_sink sink;
+    chan(int<WIDTH_DATA>) word_addr, word_data;
+
+    bool spi_boot_cs, spi_boot_sclk, spi_boot_mosi, spi_boot_miso;
+    c.spi_boot_cs = spi_boot_cs; c.spi_boot_sclk = spi_boot_sclk;
+    c.spi_boot_mosi = spi_boot_mosi; c.spi_boot_miso = spi_boot_miso;
+    flash.cs = spi_boot_cs; flash.sclk = spi_boot_sclk;
+    flash.mosi = spi_boot_mosi; flash.miso = spi_boot_miso;
+
+    bool spi_prog_cs, spi_prog_sclk, spi_prog_mosi, spi_prog_miso;
+    c.spi_prog_cs = spi_prog_cs; c.spi_prog_sclk = spi_prog_sclk;
+    c.spi_prog_mosi = spi_prog_mosi; c.spi_prog_miso = spi_prog_miso;
+    sink.cs = spi_prog_cs; sink.sclk = spi_prog_sclk; sink.mosi = spi_prog_mosi;
+    sink.word_addr = word_addr; sink.word_data = word_data;
+
+    int<WIDTH_DATA> a, d;
+    int<32> delay;
+
+    chp {
+        log("======== dvs reset e2e test start ========");
+
+        // soc no longer boots itself -- assert reset_ext once to kick it off
+        // (distinct from the mid-test reset_ext below, which proves recovery
+        // rather than boot).
+        c.reset_ext!true;
+
+        // --- batch 1: identical to e2e_aer_test.act's own batch --
+        // push 41, 42, 43, ISR computes +1 on each, expect addr=0/data=42,
+        // addr=4/data=43, addr=8/data=44 out over SPI.
+        log("--- batch 1: pushing 41, 42, 43 into the AER input ---");
+        c.aer_in!int(41, WIDTH_ADDR);
+        c.aer_in!int(42, WIDTH_ADDR);
+        c.aer_in!int(43, WIDTH_ADDR);
+
+        word_addr?a; word_data?d;
+        assert((a = 0) & (d = 42), "batch 1 result 1: want addr=0/data=42, got addr=", a);
+        word_addr?a; word_data?d;
+        assert((a = 4) & (d = 43), "batch 1 result 2: want addr=4/data=43, got addr=", a);
+        word_addr?a; word_data?d;
+        assert((a = 8) & (d = 44), "batch 1 result 3: want addr=8/data=44, got addr=", a);
+        log("batch 1: got addr=0/data=42, addr=4/data=43, addr=8/data=44 over SPI");
+
+        delay := 0;
+        *[ delay < 3000 -> delay := delay + 1 ];
+
+        log("--- asserting external reset ---");
+        c.reset_ext!true;
+        log("--- reset done -- bootloader + dvs_application should now be rebooting from scratch ---");
+
+        // --- batch 2 (post-reset): push 41, 42, 43 again. Only passes if
+        // the rebooted application genuinely re-registered its ISR
+        // vector, trigger level, and enable bit from a clean interrupt
+        // controller -- this push just blocks until the rebooted program
+        // is ready.
+        log("--- batch 2 (post-reset): pushing 41, 42, 43 into the AER input ---");
+        c.aer_in!int(41, WIDTH_ADDR);
+        c.aer_in!int(42, WIDTH_ADDR);
+        c.aer_in!int(43, WIDTH_ADDR);
+
+        word_addr?a; word_data?d;
+        assert((a = 0) & (d = 42), "batch 2 result 1: want addr=0/data=42, got addr=", a);
+        word_addr?a; word_data?d;
+        assert((a = 4) & (d = 43), "batch 2 result 2: want addr=4/data=43, got addr=", a);
+        word_addr?a; word_data?d;
+        assert((a = 8) & (d = 44), "batch 2 result 3: want addr=8/data=44, got addr=", a);
+        log("batch 2: got addr=0/data=42, addr=4/data=43, addr=8/data=44 over SPI -- real reboot after reset confirmed");
+
+        log("======== dvs reset e2e test complete ========")
+    }
+}
+
+e2e_reset_test ert;

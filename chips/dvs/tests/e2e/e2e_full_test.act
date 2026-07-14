@@ -1,0 +1,146 @@
+import "chips/dvs/core.act";
+import "chips/dvs/tests/e2e/spi_flash_stub.act";
+import "gen/file_ids.act";
+
+// The full pipeline in one test: boot XIP out of spi_boot, load a data
+// blob into memory via spi_prog's read direction (not XIP -- explicit,
+// one-word-at-a-time SPI transactions), push AER events, let the interrupt
+// fire, and observe each result -- combining the loaded data with the AER
+// value -- written back out over SPI via spi_prog's write direction, one
+// word at a time. Every other dvs e2e test only exercises one or two of
+// these mechanisms in isolation; this one chains all of them through a
+// single real program (software/dvs_full_e2e/main.c) so a wiring mistake
+// anywhere in the chain shows up as a wrong final value, not just a
+// silently-skipped step.
+//
+// spi_prog is one peripheral with one external device on the other end of
+// its wires, so external_device below has to play both roles in the exact
+// order the program actually uses them: 3 reads first (the load, answered
+// with 10/20/30 from LOAD_BASE/LOAD_BASE+4/LOAD_BASE+8), then later 3
+// writes (the AER-triggered output, expected at addr=0/4/8 once the AER
+// batch arrives) -- not two independent processes like e2e_full_test's
+// simpler siblings use, since a real external device on a shared bus
+// naturally sees transactions in the order the master issues them.
+defproc external_device(
+    bool? cs; bool? sclk; bool? mosi;
+    bool! miso;
+    chan!(int<WIDTH_DATA>) word_addr; chan!(int<WIDTH_DATA>) word_data
+) {
+    int<WIDTH_DATA> load_value[3];
+    int<WIDTH_DATA> addr_shift, data_shift;
+    int i, w;
+    bool bit, rw;
+
+    chp {
+        load_value[0] := 10; load_value[1] := 20; load_value[2] := 30;
+        miso := false;
+
+        // --- phase 1: the load -- 3 reads ---
+        w := 0;
+        *[ w < 3 ->
+            [cs];
+            [sclk]; rw := mosi; [~sclk];
+            assert(~rw, "external_device: expected a read during the load phase");
+
+            addr_shift := 0; i := 0;
+            *[ i < WIDTH_ADDR ->
+                [sclk]; bit := mosi;
+                addr_shift := (addr_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+                [~sclk];
+                i := i + 1
+            ];
+            assert(addr_shift = int(0x100, WIDTH_DATA) + w * 4, "external_device: load addr mismatch, got ", addr_shift);
+
+            data_shift := load_value[w]; i := 0;
+            *[ i < WIDTH_DATA ->
+                miso := (data_shift{31} = 1); data_shift := data_shift << 1;
+                [sclk]; [~sclk];
+                i := i + 1
+            ];
+            log("external_device: load word ", w, " answered with ", load_value[w]);
+
+            [~cs];
+            w := w + 1
+        ];
+
+        // --- phase 2: the AER-triggered output -- 3 writes ---
+        w := 0;
+        *[ w < 3 ->
+            [cs];
+            [sclk]; rw := mosi; [~sclk];
+            assert(rw, "external_device: expected a write during the output phase");
+
+            addr_shift := 0; i := 0;
+            *[ i < WIDTH_ADDR ->
+                [sclk]; bit := mosi;
+                addr_shift := (addr_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+                [~sclk];
+                i := i + 1
+            ];
+
+            data_shift := 0; i := 0;
+            *[ i < WIDTH_DATA ->
+                [sclk]; bit := mosi;
+                data_shift := (data_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+                [~sclk];
+                i := i + 1
+            ];
+
+            [~cs];
+            word_addr!addr_shift; word_data!data_shift;
+            w := w + 1
+        ]
+    }
+}
+
+defproc e2e_full_test() {
+    core<8> c;
+    spi_flash_stub<ROM_IMAGE> flash;
+    external_device dev;
+    chan(int<WIDTH_DATA>) word_addr, word_data;
+
+    bool spi_boot_cs, spi_boot_sclk, spi_boot_mosi, spi_boot_miso;
+    c.spi_boot_cs = spi_boot_cs; c.spi_boot_sclk = spi_boot_sclk;
+    c.spi_boot_mosi = spi_boot_mosi; c.spi_boot_miso = spi_boot_miso;
+    flash.cs = spi_boot_cs; flash.sclk = spi_boot_sclk;
+    flash.mosi = spi_boot_mosi; flash.miso = spi_boot_miso;
+
+    bool spi_prog_cs, spi_prog_sclk, spi_prog_mosi, spi_prog_miso;
+    c.spi_prog_cs = spi_prog_cs; c.spi_prog_sclk = spi_prog_sclk;
+    c.spi_prog_mosi = spi_prog_mosi; c.spi_prog_miso = spi_prog_miso;
+    dev.cs = spi_prog_cs; dev.sclk = spi_prog_sclk;
+    dev.mosi = spi_prog_mosi; dev.miso = spi_prog_miso;
+    dev.word_addr = word_addr; dev.word_data = word_data;
+
+    int<WIDTH_DATA> a, d;
+
+    chp {
+        log("======== dvs full pipeline e2e test start ========");
+
+        // soc no longer boots itself -- assert reset_ext once to kick it off.
+        c.reset_ext!true;
+
+        // Pushing now is safe even though the program's own load phase
+        // (3 SPI reads) hasn't necessarily finished yet: the AER input
+        // gates push acceptance on its trigger level having been
+        // configured (*AER_IN = BATCH, in main(), after the load loop),
+        // so these just block until the program actually gets there.
+        log("--- pushing 41, 42, 43 into the AER input ---");
+        c.aer_in!int(41, WIDTH_ADDR);
+        c.aer_in!int(42, WIDTH_ADDR);
+        c.aer_in!int(43, WIDTH_ADDR);
+
+        // expected: pushed + loaded -- 41+10=51, 42+20=62, 43+30=73
+        word_addr?a; word_data?d;
+        assert((a = 0) & (d = 51), "result 1: want addr=0/data=51, got addr=", a);
+        word_addr?a; word_data?d;
+        assert((a = 4) & (d = 62), "result 2: want addr=4/data=62, got addr=", a);
+        word_addr?a; word_data?d;
+        assert((a = 8) & (d = 73), "result 3: want addr=8/data=73, got addr=", a);
+        log("all 3 results correct: 51, 62, 73 -- load + AER + output all chained correctly");
+
+        log("======== dvs full pipeline e2e test complete ========")
+    }
+}
+
+e2e_full_test eft;

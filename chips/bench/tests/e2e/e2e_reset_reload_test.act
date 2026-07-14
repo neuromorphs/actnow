@@ -79,6 +79,11 @@ defproc e2e_reset_reload_test() {
     chp {
         log("======== reset+reload e2e test start ========");
 
+        // soc no longer boots itself -- assert reset_ext once to kick it off
+        // (distinct from the mid-test reset_ext below, which is the actual
+        // recovery-into-bank-B this test proves).
+        s.reset_ext!true;
+
         // rom_selector defaults to bank A (hang) at elaboration, so no
         // explicit flip is needed to select it.
         log("--- booted into hang (bank A) -- letting it idle ---");

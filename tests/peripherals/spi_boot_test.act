@@ -5,24 +5,27 @@ import "core/peripherals/spi_boot.act";
 // initiates transmissions with. Real SPI slaves never hand anything back
 // except on miso -- every action here is gated purely by observing cs/
 // sclk/mosi transitions, not by any rendezvous with spi_boot, matching how
-// a real (non-ACT) flash chip would behave.
+// a real (non-ACT) flash chip would behave. spi_boot has no backing store
+// of its own -- every CPU read becomes its own live SPI transaction
+// carrying the real requested address (with an explicit R/W bit, always 0
+// since spi_boot only ever reads) -- so this answers by decoding the
+// requested offset directly, not by serving a fixed sequence.
 defproc external_flash(
     bool? cs; bool? sclk; bool? mosi;
     bool! miso
 ) {
-    int<WIDTH_DATA> image[2];
     int<WIDTH_DATA> addr_shift, data_shift;
-    int i, w;
-    bool bit;
+    int i;
+    bool rw, bit;
 
     chp {
-        image[0] := int(0xDEADBEEF, WIDTH_DATA);
-        image[1] := int(0x12345678, WIDTH_DATA);
         miso := false;
 
-        w := 0;
-        *[ w < 2 ->
+        *[
             [cs];
+
+            [sclk]; rw := mosi; [~sclk];
+            assert(~rw, "external_flash: spi_boot should only ever read");
 
             // 20 address bits in via mosi, MSB-first, sampled on the
             // rising edge (mosi is set up before the master raises sclk)
@@ -35,10 +38,16 @@ defproc external_flash(
                 i := i + 1
             ];
 
+            [
+                addr_shift = 0 -> data_shift := int(0xDEADBEEF, WIDTH_DATA)
+                [] addr_shift = 4 -> data_shift := int(0x12345678, WIDTH_DATA)
+                [] else -> assert(false, "external_flash: unexpected offset ", addr_shift)
+            ];
+
             // 32 data bits out via miso, MSB-first, driven right as the
             // rising edge is observed so it's stable well before the
             // master's own delay-line wait completes
-            data_shift := image[w]; i := 0;
+            i := 0;
             *[ i < WIDTH_DATA ->
                 [sclk];
                 miso := (data_shift{31} = 1); data_shift := data_shift << 1;
@@ -46,20 +55,19 @@ defproc external_flash(
                 i := i + 1
             ];
 
-            [~cs];
-            w := w + 1
+            [~cs]
         ]
     }
 }
 
 // Wires spi_boot (as the SPI master) to external_flash (as the SPI slave)
-// over plain bool wires -- cs/sclk/mosi/miso are real signal lines now,
-// not channels, since spi_boot generates its own clock asynchronously
-// (robustness.md Stage 2.3 rework). spi_boot autonomously pulls both known
-// words from external_flash at boot; the test just waits for it to start
-// answering CPU-facing reads and checks the values match.
+// over plain bool wires -- cs/sclk/mosi/miso are real signal lines, not
+// channels, since spi_boot generates its own clock asynchronously
+// (robustness.md Stage 2.3 rework). Drives spi_boot directly as the CPU
+// would (two reads at different offsets) and checks each comes back
+// correctly, live, from external_flash.
 defproc spi_boot_test() {
-    spi_boot<2> sb;
+    spi_boot sb;
     external_flash ef;
 
     chan(addr_t) addr;
@@ -79,7 +87,6 @@ defproc spi_boot_test() {
     chp {
         log("======== spi_boot test start ========");
 
-        log("--- CPU readback (after autonomous boot load) ---");
         a.base := 0; a.offset := 0; md.op := op_mem_t.R; md.size := size_mem_t.WORD;
         addr!a; mode!md; rdata?r;
         assert(r = 0xDEADBEEF, "spi_boot: want 0xDEADBEEF at offset 0, got ", r);

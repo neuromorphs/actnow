@@ -1,0 +1,122 @@
+import "chips/dvs/core.act";
+import "chips/dvs/tests/e2e/spi_flash_stub.act";
+import "gen/file_ids.act";
+
+// dvs equivalent of chips/bench/tests/e2e/e2e_fifo_test.act: boots a real
+// compiled program (software/dvs_application/main.c) through the real
+// bootloader (genuinely XIP out of spi_boot, no ROM), lets it configure
+// its own interrupt vector and AER trigger level (BATCH=3), then go to
+// sleep. Pushes two separate 3-word batches into the AER input -- the AER
+// input (fifo_in<AER_DEPTH, WIDTH_ADDR>) fires the interrupt itself once
+// each batch lands, exactly like chips/bench's fifo_in, no manual
+// triggering here. event_id_0 is already hardwired to the AER input's own
+// event_out in chips/dvs/core.act, unlike chips/bench where the testbench
+// wires fifo_event itself.
+//
+// Each batch is processed by the program's own ISR and observed here as 3
+// (address, data) pairs written out over SPI via spi_prog -- the dvs
+// equivalent of chips/bench's output FIFO, played by spi_sink below.
+defproc spi_sink(
+    bool? cs; bool? sclk; bool? mosi;
+    chan!(bool) done
+) {
+    int<WIDTH_DATA> expect_addr[6], expect_data[6];
+    int<WIDTH_DATA> addr_shift, data_shift, exp_addr, exp_data;
+    int i, w;
+    bool bit, rw;
+
+    chp {
+        expect_addr[0] := 0;  expect_data[0] := 42;
+        expect_addr[1] := 4;  expect_data[1] := 43;
+        expect_addr[2] := 8;  expect_data[2] := 44;
+        expect_addr[3] := 0;  expect_data[3] := 101;
+        expect_addr[4] := 4;  expect_data[4] := 201;
+        expect_addr[5] := 8;  expect_data[5] := 301;
+
+        w := 0;
+        *[ w < 6 ->
+            [cs];
+            exp_addr := expect_addr[w]; exp_data := expect_data[w];
+
+            [sclk]; rw := mosi; [~sclk];
+            assert(rw, "spi_sink: expected a write (R/W bit)");
+
+            addr_shift := 0; i := 0;
+            *[ i < WIDTH_ADDR ->
+                [sclk]; bit := mosi;
+                addr_shift := (addr_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+                [~sclk];
+                i := i + 1
+            ];
+            assert(addr_shift = exp_addr, "spi_sink: word ", w, " addr mismatch, want ", exp_addr, ", got ", addr_shift);
+
+            data_shift := 0; i := 0;
+            *[ i < WIDTH_DATA ->
+                [sclk]; bit := mosi;
+                data_shift := (data_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+                [~sclk];
+                i := i + 1
+            ];
+            assert(data_shift = exp_data, "spi_sink: word ", w, " data mismatch, want ", exp_data);
+            log("spi_sink: word ", w, " matched (addr=", exp_addr, ", data=", exp_data, ")");
+
+            [~cs];
+            w := w + 1
+        ];
+        done!true
+    }
+}
+
+defproc e2e_aer_test() {
+    core<8> c;
+    spi_flash_stub<ROM_IMAGE> flash;
+    spi_sink sink;
+    chan(bool) sink_done;
+
+    bool spi_boot_cs, spi_boot_sclk, spi_boot_mosi, spi_boot_miso;
+    c.spi_boot_cs = spi_boot_cs; c.spi_boot_sclk = spi_boot_sclk;
+    c.spi_boot_mosi = spi_boot_mosi; c.spi_boot_miso = spi_boot_miso;
+    flash.cs = spi_boot_cs; flash.sclk = spi_boot_sclk;
+    flash.mosi = spi_boot_mosi; flash.miso = spi_boot_miso;
+
+    bool spi_prog_cs, spi_prog_sclk, spi_prog_mosi, spi_prog_miso;
+    c.spi_prog_cs = spi_prog_cs; c.spi_prog_sclk = spi_prog_sclk;
+    c.spi_prog_mosi = spi_prog_mosi; c.spi_prog_miso = spi_prog_miso;
+    sink.cs = spi_prog_cs; sink.sclk = spi_prog_sclk; sink.mosi = spi_prog_mosi;
+    sink.done = sink_done;
+
+    int<32> delay;
+    bool done_recv;
+
+    chp {
+        log("======== dvs AER/SPI e2e test start ========");
+
+        // soc no longer boots itself -- assert reset_ext once to kick it off.
+        c.reset_ext!true;
+
+        log("--- batch 1: pushing 41, 42, 43 into the AER input ---");
+        c.aer_in!int(41, WIDTH_ADDR);
+        c.aer_in!int(42, WIDTH_ADDR);
+        c.aer_in!int(43, WIDTH_ADDR);
+
+        // Model some real-world latency between events -- spi_sink's own
+        // asserts check batch 1's results as they arrive.
+        delay := 0;
+        *[ delay < 3000 -> delay := delay + 1 ];
+
+        log("--- batch 2: pushing 100, 200, 300 into the AER input ---");
+        c.aer_in!int(100, WIDTH_ADDR);
+        c.aer_in!int(200, WIDTH_ADDR);
+        c.aer_in!int(300, WIDTH_ADDR);
+
+        // Wait for spi_sink to actually finish verifying all 6 words --
+        // without this, "test complete" would print as soon as the last
+        // push is sent, regardless of whether spi_sink's own (still
+        // in-flight) checks later fail.
+        sink_done?done_recv;
+
+        log("======== dvs AER/SPI e2e test complete ========")
+    }
+}
+
+e2e_aer_test eat;

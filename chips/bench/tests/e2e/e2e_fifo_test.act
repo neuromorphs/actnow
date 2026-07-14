@@ -22,6 +22,9 @@ defproc e2e_fifo_test() {
     chp {
         log("======== end-to-end interrupt/FIFO test start ========");
 
+        // soc no longer boots itself -- assert reset_ext once to kick it off.
+        c.reset_ext!true;
+
         // No boot-completion delay needed: each push below just blocks
         // until the program has configured its vector and trigger level,
         // and the interrupt fires itself once a batch lands.

@@ -7,10 +7,13 @@ import "core/globals.act";
 // in here, vectoring works the same way whether the program is running XIP
 // from ROM or copied into SRAM by the bootloader.
 //
-// The reset vector is the one exception: it's a fixed constant (ADDR_RESET)
-// that fires unconditionally, before software has had any chance to
-// configure anything -- matching real hardware, where the reset vector is
-// fixed in silicon.
+// The reset vector itself (pc=ADDR_RESET) isn't dispatched from here at
+// all -- soc.act blocks directly on its own reset_ext at boot, before this
+// process (or anything else) has had any chance to configure anything,
+// matching real hardware where the reset vector is fixed in silicon. This
+// process only ever clears its own state in response to a *relayed* reset
+// (reset_int_ctrl, soc.act fanning its reset_ext out to both itself and
+// here) -- it never manufactures a boot event of its own.
 //
 // Each event_id_N also has an enable bit (see globals.act). Until software
 // sets it, this process doesn't even offer to receive on that channel, so a
@@ -47,7 +50,6 @@ defproc interrupt(
 
 {
     bool event_id_recv;
-    bool is_reset;
     int<WIDTH_DATA> vectors[16];
     int<WIDTH_DATA> enable_mask;
 
@@ -63,15 +65,7 @@ defproc interrupt(
         *[ init_i < 16 -> vectors[int(init_i,4)] := 0; init_i := init_i + 1 ];
         enable_mask := 0;
 
-        // Reset vector: fires exactly once, unconditionally, before any of
-        // the 16 event lines below could possibly be configured.
-        is_reset := true;
         *[
-            [is_reset -> log("reset vector: pc ", ADDR_RESET); event_pc!ADDR_RESET
-            [] else -> skip
-            ];
-            is_reset := false;
-
             [|
             #reset_int_ctrl ->
                 reset_int_ctrl?event_id_recv;

@@ -26,11 +26,13 @@ defproc rom_program_test() {
     fm.rdata = s.rdata_ext;
 
     chp {
-        // nothing to drive by hand -- soc boots on its own via the reset
-        // vector, and fm services every fetch from the preloaded image.
-        // Simulation reaches quiescence once soc decodes WFI and goes idle
-        // (both soc and fm end up blocked waiting for input nobody sends).
-        skip
+        // Nothing else to drive by hand -- soc no longer boots itself
+        // (see core/soc.act's header comment), so the only thing this needs
+        // to do is assert reset_ext once; fm services every fetch after that
+        // from the preloaded image. Simulation reaches quiescence once soc
+        // decodes WFI and goes idle (both soc and fm end up blocked waiting
+        // for input nobody sends).
+        s.reset_ext!true
     }
 }
 

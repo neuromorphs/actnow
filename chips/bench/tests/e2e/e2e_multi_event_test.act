@@ -48,6 +48,9 @@ defproc e2e_multi_event_test() {
     chp {
         log("======== 16-event generality test start ========");
 
+        // soc no longer boots itself -- assert reset_ext once to kick it off.
+        c.reset_ext!true;
+
         i := 0;
         *[ i < 16 ->
             pushed := int(100, WIDTH_DATA) + int(i, WIDTH_DATA);

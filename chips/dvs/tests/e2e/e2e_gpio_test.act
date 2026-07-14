@@ -1,27 +1,36 @@
-import "chips/bench/core.act";
+import "chips/dvs/core.act";
+import "chips/dvs/tests/e2e/spi_flash_stub.act";
 import "gen/file_ids.act";
 
-// End-to-end test for GPIO, exercising both directions in one real
-// compiled program (software/gpio_demo/main.c):
+// dvs equivalent of chips/bench/tests/e2e/e2e_gpio_test.act: end-to-end
+// test for GPIO, exercising both directions in one real compiled program
+// (software/dvs_gpio_demo/main.c), booted genuinely XIP out of spi_boot
+// (no ROM):
 //   - input: firing one of core's two GPIO input pins (gpio_in_0/
-//     gpio_in_1 -- pure wiring onto soc's event_id_14/event_id_15) wakes
-//     the CPU through the existing interrupt-controller vectoring, exactly
+//     gpio_in_1 -- pure wiring onto soc's event_id_1/event_id_2, dvs's two
+//     spare lines, unlike chips/bench's event_id_14/event_id_15) wakes the
+//     CPU through the existing interrupt-controller vectoring, exactly
 //     like any other event line.
 //   - output: each ISR responds with a real MMIO store to the GPIO output
-//     register, observed here on gpio_out_0..gpio_out_3.
+//     register (unchanged, base=ADDR_GPIO), observed here on
+//     gpio_out_0..gpio_out_3.
 //
-// No boot-completion delay needed: each `gpio_in_N!true` below just blocks
-// until gpio_demo has enabled that line.
-//
-// push/pop/fifo_event/swd_0/swd_1 are left unconnected -- this test never
-// touches the FIFOs, and SWD is unimplemented.
+// spi_prog's pins and aer_in are left unconnected -- this test never
+// touches either.
 defproc e2e_gpio_test() {
-    core<ROM_IMAGE> c;
+    core<8> c;
+    spi_flash_stub<ROM_IMAGE> flash;
+
+    bool spi_boot_cs, spi_boot_sclk, spi_boot_mosi, spi_boot_miso;
+    c.spi_boot_cs = spi_boot_cs; c.spi_boot_sclk = spi_boot_sclk;
+    c.spi_boot_mosi = spi_boot_mosi; c.spi_boot_miso = spi_boot_miso;
+    flash.cs = spi_boot_cs; flash.sclk = spi_boot_sclk;
+    flash.mosi = spi_boot_mosi; flash.miso = spi_boot_miso;
 
     bool p0, p1, p2, p3;
 
     chp {
-        log("======== gpio e2e test start ========");
+        log("======== dvs gpio e2e test start ========");
 
         // soc no longer boots itself -- assert reset_ext once to kick it off.
         c.reset_ext!true;
@@ -54,7 +63,7 @@ defproc e2e_gpio_test() {
         assert(p3, "gpio_in_1: pin_3 should be high (0b1010)");
         log("gpio_in_1: observed 0b1010 as expected");
 
-        log("======== gpio e2e test complete ========")
+        log("======== dvs gpio e2e test complete ========")
     }
 }
 
