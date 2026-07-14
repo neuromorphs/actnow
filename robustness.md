@@ -966,8 +966,6 @@ actionable tasks until these are answered:
       writes the result into RAM (closer to "load a program"-scale, rather
       than one value staged through a GPIO pass/fail check).
 
-- [ ] Remove the three arbitrations that replace running
-
 - [x] SPI boot and SPI prog share the same clk instance. We have to find a way to test this reliably and safely. (using explicit delays )
 
 Once these are answered, expand this section into the same
