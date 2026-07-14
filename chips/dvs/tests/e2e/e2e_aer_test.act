@@ -91,6 +91,9 @@ defproc e2e_aer_test() {
     chp {
         log("======== dvs AER/SPI e2e test start ========");
 
+        // soc no longer boots itself -- assert reset_ext once to kick it off.
+        c.reset_ext!true;
+
         log("--- batch 1: pushing 41, 42, 43 into the AER input ---");
         c.aer_in!int(41, WIDTH_ADDR);
         c.aer_in!int(42, WIDTH_ADDR);

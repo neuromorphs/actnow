@@ -112,28 +112,24 @@ defproc soc(
     mmu.rdata_out[2] = rdata_ext;
 
     chp {
-        // Idle wait: block until either an external reset or a wake-up pc
-        // arrives. This used to be folded into the main loop's own
-        // top-level selection, gated by a `running` bool guard that was
-        // set once and re-read arbitrarily far in the future -- a plain
-        // bool used as a probed-selection guard, held across a long
-        // stretch of unrelated activity (e.g. this core's own fetch
-        // blocking on a slow off-chip peripheral), reads back its
-        // stale/reset value instead of its actual last write on this
-        // toolchain (confirmed directly: a canary int set on the same
-        // line survives such a gap correctly; the bool guard next to it
-        // doesn't). Structuring "idle vs running" via which block of code
-        // is executing, instead of via a variable read back after an
-        // unbounded gap, sidesteps that entirely -- this wait is only
-        // ever entered right when it's about to block, never held onto.
-        [|
-            #reset_ext ->
-                reset_ext?reset_recv;
-                log("external reset: pc ", ADDR_RESET);
-                pc := ADDR_RESET;
-                reset_int_ctrl!true  // relay onward to clear interrupt.act's own state
-            [] #event_pc -> event_pc?pc
-        |];
+        // Cold boot: the CPU does nothing at all until reset_ext is
+        // actually asserted, exactly like real hardware -- there's no
+        // implicit "power on and go" path. This used to be a race between
+        // reset_ext and an event_pc that interrupt.act fired unconditionally
+        // at its own startup (a manufactured boot event standing in for a
+        // real reset), unified with "wait for the next interrupt after WFI"
+        // via a `running` bool guard. That bool being read arbitrarily far
+        // from where it was set (held across this core's own fetch blocking
+        // on a slow off-chip peripheral) came back stale on this toolchain
+        // (confirmed directly: a canary int on the same line survived the
+        // same gap correctly; the bool next to it didn't). Making reset_ext
+        // the one and only way to boot removes the manufactured event_pc
+        // entirely, so there's nothing left to race here at all -- just a
+        // plain blocking receive, no select, no bool.
+        reset_ext?reset_recv;
+        log("external reset: pc ", ADDR_RESET);
+        pc := ADDR_RESET;
+        reset_int_ctrl!true;  // relay onward to clear interrupt.act's own state
 
         *[
             // Already running: reset_ext still races as a flat sibling of

@@ -117,6 +117,9 @@ defproc e2e_full_test() {
     chp {
         log("======== dvs full pipeline e2e test start ========");
 
+        // soc no longer boots itself -- assert reset_ext once to kick it off.
+        c.reset_ext!true;
+
         // Pushing now is safe even though the program's own load phase
         // (3 SPI reads) hasn't necessarily finished yet: the AER input
         // gates push acceptance on its trigger level having been

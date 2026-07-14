@@ -18,6 +18,9 @@ defproc jal_test() {
     int<32> insn, off;
 
     chp {
+        // soc no longer boots itself -- assert reset_ext once to kick it off.
+        s.reset_ext!true;
+
         // pc=ADDR_RESET+0: NOP (FENCE) -- just advances pc so the backward
         // JAL below has room to land without underflowing the external region
         s.addr_ext?addr; s.mode_ext?mode;

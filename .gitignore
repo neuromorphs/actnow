@@ -10,3 +10,5 @@ software/**/build/
 __pycache__/
 
 .claude/*
+.DS_Store/
+.DS_Store

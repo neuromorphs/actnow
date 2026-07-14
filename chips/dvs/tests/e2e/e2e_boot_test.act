@@ -18,10 +18,11 @@ import "gen/file_ids.act";
 // unconnected: fine as long as nothing tries to use them, and nothing does
 // here.
 //
-// No chp body of its own, same reason as chips/bench's own e2e_boot_test:
-// nothing here to synchronize against, so chips/dvs/Makefile's rule checks
-// soc's own "decoded wfi" log line directly instead of a "test complete"
-// line.
+// Same reason as chips/bench's own e2e_boot_test: nothing else here to
+// synchronize against, so the only thing this chp body does is assert
+// reset_ext once to actually boot soc (see core/soc.act's header comment --
+// it no longer boots itself). chips/dvs/Makefile's rule checks soc's own
+// "decoded wfi" log line directly instead of a "test complete" line.
 defproc e2e_boot_test() {
     core<8> c;
     spi_flash_stub<ROM_IMAGE> flash;
@@ -31,6 +32,10 @@ defproc e2e_boot_test() {
     c.spi_boot_mosi = spi_boot_mosi; c.spi_boot_miso = spi_boot_miso;
     flash.cs = spi_boot_cs; flash.sclk = spi_boot_sclk;
     flash.mosi = spi_boot_mosi; flash.miso = spi_boot_miso;
+
+    chp {
+        c.reset_ext!true
+    }
 }
 
 e2e_boot_test ebt;

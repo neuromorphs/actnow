@@ -83,6 +83,11 @@ defproc e2e_reset_test() {
     chp {
         log("======== dvs reset e2e test start ========");
 
+        // soc no longer boots itself -- assert reset_ext once to kick it off
+        // (distinct from the mid-test reset_ext below, which proves recovery
+        // rather than boot).
+        c.reset_ext!true;
+
         // --- batch 1: identical to e2e_aer_test.act's own batch --
         // push 41, 42, 43, ISR computes +1 on each, expect addr=0/data=42,
         // addr=4/data=43, addr=8/data=44 out over SPI.

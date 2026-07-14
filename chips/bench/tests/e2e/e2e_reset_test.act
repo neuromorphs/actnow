@@ -25,6 +25,11 @@ defproc e2e_reset_test() {
     chp {
         log("======== reset e2e test start ========");
 
+        // soc no longer boots itself -- assert reset_ext once to kick it off
+        // (distinct from the mid-test reset_ext below, which proves recovery
+        // rather than boot).
+        c.reset_ext!true;
+
         // --- Batch 1: identical to e2e_fifo_test.act's own batch 1 --
         // push 41, 42, 43, ISR computes +1 on each, expect 42, 43, 44 out.
         log("--- batch 1: pushing 41, 42, 43 into the input FIFO ---");

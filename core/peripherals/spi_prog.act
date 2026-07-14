@@ -42,9 +42,14 @@ defproc spi_prog(
         cs := false; sclk := false; mosi := false; req := false;
         spi_addr_reg := 0;
 
-        // prime the clock (see spi_boot.act's header comment)
-        req := ~req; [ ack = req ]; req := ~req; [ ack = req ];
-
+        // No priming toggle here, unlike spi_boot.act -- both peripherals
+        // share one real delay-line clock (spi_clock_shared.act) that only
+        // needs its ack resolved out of X once, and spi_boot always runs
+        // first (it services every fetch from boot, before the CPU could
+        // possibly reach code touching spi_prog). A second, redundant prime
+        // here would fire concurrently with spi_boot's at simulation start,
+        // both toggling req into the shared XOR combiner at once -- genuine
+        // electrical contention, not just redundant work.
         *[
             addr?a; mode?md;
             [
