@@ -18,20 +18,22 @@
 #define INT_CTRL_ENABLE   ADDR(1, 64)
 #define GPIO              ADDR(7, 0)
 
-static inline void wfi(void) {
-    asm volatile (".word 0x0000000b");
-}
+/* Must NOT call wfi() itself: soc.act's WFI-decode never returns control to
+   the instruction after it, so a wfi() call inside an ISR permanently skips
+   that ISR's own epilogue (the stack pointer's restore), leaking 16 bytes of
+   stack every interrupt until it eventually collides with this program's own
+   code (see software/application/main.c's isr_handler comment for the full
+   explanation). Just returning is correct: this function's own `ret` lands
+   on the same cached wfi() site main()'s return already relies on. */
 
 /* gpio_in_0 (event_id_1) -> drive 0b0101 */
 static __attribute__((noinline)) void isr_gpio_in_0(void) {
     *GPIO = 0b0101;
-    wfi();
 }
 
 /* gpio_in_1 (event_id_2) -> drive 0b1010 */
 static __attribute__((noinline)) void isr_gpio_in_1(void) {
     *GPIO = 0b1010;
-    wfi();
 }
 
 void main(void) {

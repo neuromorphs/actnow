@@ -968,6 +968,8 @@ actionable tasks until these are answered:
 
 - [x] SPI boot and SPI prog share the same clk instance. We have to find a way to test this reliably and safely. (using explicit delays )
 
+- [ ] Reset is a channel communication
+
 Once these are answered, expand this section into the same
 checkbox/Gate structure as Stages 1 and 2 before starting implementation.
 

@@ -20,12 +20,12 @@ ROM_TEST ?= simple
 
 ROM_IMAGE := software/tests/build/rom_image.mem
 
-.PHONY: test e2e_fpga_boot_test e2e_fpga_fifo_test e2e_fpga_fifo_stress e2e_fpga_reset_test e2e_fpga_reset_reload_test
+.PHONY: test e2e_fpga_boot_test e2e_fpga_fifo_test e2e_fpga_fifo_stress e2e_fpga_reset_test e2e_fpga_reset_reload_test e2e_fpga_rotate_test
 
 # Run every fpga e2e test. multi_event / gpio scenarios from chips/bench are
 # deliberately absent: this variant wires only a single interrupt (event_id_0)
 # and has no GPIO peripheral, so neither is applicable here.
-test: e2e_fpga_boot_test e2e_fpga_fifo_test e2e_fpga_fifo_stress e2e_fpga_reset_test e2e_fpga_reset_reload_test
+test: e2e_fpga_boot_test e2e_fpga_fifo_test e2e_fpga_fifo_stress e2e_fpga_reset_test e2e_fpga_reset_reload_test e2e_fpga_rotate_test
 	@echo "=== all fpga e2e tests passed ==="
 
 # Boot software/boot_only/main.c XIP from the raw ROM route and confirm it
@@ -144,4 +144,30 @@ e2e_fpga_reset_reload_test:
 		echo "e2e_fpga_reset_reload_test: FAIL (no completion)"; exit 1; \
 	else \
 		echo "e2e_fpga_reset_reload_test: PASS"; \
+	fi
+
+# Replays 200 events from a real recorded capture (dvs_capture_*.csv) through
+# software/dvs_rotate/main.c's ISR three times in a row and asserts every
+# rotated result against the reference values baked into
+# e2e_fpga_rotate_events.act -- see that file and e2e_fpga_rotate_test.act's
+# header for the rotation math. Same ROM-pinning rationale as the other e2e_*
+# targets: force a fresh dvs_rotate image, restore the default ROM afterward.
+e2e_fpga_rotate_test:
+	@echo "--- e2e_fpga_rotate_test ---"
+	@rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem
+	@$(MAKE) -s -C $(ROOT) ROM_TEST=dvs_rotate CROSS=$(CROSS) file-registry
+	@cd $(ROOT) && $(AFLAT) chips/fpga/tests/e2e/e2e_fpga_rotate_test.act
+	@out=$$(cd $(ROOT) && printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf chips/fpga/tests/e2e/e2e_fpga_rotate_test.act e2e_fpga_rotate_test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem; \
+	$(MAKE) -s -C $(ROOT) ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
+	if [ $$status -ne 0 ]; then \
+		echo "e2e_fpga_rotate_test: FAIL"; exit $$status; \
+	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+		echo "e2e_fpga_rotate_test: FAIL"; exit 1; \
+	elif ! echo "$$out" | grep -qi "test complete"; then \
+		echo "e2e_fpga_rotate_test: FAIL (no completion)"; exit 1; \
+	else \
+		echo "e2e_fpga_rotate_test: PASS"; \
 	fi
