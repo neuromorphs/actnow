@@ -86,6 +86,15 @@ defproc fifo_in(
                                   [] else -> skip
                                 ]
                               [] else -> skip
+                            ];
+                            // If re-arming here left the FIFO already at/above the
+                            // level (the producer refilled it while the ISR ran),
+                            // fire now rather than waiting for the next push --
+                            // otherwise a batch that filled during servicing is
+                            // stranded until the next arrival (unbounded latency
+                            // if the stream pauses, and never at all if it stops).
+                            [ armed & (count >= trigger_level) -> event_out!true; armed := false; reads_since_fire := 0
+                              [] else -> skip
                             ]
                         [] else ->
                             wdata?trigger_level;

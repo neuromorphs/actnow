@@ -1,0 +1,61 @@
+import "chips/fpga/core.act";
+import "core/peripherals/mem.act";
+import "core/peripherals/fifo_out.act";
+import "gen/file_ids.act";
+
+// Continuous-push stress variant of e2e_fpga_fifo_test. Unlike that test --
+// which pushes exactly BATCH, then pops all BATCH results before pushing the
+// next batch, so fifo_in fully drains between interrupt fires -- this pushes a
+// long stream as fast as fifo_in will accept it (a producer that keeps pace
+// with the ISR), while a parallel consumer drains the base-6 results. This is
+// what a live SciDVS does: events keep arriving regardless of whether the ISR
+// has finished the previous batch.
+//
+// Healthy: 40 results come back (word+1, in order). If the core services only
+// the first batch (3 results) and then wedges, actsim deadlocks after 3 -- the
+// single-batch hang seen on hardware, reproduced in pure CHP.
+defproc e2e_fpga_fifo_stress() {
+    core<4> c;
+
+    mem<true, ROM_IMAGE> rom;
+    rom.addr = c.rom_addr;
+    rom.mode = c.rom_mode;
+    rom.rdata = c.rom_rdata;
+
+    fifo_out<64> fout;
+    fout.addr = c.io_addr;
+    fout.mode = c.io_mode;
+    fout.wdata = c.io_wdata;
+    fout.rdata = c.io_rdata;
+
+    int<WIDTH_DATA> result;
+    int<32> icnt, ocnt;
+
+    // 4 full batches (BATCH=3 in software/application): enough to prove the
+    // interrupt re-arms past the first batch, small enough to sim fast.
+    chp {
+        log("======== fifo stress (continuous push) start ========");
+        c.reset_ext!true;
+        (
+            ( icnt := 1;
+              *[ icnt <= 12 ->
+                    c.fifo_push!int(icnt, WIDTH_DATA);
+                    icnt := icnt + 1
+              ]
+            )
+            ,
+            ( ocnt := 0;
+              *[ ocnt < 12 ->
+                    fout.pop?result;
+                    log("RESULT #", ocnt, " = ", result);
+                    // the ISR adds 1; inputs are 1..12, popped in order
+                    assert(result = ocnt + 2, "stress: result ", ocnt, " want ", ocnt + 2, " got ", result);
+                    ocnt := ocnt + 1
+              ]
+            )
+        );
+        log("======== fifo stress complete: all 12 results correct ========")
+    }
+}
+
+e2e_fpga_fifo_stress e2e;

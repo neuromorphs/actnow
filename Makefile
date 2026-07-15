@@ -80,7 +80,7 @@ SW_TESTS   := $(filter-out $(MEXT_TESTS),$(basename $(notdir $(wildcard \
                   software/tests/*.S software/tests/*.c \
                   software/tests/unit/*.S software/tests/unit/*.c))))
 
-.PHONY: all test list clean help file-registry software-tests force e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test $(TESTS)
+.PHONY: all test list clean help file-registry software-tests force e2e_fifo_test e2e_fifo_stress_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test $(TESTS)
 
 all: test
 
@@ -121,7 +121,7 @@ help:
 	@echo "Must be run from this directory (actnow/) -- see the top of this Makefile and"
 	@echo "the README's Toolchain section for why."
 
-test: $(TESTS) e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test
+test: $(TESTS) e2e_fifo_test e2e_fifo_stress_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test
 	@echo "=== all tests passed ==="
 
 file-registry: $(FILE_REGISTRY_GEN)
@@ -176,7 +176,7 @@ $(TESTS): $(FILE_REGISTRY_GEN)
 # rebuild dance each one needs (see its own e2e_fifo_test comment for why),
 # this just delegates by name with the same variables a direct invocation
 # would use.
-e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test:
+e2e_fifo_test e2e_fifo_stress_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test:
 	@$(MAKE) -C chips/bench $@ ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS)
 
 # Run every RV32I software test through soc's real pipeline. For each test we

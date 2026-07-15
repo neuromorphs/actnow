@@ -20,12 +20,12 @@ ROM_TEST ?= simple
 
 ROM_IMAGE := software/tests/build/rom_image.mem
 
-.PHONY: test e2e_fpga_boot_test e2e_fpga_fifo_test e2e_fpga_reset_test e2e_fpga_reset_reload_test
+.PHONY: test e2e_fpga_boot_test e2e_fpga_fifo_test e2e_fpga_fifo_stress e2e_fpga_reset_test e2e_fpga_reset_reload_test
 
 # Run every fpga e2e test. multi_event / gpio scenarios from chips/bench are
 # deliberately absent: this variant wires only a single interrupt (event_id_0)
 # and has no GPIO peripheral, so neither is applicable here.
-test: e2e_fpga_boot_test e2e_fpga_fifo_test e2e_fpga_reset_test e2e_fpga_reset_reload_test
+test: e2e_fpga_boot_test e2e_fpga_fifo_test e2e_fpga_fifo_stress e2e_fpga_reset_test e2e_fpga_reset_reload_test
 	@echo "=== all fpga e2e tests passed ==="
 
 # Boot software/boot_only/main.c XIP from the raw ROM route and confirm it
@@ -59,6 +59,29 @@ e2e_fpga_boot_test:
 # (modelled by a testbench fifo_out). Force a fresh application image via an
 # explicit sub-make, then restore the default ROM afterward -- same ROM-pinning
 # rationale as chips/bench/Makefile.
+# Continuous-push regression for the fifo_in single-batch hang: streams past one
+# batch while draining the base-6 results in parallel (see the test's own
+# comment). Same ROM image and pinning as e2e_fpga_fifo_test below.
+e2e_fpga_fifo_stress:
+	@echo "--- e2e_fpga_fifo_stress ---"
+	@rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem
+	@$(MAKE) -s -C $(ROOT) ROM_TEST=application CROSS=$(CROSS) file-registry
+	@cd $(ROOT) && $(AFLAT) chips/fpga/tests/e2e/e2e_fpga_fifo_stress.act
+	@out=$$(cd $(ROOT) && printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf chips/fpga/tests/e2e/e2e_fpga_fifo_stress.act e2e_fpga_fifo_stress 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem; \
+	$(MAKE) -s -C $(ROOT) ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
+	if [ $$status -ne 0 ]; then \
+		echo "e2e_fpga_fifo_stress: FAIL"; exit $$status; \
+	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+		echo "e2e_fpga_fifo_stress: FAIL"; exit 1; \
+	elif ! echo "$$out" | grep -qi "stress complete"; then \
+		echo "e2e_fpga_fifo_stress: FAIL (no completion)"; exit 1; \
+	else \
+		echo "e2e_fpga_fifo_stress: PASS"; \
+	fi
+
 e2e_fpga_fifo_test:
 	@echo "--- e2e_fpga_fifo_test ---"
 	@rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem
