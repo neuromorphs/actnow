@@ -3,3 +3,5 @@ input    FILE_MEM_TEST_IMAGE   tests/files/file_mem_image.mem
 input    ROM_IMAGE             software/tests/build/rom_image.mem
 input    ROM_IMAGE_HANG        software/hang/build/rom_image.mem
 input    ROM_IMAGE_APPLICATION software/application/build/rom_image.mem
+input    ROTATE_CAPTURE_EVENTS  chips/fpga/rotate_capture_events.mem
+output   ROTATE_CAPTURE_RESULTS chips/fpga/rotate_capture_results.mem

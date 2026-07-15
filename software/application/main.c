@@ -13,7 +13,17 @@
    Each firing jumps straight to isr_handler, which reads BATCH words from
    the input FIFO, adds 1 to each, and writes the results to the output
    FIFO. A write to a full output FIFO blocks (real backpressure) instead
-   of crashing. */
+   of crashing.
+
+   isr_handler must NOT call wfi() itself: soc.act's WFI-decode never
+   returns control to the instruction after it -- the next interrupt jumps
+   straight to event_id_0's vector instead. A wfi() call inside this
+   function would permanently skip its own epilogue (the stack pointer's
+   restore), leaking 16 bytes of stack every single interrupt until it
+   eventually collides with this program's own code. Just returning here
+   is correct and sufficient: this function's own `ret` lands on the same
+   cached wfi() site main()'s return already relies on (see main()'s
+   comment below), only now with the epilogue having actually run first. */
 
 #define ADDR(base, offset) ((volatile uint32_t *)(((uint32_t)(base) << 16) | (uint32_t)(offset)))
 
@@ -24,10 +34,6 @@
 
 #define BATCH 3
 
-static inline void wfi(void) {
-    asm volatile (".word 0x0000000b");
-}
-
 static __attribute__((noinline)) void isr_handler(void) {
     uint32_t v[BATCH];
     for (uint32_t i = 0; i < BATCH; i++) {
@@ -36,8 +42,6 @@ static __attribute__((noinline)) void isr_handler(void) {
     for (uint32_t i = 0; i < BATCH; i++) {
         *FIFO_OUT = v[i] + 1;
     }
-    
-    wfi();
 }
 
 void main(void) {

@@ -26,10 +26,13 @@
 
 #define BATCH 3
 
-static inline void wfi(void) {
-    asm volatile (".word 0x0000000b");
-}
-
+/* Must NOT call wfi() itself: soc.act's WFI-decode never returns control to
+   the instruction after it, so a wfi() call inside an ISR permanently skips
+   that ISR's own epilogue (the stack pointer's restore), leaking 16 bytes of
+   stack every interrupt until it eventually collides with this program's own
+   code (see software/application/main.c's isr_handler comment for the full
+   explanation). Just returning is correct: this function's own `ret` lands
+   on the same cached wfi() site main()'s return already relies on. */
 static __attribute__((noinline)) void isr_handler(void) {
     uint32_t v[BATCH];
     for (uint32_t i = 0; i < BATCH; i++) {
@@ -39,8 +42,6 @@ static __attribute__((noinline)) void isr_handler(void) {
         *SPI_PROG_ADDR = i * 4;
         *SPI_PROG_DATA = v[i] + 1;
     }
-
-    wfi();
 }
 
 void main(void) {
