@@ -47,7 +47,7 @@ defproc harness(
     demux.wdata_in = wdata_in;
     demux.rdata_in = rdata_in;
 
-    fifo_in<AER_DEPTH, WIDTH_ADDR> aer;
+    fifo_in<AER_DEPTH, WIDTH_AER> aer;
     demux.addr_out[1] = aer.addr;
     demux.mode_out[1] = aer.mode;
     demux.wdata_out[1] = aer.wdata;
