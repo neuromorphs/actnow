@@ -25,7 +25,7 @@ defproc e2e_reset_test() {
     chp {
         log("======== reset e2e test start ========");
 
-        // soc no longer boots itself -- assert reset_ext once to kick it off
+        // soc boots from a cold reset -- assert reset_ext once to kick it off
         // (distinct from the mid-test reset_ext below, which proves recovery
         // rather than boot).
         c.reset_ext!true;

@@ -20,7 +20,7 @@ defproc load_test() {
     int<32> insn;
 
     chp {
-        // soc no longer boots itself -- assert reset_ext once to kick it off.
+        // soc boots from a cold reset -- assert reset_ext once to kick it off.
         s.reset_ext!true;
 
         // pc=ADDR_RESET+0: LUI x1, 0x40  -->  x1 = 0x40000 (base address)

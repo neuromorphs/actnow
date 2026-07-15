@@ -75,7 +75,7 @@ defproc e2e_spi_read_test() {
     chp {
         log("======== dvs spi_prog read e2e test start ========");
 
-        // soc no longer boots itself -- assert reset_ext once to kick it off.
+        // soc boots from a cold reset -- assert reset_ext once to kick it off.
         c.reset_ext!true;
 
         c.gpio_out_0?p0; c.gpio_out_1?p1; c.gpio_out_2?p2; c.gpio_out_3?p3;

@@ -14,7 +14,7 @@ defproc branch_test() {
     int<32> insn, off;
 
     chp {
-        // soc no longer boots itself -- assert reset_ext once to kick it off.
+        // soc boots from a cold reset -- assert reset_ext once to kick it off.
         s.reset_ext!true;
 
         // pc=ADDR_RESET+0: BEQ x1, x2, +8  (x1=x2=0 -> equal -> taken)

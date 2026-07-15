@@ -62,10 +62,9 @@ defproc external_flash(
 
 // Wires spi_boot (as the SPI master) to external_flash (as the SPI slave)
 // over plain bool wires -- cs/sclk/mosi/miso are real signal lines, not
-// channels, since spi_boot generates its own clock asynchronously
-// (robustness.md Stage 2.3 rework). Drives spi_boot directly as the CPU
-// would (two reads at different offsets) and checks each comes back
-// correctly, live, from external_flash.
+// channels, since spi_boot generates its own clock asynchronously. Drives
+// spi_boot directly as the CPU would (two reads at different offsets) and
+// checks each comes back correctly, live, from external_flash.
 defproc spi_boot_test() {
     spi_boot sb;
     external_flash ef;

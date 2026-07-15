@@ -8,7 +8,7 @@ defproc lui_test() {
     int<32> insn, off;
 
     chp {
-        // soc no longer boots itself -- assert reset_ext once to kick it off.
+        // soc boots from a cold reset -- assert reset_ext once to kick it off.
         s.reset_ext!true;
 
         // LUI x5, 0x12345  (the instruction actually under test)

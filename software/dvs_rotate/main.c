@@ -1,30 +1,22 @@
 #include <stdint.h>
 
-/* chips/fpga variant of software/application/main.c: same interrupt/FIFO
-   wiring (fifo_in fires event_id_0 once BATCH words land, isr_handler reads
-   BATCH words then writes BATCH results to the output FIFO), but instead of
-   the placeholder "+1" transform, each word is treated as one packed AER
-   event -- evt_pack.v's {ts[16:0], pol, y[6:0], x[6:0]} -- and rotated 45
-   degrees around the sensor's center.
+/* chips/fpga variant of software/application/main.c: rotates each AER
+   pixel-event's (x,y) coordinate 45 degrees around the sensor's center.
+   Same interrupt/FIFO wiring -- fifo_in fires event_id_0 once BATCH words
+   land, isr_handler reads BATCH words and writes BATCH results out.
 
-   This core is plain RV32I (no multiply/divide -- see software/common/
-   program.mk's -march=rv32i), so a true rotate-by-cos45/sin45 isn't cheap
-   here. Instead this uses the classic multiply-free 45-degree rotation:
+   Each word is one packed AER event: evt_pack.v's {ts[16:0], pol, y[6:0],
+   x[6:0]}. This core is plain RV32I (no multiply/divide), so the rotation
+   uses the multiply-free 45-degree identity:
 
        tx = x - cx, ty = y - cy
        rx = (tx - ty) >> 1, ry = (tx + ty) >> 1
        x' = rx + cx,        y' = ry + cy
 
-   which is exactly the true rotate-by-45-degrees direction, just scaled by
-   ~0.707 (>>1 divides by 2 where the true matrix multiplies by 1/sqrt(2))
-   -- only shifts/adds, no multiply routine needed. ts/pol pass through
-   unchanged; x'/y' are clamped to the sensor's frame so a corner event
-   can't rotate off the edge into another event's address.
-
-   chips/fpga/tests/e2e/e2e_fpga_rotate_test.act drives this with 200 real
-   recorded events (chips/fpga/dvs_capture_20260714_151049.csv) looped 3x,
-   and asserts every result against the same rotation computed in Python
-   (chips/fpga/tests/e2e/e2e_fpga_rotate_events.act's ROTATE_EXPECTED). */
+   which points in the true 45-degree direction, scaled by ~0.707, using
+   only shifts and adds. ts/pol pass through unchanged; x'/y' are clamped
+   to the sensor frame so a corner event can't rotate off the edge into
+   another event's address. */
 
 #define ADDR(base, offset) ((volatile uint32_t *)(((uint32_t)(base) << 16) | (uint32_t)(offset)))
 
@@ -66,15 +58,8 @@ static uint32_t rotate45(uint32_t word) {
     return (word & HIGH_BITS_MASK) | ((uint32_t)ny << 7) | (uint32_t)nx;
 }
 
-/* Must NOT call wfi() itself: soc.act's WFI-decode never returns control to
-   the instruction after it -- the next interrupt jumps straight to
-   event_id_0's vector instead. A wfi() call inside this function would
-   permanently skip its own epilogue (the stack pointer's restore), leaking
-   16 bytes of stack every single interrupt until it eventually collides
-   with this program's own code. Just returning here is correct and
-   sufficient: this function's own `ret` lands on the same cached wfi()
-   site main()'s return already relies on (see main()'s comment below),
-   only now with the epilogue having actually run first. */
+/* isr_handler must not call wfi() -- see software/application/main.c's
+   isr_handler comment for why. */
 static __attribute__((noinline)) void isr_handler(void) {
     uint32_t v[BATCH];
     for (uint32_t i = 0; i < BATCH; i++) {
