@@ -7,7 +7,7 @@ import "gen/file_ids.act";
 // bootloader (genuinely XIP out of spi_boot, no ROM), lets it configure
 // its own interrupt vector and AER trigger level (BATCH=3), then go to
 // sleep. Pushes two separate 3-word batches into the AER input -- the AER
-// input (fifo_in<AER_DEPTH, WIDTH_ADDR>) fires the interrupt itself once
+// input (fifo_in<AER_DEPTH, WIDTH_AER>) fires the interrupt itself once
 // each batch lands, exactly like chips/bench's fifo_in, no manual
 // triggering here. event_id_0 is already hardwired to the AER input's own
 // event_out in chips/dvs/core.act, unlike chips/bench where the testbench
@@ -95,9 +95,9 @@ defproc e2e_aer_test() {
         c.reset_ext!true;
 
         log("--- batch 1: pushing 41, 42, 43 into the AER input ---");
-        c.aer_in!int(41, WIDTH_ADDR);
-        c.aer_in!int(42, WIDTH_ADDR);
-        c.aer_in!int(43, WIDTH_ADDR);
+        c.aer_in!int(41, WIDTH_AER);
+        c.aer_in!int(42, WIDTH_AER);
+        c.aer_in!int(43, WIDTH_AER);
 
         // Model some real-world latency between events -- spi_sink's own
         // asserts check batch 1's results as they arrive.
@@ -105,9 +105,9 @@ defproc e2e_aer_test() {
         *[ delay < 3000 -> delay := delay + 1 ];
 
         log("--- batch 2: pushing 100, 200, 300 into the AER input ---");
-        c.aer_in!int(100, WIDTH_ADDR);
-        c.aer_in!int(200, WIDTH_ADDR);
-        c.aer_in!int(300, WIDTH_ADDR);
+        c.aer_in!int(100, WIDTH_AER);
+        c.aer_in!int(200, WIDTH_AER);
+        c.aer_in!int(300, WIDTH_AER);
 
         // Wait for spi_sink to actually finish verifying all 6 words --
         // without this, "test complete" would print as soon as the last

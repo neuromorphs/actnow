@@ -3,6 +3,9 @@ pint WIDTH_DATA = 32,
     WIDTH_ADDR_BASE = 4,
     WIDTH_ADDR_OFFSET = 16;
 
+// AER (address-event) payload width
+pint WIDTH_AER = 32;
+
 deftype addr_t(int<WIDTH_ADDR_BASE> base; int<WIDTH_ADDR_OFFSET> offset) { }
 
 defenum op_mem_t { W, R, R_AND_W };

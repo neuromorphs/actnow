@@ -31,7 +31,7 @@ defproc core(
     chan?(bool) swd_0; chan?(bool) swd_1;
     chan?(bool) reset_ext;
 
-    chan?(int<WIDTH_ADDR>) aer_in;
+    chan?(int<WIDTH_AER>) aer_in;
 
     bool! spi_boot_cs; bool! spi_boot_sclk; bool! spi_boot_mosi; bool? spi_boot_miso;
     bool! spi_prog_cs; bool! spi_prog_sclk; bool! spi_prog_mosi; bool? spi_prog_miso;

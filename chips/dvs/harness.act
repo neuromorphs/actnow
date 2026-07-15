@@ -11,12 +11,11 @@ import "core/peripherals/gpio.act";
 // addr_ext/mode_ext/wdata_ext/rdata_ext boundary is connected to
 // addr_in/mode_in/wdata_in/rdata_in below.
 //
-// The AER input is fifo_in<AER_DEPTH, WIDTH_ADDR> -- core/peripherals/
+// The AER input is fifo_in<AER_DEPTH, WIDTH_AER> -- core/peripherals/
 // fifo_in.act's own buffer/push element width was genericized specifically
 // so this chip variant could reuse it directly instead of needing its own
-// peripheral file (robustness.md Stage 2.1); WIDTH_ADDR (20 bits) is this
-// project's own address width, which an AER pixel-event payload naturally
-// matches.
+// peripheral file (robustness.md Stage 2.1); WIDTH_AER is its own
+// parameter (core/globals.act), sized for an AER pixel-event payload.
 //
 // No fifo_out here or anywhere else in this chip variant -- any
 // chip-to-outside data path goes through spi_prog instead. Both spi_boot
@@ -32,7 +31,7 @@ defproc harness(
     chan?(int<WIDTH_DATA>) wdata_in;
     chan!(int<WIDTH_DATA>) rdata_in;
 
-    chan?(int<WIDTH_ADDR>) aer_in;
+    chan?(int<WIDTH_AER>) aer_in;
     chan!(bool) aer_event;
 
     bool! spi_boot_cs; bool! spi_boot_sclk; bool! spi_boot_mosi; bool? spi_boot_miso;

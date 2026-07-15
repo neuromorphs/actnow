@@ -92,7 +92,7 @@ defproc e2e_aer_stress_test() {
         (
             ( icnt := 1;
               *[ icnt <= 12 ->
-                    c.aer_in!int(icnt, WIDTH_ADDR);
+                    c.aer_in!int(icnt, WIDTH_AER);
                     icnt := icnt + 1
               ]
             )

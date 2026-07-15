@@ -126,9 +126,9 @@ defproc e2e_full_test() {
         // configured (*AER_IN = BATCH, in main(), after the load loop),
         // so these just block until the program actually gets there.
         log("--- pushing 41, 42, 43 into the AER input ---");
-        c.aer_in!int(41, WIDTH_ADDR);
-        c.aer_in!int(42, WIDTH_ADDR);
-        c.aer_in!int(43, WIDTH_ADDR);
+        c.aer_in!int(41, WIDTH_AER);
+        c.aer_in!int(42, WIDTH_AER);
+        c.aer_in!int(43, WIDTH_AER);
 
         // expected: pushed + loaded -- 41+10=51, 42+20=62, 43+30=73
         word_addr?a; word_data?d;

@@ -6,8 +6,8 @@ import "core/globals.act";
 // oldest entry on every read (there's only one register, so the address
 // offset is ignored). Buffered words are WIDTH bits wide (WIDTH_DATA for a
 // generic 32-bit producer, or narrower for a domain-specific one, e.g. the
-// dvs chip variant instantiates fifo_in<DEPTH, WIDTH_ADDR> for its 20-bit
-// AER pixel-address input instead of a separate peripheral) -- rdata always
+// dvs chip variant instantiates fifo_in<DEPTH, WIDTH_AER> for its AER
+// pixel-address input instead of a separate peripheral) -- rdata always
 // zero-extends into the full 32-bit CPU-facing word.
 //
 // A CPU write instead configures the trigger level: once `count` reaches

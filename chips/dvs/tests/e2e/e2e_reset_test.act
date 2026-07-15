@@ -92,9 +92,9 @@ defproc e2e_reset_test() {
         // push 41, 42, 43, ISR computes +1 on each, expect addr=0/data=42,
         // addr=4/data=43, addr=8/data=44 out over SPI.
         log("--- batch 1: pushing 41, 42, 43 into the AER input ---");
-        c.aer_in!int(41, WIDTH_ADDR);
-        c.aer_in!int(42, WIDTH_ADDR);
-        c.aer_in!int(43, WIDTH_ADDR);
+        c.aer_in!int(41, WIDTH_AER);
+        c.aer_in!int(42, WIDTH_AER);
+        c.aer_in!int(43, WIDTH_AER);
 
         word_addr?a; word_data?d;
         assert((a = 0) & (d = 42), "batch 1 result 1: want addr=0/data=42, got addr=", a);
@@ -117,9 +117,9 @@ defproc e2e_reset_test() {
         // controller -- this push just blocks until the rebooted program
         // is ready.
         log("--- batch 2 (post-reset): pushing 41, 42, 43 into the AER input ---");
-        c.aer_in!int(41, WIDTH_ADDR);
-        c.aer_in!int(42, WIDTH_ADDR);
-        c.aer_in!int(43, WIDTH_ADDR);
+        c.aer_in!int(41, WIDTH_AER);
+        c.aer_in!int(42, WIDTH_AER);
+        c.aer_in!int(43, WIDTH_AER);
 
         word_addr?a; word_data?d;
         assert((a = 0) & (d = 42), "batch 2 result 1: want addr=0/data=42, got addr=", a);
