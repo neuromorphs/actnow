@@ -32,9 +32,11 @@ import argparse
 import numpy as np
 
 SX, SY = 126, 112
-CELL_SHIFT = 4
-GRID_COLS = 8
-GRID_ROWS = 8
+CELL_SHIFT = 5  # 32x32-pixel cells -- must match GRID_COLS/ROWS=4 (126>>5=3, 112>>5=3):
+                # software/dvs_motion/main.c's header explains why CELL_SHIFT and the grid
+                # dimensions have to be changed together, not independently
+GRID_COLS = 4
+GRID_ROWS = 4
 GRID_CELLS = GRID_COLS * GRID_ROWS
 STEP = 32
 CAP = 255
@@ -60,12 +62,12 @@ def python_motion_words(x, y):
         for i in range(b, b + BATCH):
             col = int(x[i]) >> CELL_SHIFT
             row = int(y[i]) >> CELL_SHIFT
-            cell = (row << 3) | col
+            cell = (row << 2) | col   # row*GRID_COLS via shift -- GRID_COLS==4==1<<2
             grid[cell] = min(grid[cell] + STEP, CAP)
         best_cell = max(range(GRID_CELLS), key=lambda c: grid[c])
         best_val = grid[best_cell]
-        best_col = best_cell & 0x7
-        best_row = best_cell >> 3
+        best_col = best_cell & 0x3   # GRID_COLS==4 -> 2-bit column
+        best_row = best_cell >> 2
         motion = 1 if best_val >= THRESHOLD else 0
         words.append((motion << 14) | (best_val << 6) | (best_row << 3) | best_col)
     return words

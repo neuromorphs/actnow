@@ -13,9 +13,13 @@
    into GRID_COLS x GRID_ROWS cells of CELL_SIZE=1<<CELL_SHIFT pixels. This
    core is plain RV32I (no multiply/divide -- see software/common/
    program.mk's -march=rv32i), so the cell size is deliberately a power of 2:
-   col = x >> CELL_SHIFT, row = y >> CELL_SHIFT, cell = (row << 3) | col
-   (row*GRID_COLS via shift since GRID_COLS==8==1<<3) -- no divide routine
-   needed anywhere.
+   col = x >> CELL_SHIFT, row = y >> CELL_SHIFT, cell = (row << 2) | col
+   (row*GRID_COLS via shift since GRID_COLS==4==1<<2) -- no divide routine
+   needed anywhere. CELL_SHIFT must be picked so GRID_COLS/GRID_ROWS cells of
+   that size actually cover the whole SXxSY frame (here, 4 cells of 32px
+   cover up to 128px, matching SX=126/SY=112) -- changing the grid
+   dimensions without also changing CELL_SHIFT (or vice versa) leaves col/row
+   able to exceed the grid and index off the end of grid[] below.
 
    Each cell is an 8-bit saturating counter. Every batch: halve every cell
    (exponential decay, so activity fades out over a few batches instead of
@@ -42,12 +46,16 @@
 #define SX 126
 #define SY 112
 
-#define CELL_SHIFT 4                          /* 16x16-pixel cells */
-#define GRID_COLS  8                           /* covers SX (126>>4 = 7, so col range is 0..7) */
-#define GRID_ROWS  8                           /* covers SY with margin (112>>4 = 7 exactly; the
-                                                   7-bit y field can in principle reach 127, so one
-                                                   extra row avoids ever indexing out of bounds) */
-#define GRID_CELLS (GRID_COLS * GRID_ROWS)     /* = 64 */
+#define CELL_SHIFT 5                          /* 32x32-pixel cells -- must match GRID_COLS/ROWS=4:
+                                                   126>>5 = 3 and 112>>5 = 3, so col/row land in
+                                                   0..3 exactly. With the old CELL_SHIFT=4 (16px
+                                                   cells), a 4-wide grid only covered a 64x64
+                                                   sub-region -- anything past x/y=64 produced
+                                                   col/row up to 7, indexing straight past the end
+                                                   of grid[16] below. */
+#define GRID_COLS  4
+#define GRID_ROWS  4
+#define GRID_CELLS (GRID_COLS * GRID_ROWS)     /* = 16 */
 
 #define STEP      32   /* activity added per event landing in a cell */
 #define CAP       255  /* 8-bit saturation, matches the output word's 8-bit activity field */
@@ -77,7 +85,7 @@ static __attribute__((noinline)) void isr_handler(void) {
         uint32_t y = (v[i] >> 7) & 0x7F;
         uint32_t col = x >> CELL_SHIFT;
         uint32_t row = y >> CELL_SHIFT;
-        uint32_t cell = (row << 3) | col;
+        uint32_t cell = (row << 2) | col;   /* row*GRID_COLS via shift -- GRID_COLS==4==1<<2 */
 
         uint32_t updated = grid[cell] + STEP;
         grid[cell] = (uint8_t)((updated > CAP) ? CAP : updated);
@@ -92,10 +100,13 @@ static __attribute__((noinline)) void isr_handler(void) {
         }
     }
 
-    uint32_t best_col = best_cell & 0x7;
-    uint32_t best_row = best_cell >> 3;
+    uint32_t best_col = best_cell & 0x3;   /* GRID_COLS==4 -> 2-bit column */
+    uint32_t best_row = best_cell >> 2;
     uint32_t motion = (best_val >= THRESHOLD) ? 1u : 0u;
 
+    /* Output word's row/col fields stay 3 bits wide (bits[5:3]/[2:0]) even
+       though only 2 bits are ever nonzero now -- keeps the word layout, and
+       every decoder of it (dvs_motion_view.py's unpack_status), unchanged. */
     *FIFO_OUT = (motion << 14) | (best_val << 6) | (best_row << 3) | best_col;
 }
 
