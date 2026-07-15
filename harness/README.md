@@ -20,7 +20,7 @@ same events routed through the async core and back out.
 Everything is driven by the `Makefile` here (`make help`); run it from this
 directory, since the Tcl scripts address the project relative to Vivado's cwd.
 
-**No part of the DVS path has run on hardware yet** — see `HW_BRINGUP.md`.
+**No part of the DVS path has run on hardware yet.**
 
 ## Layout
 
@@ -33,8 +33,6 @@ directory, since the Tcl scripts address the project relative to Vivado's cwd.
 - `fpga/vivado/` — Vivado output (gitignored).
 - `pynq/` — what runs on the KR260's PS.
 - `BD_AER_BRAINSTORM.md` — the design options and the decisions taken.
-- `TODO.md` — open work (the BATCH/decimation sweep, the real ISR, timestamps on the wire).
-- `HW_BRINGUP.md` — what to check when a board and a camera exist.
 
 ### The PL (`static/`)
 
@@ -102,7 +100,7 @@ make project synth impl xsa      # or one step at a time
 Produces `fpga/vivado/actnow.xsa` (`write_hw_platform -fixed -include_bit`) — the
 PYNQ overlay. Target part `xck26-sfvc784-2LV-c` (KR260).
 
-Current build: **17,379 LUTs (14.8%), 14,183 FF (6.1%), 4 BRAM, WNS +3.576 ns** at
+Current build: **17,373 LUTs (14.8%), 14,174 FF (6.1%), 4 BRAM, WNS +4.293 ns** at
 the PS's PL clock (96.97 MHz — the preset does not land on exactly 100).
 
 ## Run (on the KR260)
@@ -112,7 +110,8 @@ python3 pynq/actnow_dvs_send.py --host <HOST_IP> --firmware rom.mem --decim 8
 ```
 
 Loads the overlay from the XSA, writes the firmware image into the BRAM, pulses the
-core's `reset_ext` (**this is how firmware changes happen — no bitstream rebuild**),
+core's `reset_ext` (**the core does not self-boot: this pulse is what starts it, and
+it is also how a firmware change takes effect — no bitstream rebuild**),
 and pumps both DMAs out as UDP in `kr260_aer_interface`'s existing datagram format,
 so its viewer works unchanged on either port:
 
@@ -125,6 +124,6 @@ python3 aer_udp_viewer.py --port 3334    # processed
 
 - [x] Test setup (`make sim`: four core scenarios + the full PL datapath)
 - [x] Block design: AER in, event streams, program BRAM, the core's interrupt path
-- [ ] The BATCH/decimation sweep, and a real ISR — see `TODO.md`
-- [ ] Bring-up on real hardware — see `HW_BRINGUP.md`
+- [ ] The BATCH/decimation sweep, and a real ISR
+- [ ] Bring-up on real hardware
 - [ ] Pynq integration of DVS camera (the PS side exists; unverified on hardware)
