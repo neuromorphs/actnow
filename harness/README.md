@@ -54,7 +54,7 @@ make boot fifo reset reset_reload
 
 `make pl` boots `software/application` from the behavioral firmware BRAM, sends
 real 4-phase AER events, checks the required event-word layout at the core input,
-and verifies the result stream returns the firmware's `word + 1` output.
+and verifies the result stream returns the firmware's rotated event words.
 
 ## Build
 

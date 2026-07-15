@@ -73,6 +73,25 @@ module tb_pl_stress;
     integer nres_pkt = 0;
     integer errors = 0;
 
+    function [31:0] rotate_req_word(input [31:0] word);
+        integer x, y, tx, ty, rx, ry, nx, ny;
+        begin
+            x = word[30:24];
+            y = word[23:17];
+            tx = x - 63;
+            ty = y - 56;
+            rx = (tx - ty) >>> 1;
+            ry = (tx + ty) >>> 1;
+            nx = rx + 63;
+            ny = ry + 56;
+            if (nx < 0) nx = 0;
+            if (nx > 125) nx = 125;
+            if (ny < 0) ny = 0;
+            if (ny > 111) ny = 111;
+            rotate_req_word = (word & 32'h80_01_FF_FF) | (nx[6:0] << 24) | (ny[6:0] << 17);
+        end
+    endfunction
+
     always @(posedge clk) if (resetn && dut.core_in_tvalid && dut.core_in_tready) begin
         core_seen[ncore] <= dut.core_in_tdata;
         ncore <= ncore + 1;
@@ -82,9 +101,9 @@ module tb_pl_stress;
         if (nres >= ncore) begin
             $display("FAIL: result #%0d arrived before matching core input was recorded", nres);
             errors <= errors + 1;
-        end else if (res_tdata !== core_seen[nres] + 1) begin
+        end else if (res_tdata !== rotate_req_word(core_seen[nres])) begin
             $display("FAIL: result #%0d want 0x%08h got 0x%08h",
-                     nres, core_seen[nres] + 1, res_tdata);
+                     nres, rotate_req_word(core_seen[nres]), res_tdata);
             errors <= errors + 1;
         end
         if (res_tlast) nres_pkt <= nres_pkt + 1;
@@ -148,7 +167,7 @@ module tb_pl_stress;
         for (i = 0; i < NEV; i = i + 1)
             check_abi(i, i[6:0] % 7'd126, (i / 2) % 112, i[0]);
 
-        for (i = 0; i < 5000 && nres < ncore; i = i + 1) @(posedge clk);
+        for (i = 0; i < 50000 && nres < ncore; i = i + 1) @(posedge clk);
 
         $display("[%0t] counters: evt=%0d push=%0d drop=%0d fetch=%0d results=%0d ncore=%0d nres=%0d packets=%0d",
                  $time, evt_count, core_push_count, core_drop_count, fetch_count,

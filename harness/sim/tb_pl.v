@@ -107,6 +107,25 @@ module tb_pl;
     integer errors = 0;
     integer i;
 
+    function [31:0] rotate_req_word(input [31:0] word);
+        integer x, y, tx, ty, rx, ry, nx, ny;
+        begin
+            x = word[30:24];
+            y = word[23:17];
+            tx = x - 63;
+            ty = y - 56;
+            rx = (tx - ty) >>> 1;
+            ry = (tx + ty) >>> 1;
+            nx = rx + 63;
+            ny = ry + 56;
+            if (nx < 0) nx = 0;
+            if (nx > 125) nx = 125;
+            if (ny < 0) ny = 0;
+            if (ny > 111) ny = 111;
+            rotate_req_word = (word & 32'h80_01_FF_FF) | (nx[6:0] << 24) | (ny[6:0] << 17);
+        end
+    endfunction
+
     task check_word(input integer idx, input [6:0] x, input [6:0] y, input pol);
         reg [31:0] w;
         begin
@@ -132,7 +151,7 @@ module tb_pl;
                 end
             end
             for (k = 0; k < n; k = k + 1) begin
-                want = core_seen[first_core + k] + 1;
+                want = rotate_req_word(core_seen[first_core + k]);
                 if (res_seen[first_core + k] !== want) begin
                     $display("FAIL: result %0d: want 0x%08h, got 0x%08h",
                              first_core + k, want, res_seen[first_core + k]);
@@ -159,27 +178,31 @@ module tb_pl;
         aer_event(7'd10, 7'd20, 1'b1);
         aer_event(7'd11, 7'd20, 1'b0);
         aer_event(7'd12, 7'd21, 1'b1);
+        aer_event(7'd13, 7'd21, 1'b0);
 
         check_word(0, 7'd10, 7'd20, 1'b1);
         check_word(1, 7'd11, 7'd20, 1'b0);
         check_word(2, 7'd12, 7'd21, 1'b1);
-        expect_results(0, 3);
+        check_word(3, 7'd13, 7'd21, 1'b0);
+        expect_results(0, 4);
 
         aer_event(7'd30, 7'd40, 1'b1);
         aer_event(7'd31, 7'd40, 1'b0);
         aer_event(7'd32, 7'd41, 1'b1);
+        aer_event(7'd33, 7'd41, 1'b0);
 
-        check_word(3, 7'd30, 7'd40, 1'b1);
-        check_word(4, 7'd31, 7'd40, 1'b0);
-        check_word(5, 7'd32, 7'd41, 1'b1);
-        expect_results(3, 3);
+        check_word(4, 7'd30, 7'd40, 1'b1);
+        check_word(5, 7'd31, 7'd40, 1'b0);
+        check_word(6, 7'd32, 7'd41, 1'b1);
+        check_word(7, 7'd33, 7'd41, 1'b0);
+        expect_results(4, 4);
 
         repeat (16) @(posedge clk);
         $display("[%0t] counters: req=%0d words=%0d evt=%0d fetch=%0d push=%0d results=%0d",
                  $time, req_count, word_count, evt_count, fetch_count, core_push_count, result_count);
 
-        if (evt_count != 6)       begin $display("FAIL: evt_count=%0d, want 6", evt_count); errors = errors + 1; end
-        if (core_push_count != 6) begin $display("FAIL: core_push_count=%0d, want 6", core_push_count); errors = errors + 1; end
+        if (evt_count != 8)       begin $display("FAIL: evt_count=%0d, want 8", evt_count); errors = errors + 1; end
+        if (core_push_count != 8) begin $display("FAIL: core_push_count=%0d, want 8", core_push_count); errors = errors + 1; end
         if (rd_err_count != 0)    begin $display("FAIL: %0d illegal base-6 reads", rd_err_count); errors = errors + 1; end
         if (core_drop_count != 0) begin $display("FAIL: %0d core events dropped", core_drop_count); errors = errors + 1; end
         if (nres_pkt == 0)        begin $display("FAIL: result stream never asserted tlast"); errors = errors + 1; end

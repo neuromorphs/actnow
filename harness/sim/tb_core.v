@@ -273,6 +273,31 @@ module tb_core;
     // ---- result checking (the fout.pop?result; assert(...) of the ACT tests) ----
     integer npopped = 0;
 
+    function [31:0] pack_req_word(input [6:0] x, input [6:0] y, input pol);
+        begin
+            pack_req_word = ({25'd0, x} << 24) | ({25'd0, y} << 17) | {31'd0, pol};
+        end
+    endfunction
+
+    function [31:0] rotate_req_word(input [31:0] word);
+        integer x, y, tx, ty, rx, ry, nx, ny;
+        begin
+            x = word[30:24];
+            y = word[23:17];
+            tx = x - 63;
+            ty = y - 56;
+            rx = (tx - ty) >>> 1;
+            ry = (tx + ty) >>> 1;
+            nx = rx + 63;
+            ny = ry + 56;
+            if (nx < 0) nx = 0;
+            if (nx > 125) nx = 125;
+            if (ny < 0) ny = 0;
+            if (ny > 111) ny = 111;
+            rotate_req_word = (word & 32'h80_01_FF_FF) | (nx[6:0] << 24) | (ny[6:0] << 17);
+        end
+    endfunction
+
     task expect_result(input [31:0] want);
         begin
             while (nresults <= npopped) @(posedge clk);
@@ -285,19 +310,21 @@ module tb_core;
         end
     endtask
 
-    // One batch of the application's ISR contract: push BATCH=3 words, get each
-    // of them back incremented by 1 on the base-6 output.
-    task run_batch(input [31:0] a, input [31:0] b, input [31:0] c);
+    // One batch of the application's ISR contract: push BATCH=4 event words,
+    // get each of them back with its requirements-ABI x/y coordinate rotated.
+    task run_batch(input [31:0] a, input [31:0] b, input [31:0] c, input [31:0] d);
         begin
-            $display("[%0t] --- batch: pushing %0d, %0d, %0d into the input FIFO ---", $time, a, b, c);
+            $display("[%0t] --- batch: pushing 0x%08h, 0x%08h, 0x%08h, 0x%08h into the input FIFO ---",
+                     $time, a, b, c, d);
             send_push(a);
             send_push(b);
             send_push(c);
-            expect_result(a + 1);
-            expect_result(b + 1);
-            expect_result(c + 1);
-            $display("[%0t] batch ok: got %0d, %0d, %0d back from the base-6 output",
-                     $time, a + 1, b + 1, c + 1);
+            send_push(d);
+            expect_result(rotate_req_word(a));
+            expect_result(rotate_req_word(b));
+            expect_result(rotate_req_word(c));
+            expect_result(rotate_req_word(d));
+            $display("[%0t] batch ok: rotated results returned from the base-6 output", $time);
         end
     endtask
 
@@ -355,9 +382,15 @@ module tb_core;
             // Two batches through the program's real ISR, no reconfiguration in
             // between -- e2e_fpga_fifo_test.
             T_FIFO: begin
-                run_batch(41, 42, 43);
+                run_batch(pack_req_word(7'd10, 7'd20, 1'b1),
+                          pack_req_word(7'd11, 7'd20, 1'b0),
+                          pack_req_word(7'd12, 7'd21, 1'b1),
+                          pack_req_word(7'd13, 7'd21, 1'b0));
                 repeat (3000) @(posedge clk);   // model real-world latency between events
-                run_batch(100, 200, 300);
+                run_batch(pack_req_word(7'd30, 7'd40, 1'b1),
+                          pack_req_word(7'd31, 7'd40, 1'b0),
+                          pack_req_word(7'd32, 7'd41, 1'b1),
+                          pack_req_word(7'd33, 7'd41, 1'b0));
                 pass("two interrupt/FIFO batches completed");
             end
 
@@ -365,11 +398,17 @@ module tb_core;
             // application re-registered its ISR vector, trigger level and enable
             // bit from a clean interrupt controller -- e2e_fpga_reset_test.
             T_RESET: begin
-                run_batch(41, 42, 43);
+                run_batch(pack_req_word(7'd10, 7'd20, 1'b1),
+                          pack_req_word(7'd11, 7'd20, 1'b0),
+                          pack_req_word(7'd12, 7'd21, 1'b1),
+                          pack_req_word(7'd13, 7'd21, 1'b0));
                 repeat (3000) @(posedge clk);
                 $display("[%0t] --- asserting external reset ---", $time);
                 send_reset_ext();
-                run_batch(41, 42, 43);
+                run_batch(pack_req_word(7'd30, 7'd40, 1'b1),
+                          pack_req_word(7'd31, 7'd40, 1'b0),
+                          pack_req_word(7'd32, 7'd41, 1'b1),
+                          pack_req_word(7'd33, 7'd41, 1'b0));
                 pass("reboot after external reset confirmed");
             end
 
@@ -385,7 +424,10 @@ module tb_core;
                 bank_b = 1'b1;
                 $display("[%0t] --- asserting external reset ---", $time);
                 send_reset_ext();
-                run_batch(41, 42, 43);
+                run_batch(pack_req_word(7'd10, 7'd20, 1'b1),
+                          pack_req_word(7'd11, 7'd20, 1'b0),
+                          pack_req_word(7'd12, 7'd21, 1'b1),
+                          pack_req_word(7'd13, 7'd21, 1'b0));
                 pass("recovery into the corrected program confirmed");
             end
         endcase
