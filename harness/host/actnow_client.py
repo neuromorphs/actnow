@@ -16,6 +16,7 @@ from pathlib import Path
 MAGIC = b"ACT1"
 HDR = struct.Struct("<4sIH")
 SX, SY = 126, 112
+DEFAULT_SOCKET_BUF = 1 << 18
 
 
 def decode_word(word):
@@ -30,6 +31,42 @@ def decode_word(word):
 def run_checked(cmd):
     print("+ " + " ".join(cmd), flush=True)
     subprocess.run(cmd, check=True)
+
+
+def append_limited(chunks, total_words, words, limit):
+    if words.size == 0:
+        return chunks, total_words
+    if words.size >= limit:
+        return [words[-limit:]], limit
+
+    chunks.append(words)
+    total_words += words.size
+    while total_words > limit:
+        excess = total_words - limit
+        first = chunks[0]
+        if first.size <= excess:
+            chunks.pop(0)
+            total_words -= first.size
+        else:
+            chunks[0] = first[excess:]
+            total_words -= excess
+    return chunks, total_words
+
+
+def draw_words(acc, np, words):
+    if words.size == 0:
+        return
+
+    x = ((words >> 24) & 0x7F).astype(np.int16)
+    y = ((words >> 17) & 0x7F).astype(np.int16)
+    valid = (x < SX) & (y < SY)
+    if not np.any(valid):
+        return
+
+    rows = SX - 1 - x[valid]
+    cols = y[valid]
+    chans = np.where((words[valid] & 1) != 0, 1, 2)
+    acc[rows, cols, chans] = 1.0
 
 
 def deploy_and_start(args):
@@ -52,9 +89,9 @@ def deploy_and_start(args):
 
 def render(args):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 << 22)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, args.socket_buf)
     sock.bind(("0.0.0.0", args.port))
-    sock.settimeout(0.2)
+    sock.setblocking(False)
 
     cv2 = None
     np = None
@@ -74,53 +111,82 @@ def render(args):
         acc = None
 
     total = 0
+    packets = 0
     dropped = 0
     expect_seq = None
-    last_t = time.time()
+    last_t = time.monotonic()
     last_total = 0
+    last_packets = 0
+
+    frame_period = 1.0 / max(args.fps, 1.0)
+    last_frame = time.monotonic()
+    pending_chunks = []
+    pending_words = 0
 
     print(f"listening UDP :{args.port}", flush=True)
     while True:
-        try:
-            data, _addr = sock.recvfrom(65535)
-        except socket.timeout:
-            if cv2 is not None:
-                cv2.waitKey(1)
-            continue
+        drained = 0
+        while drained < args.max_drain_packets:
+            try:
+                data, _addr = sock.recvfrom(65535)
+            except BlockingIOError:
+                break
 
-        if len(data) < HDR.size or data[:4] != MAGIC:
-            continue
+            drained += 1
+            if len(data) < HDR.size or data[:4] != MAGIC:
+                continue
 
-        _magic, seq, n = HDR.unpack_from(data)
-        if expect_seq is not None and seq != expect_seq:
-            dropped += (seq - expect_seq) & 0xFFFFFFFF
-        expect_seq = (seq + 1) & 0xFFFFFFFF
+            _magic, seq, n = HDR.unpack_from(data)
+            if expect_seq is not None and seq != expect_seq:
+                dropped += (seq - expect_seq) & 0xFFFFFFFF
+            expect_seq = (seq + 1) & 0xFFFFFFFF
 
-        body = data[HDR.size:]
-        m = min(n, len(body) // 4)
-        words = struct.unpack_from("<%dI" % m, body, 0) if m else ()
-        total += m
+            m = min(n, (len(data) - HDR.size) // 4)
+            total += m
+            packets += 1
 
-        if cv2 is not None:
-            acc *= args.decay
-            for word in words:
-                ev = decode_word(word)
-                x, y, p = ev["x"], ev["y"], ev["p"]
-                if 0 <= x < SX and 0 <= y < SY:
-                    row = SX - 1 - x
-                    col = y
-                    acc[row, col, 1 if p else 2] = 1.0
+            if cv2 is not None and m:
+                words = np.frombuffer(data, dtype="<u4", count=m, offset=HDR.size)
+                pending_chunks, pending_words = append_limited(
+                    pending_chunks, pending_words, words, args.max_frame_words
+                )
+
+        now = time.monotonic()
+        if cv2 is not None and now - last_frame >= frame_period:
+            elapsed_frames = max((now - last_frame) / frame_period, 1.0)
+            last_frame = now
+            acc *= args.decay ** elapsed_frames
+
+            if pending_chunks:
+                words = pending_chunks[0] if len(pending_chunks) == 1 else np.concatenate(pending_chunks)
+                draw_words(acc, np, words)
+                pending_chunks = []
+                pending_words = 0
+
             img = (np.clip(acc, 0, 1) * 255).astype(np.uint8)
             cv2.imshow("ActNow result stream", img)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
 
-        now = time.time()
         if now - last_t >= 1.0:
             rate = (total - last_total) / (now - last_t)
-            print(f"\r{rate:9.0f} words/s total={total} dropped_pkts={dropped}", end="", flush=True)
+            pkt_rate = (packets - last_packets) / (now - last_t)
+            print(
+                f"\r{rate:9.0f} words/s {pkt_rate:7.0f} pkts/s "
+                f"total={total} dropped_pkts={dropped}",
+                end="",
+                flush=True,
+            )
             last_t = now
             last_total = total
+            last_packets = packets
+
+        if drained == 0:
+            if cv2 is None:
+                time.sleep(0.005)
+            else:
+                sleep_s = max(0.0, frame_period - (time.monotonic() - last_frame))
+                time.sleep(min(sleep_s, 0.002))
 
 
 def main():
@@ -136,6 +202,10 @@ def main():
     ap.add_argument("--headless", action="store_true")
     ap.add_argument("--scale", type=int, default=5)
     ap.add_argument("--decay", type=float, default=0.88)
+    ap.add_argument("--fps", type=float, default=60.0)
+    ap.add_argument("--socket-buf", type=int, default=DEFAULT_SOCKET_BUF)
+    ap.add_argument("--max-drain-packets", type=int, default=4096)
+    ap.add_argument("--max-frame-words", type=int, default=100000)
     args = ap.parse_args()
 
     proc = None
