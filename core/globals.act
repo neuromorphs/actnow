@@ -3,7 +3,8 @@ pint WIDTH_DATA = 32,
     WIDTH_ADDR_BASE = 4,
     WIDTH_ADDR_OFFSET = 16;
 
-// AER (address-event) payload width
+// AER (address-event) payload width (total: 1 padding + 31)
+// [ padding[0:0], x_pos[6:0], y_pos[6:0], timestep[15:0], p[0:0] ]
 pint WIDTH_AER = 32;
 
 deftype addr_t(int<WIDTH_ADDR_BASE> base; int<WIDTH_ADDR_OFFSET> offset) { }

@@ -12,3 +12,4 @@ __pycache__/
 
 .claude/*
 .DS_Store
+riscv32-unknown-elf.gcc-12.1.0.tar.gz

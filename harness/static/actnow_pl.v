@@ -1,22 +1,13 @@
 `timescale 1ns/1ps
 
-// Everything in the PL except the block design: the AER receiver, the event
-// pipeline, and the ActNow core with its adapters. fpga_top.v is just this plus
-// the BD (PS, DMAs, BRAM controller, GPIOs); keeping them separate is what makes
-// the whole datapath simulable in xsim -- sim/tb_pl.v drives this module's AER
-// pins with a behavioral ECP3 sender and sinks both streams, no Vivado in the loop.
+// Everything in the PL except the block design: AER receive, one elastic FIFO
+// into the generated core, and one packetized result stream out.
 //
-//   AER bus ─▶ aer_rx ─▶ evt_pack (adds the PL timestamp)
-//                             │
-//                             ├─▶ evt_stream A (decim_raw) ─▶ m_axis_raw ─▶ DMA0 ─▶ DDR ─▶ UDP :3333
-//                             │
-//                             └─▶ evt_stream B (decim_core) ─▶ core.fifo_push
-//                                        core (interrupt on a full input FIFO,
-//                                        ISR operates, writes base 6)
-//                                                  └─▶ m_axis_res ─▶ DMA1 ─▶ DDR ─▶ UDP :3334
+//   AER bus -> aer_rx -> evt_pack -> evt_stream -> core.fifo_push
+//                                      core.io_* -> m_axis_res -> DMA -> UDP
 //
-// Both streams see the same events; neither can stall the receiver (evt_stream
-// drops instead -- see its header for why that is the one inviolable rule here).
+// The event stream drops when full rather than backpressuring the AER receiver,
+// so the camera is never stalled by core or PS latency.
 module actnow_pl (
     input  wire        clk,
     input  wire        resetn,          // active-low (PS pl_resetn0)
@@ -26,13 +17,7 @@ module actnow_pl (
     input  wire        aer_req_n_i,
     output wire        aer_ack_n_o,
 
-    // stream A: raw events -> AXI-DMA
-    output wire        m_axis_raw_tvalid,
-    input  wire        m_axis_raw_tready,
-    output wire [31:0] m_axis_raw_tdata,
-    output wire        m_axis_raw_tlast,
-
-    // stream B: core results -> AXI-DMA
+    // core results -> AXI-DMA
     output wire        m_axis_res_tvalid,
     input  wire        m_axis_res_tready,
     output wire [31:0] m_axis_res_tdata,
@@ -48,14 +33,12 @@ module actnow_pl (
 
     // control (AXI-GPIO outputs from the PS)
     input  wire [31:0] ctrl,            // bit 0: core warm-reset pulse
-    input  wire [31:0] decim,           // [15:0] core stream, [31:16] raw stream
 
     // status (AXI-GPIO inputs to the PS)
     output wire [31:0] req_count,       // AER /REQ falling edges
     output wire [31:0] word_count,      // completed 4-phase handshakes
     output wire [31:0] evt_count,       // decoded events
     output wire [31:0] last_event,      // {pol,y,x} of the newest event
-    output wire [31:0] raw_drop_count,  // events dropped: raw FIFO full (PS too slow)
     output wire [31:0] core_drop_count, // events dropped: core FIFO full (core too slow)
     output wire [31:0] core_push_count, // events actually handed to the core
     output wire [31:0] fetch_count,     // core ROM fetches (proves it is booting)
@@ -96,31 +79,14 @@ module actnow_pl (
         .out_data  (pkt_data)
     );
 
-    // ---- stream A: raw events straight out to the PS ----
-    wire [31:0] raw_accepted;
-
-    evt_stream #(.DEPTH_LOG2(11)) raw_i (   // 2048 events of slack for DMA turnaround
-        .clk            (clk),
-        .rst            (rst),
-        .decim          (decim[31:16]),
-        .in_valid       (pkt_valid),
-        .in_data        (pkt_data),
-        .m_axis_tvalid  (m_axis_raw_tvalid),
-        .m_axis_tready  (m_axis_raw_tready),
-        .m_axis_tdata   (m_axis_raw_tdata),
-        .m_axis_tlast   (m_axis_raw_tlast),
-        .accepted_count (raw_accepted),
-        .drop_count     (raw_drop_count)
-    );
-
-    // ---- stream B: the same events, into the core ----
+    // ---- events into the core ----
     wire        core_in_tvalid, core_in_tready;
     wire [31:0] core_in_tdata;
 
     evt_stream #(.DEPTH_LOG2(10)) core_i (
         .clk            (clk),
         .rst            (rst),
-        .decim          (decim[15:0]),
+        .decim          (16'd0),
         .in_valid       (pkt_valid),
         .in_data        (pkt_data),
         .m_axis_tvalid  (core_in_tvalid),

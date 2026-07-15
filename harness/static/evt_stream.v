@@ -2,28 +2,19 @@
 
 // One consumer's view of the event stream: optional decimation, an elastic FIFO
 // that drops rather than stalls, and a packetized AXI4-Stream master out.
-// Instantiated once per stream (raw -> DMA, processed -> the core).
+// In this harness it is used as the one AER-to-core FIFO.
 //
 // Why the dropping matters (the one hard constraint of the whole design): the
 // AER bus has a single ACK line, so if any consumer were allowed to backpressure
-// the receiver, it would stall the *camera* -- and with it the raw stream, which
-// is supposed to be untouched. So no consumer may ever stall the RX: when the
+// the receiver, it would stall the camera. So no consumer may ever stall the RX: when the
 // FIFO is full, the event is DROPPED and drop_count increments. A drop is
 // visible and bounded; a stalled camera is neither.
 //
 //   decim = 0 or 1 -> forward every event
 //   decim = N > 1  -> forward every Nth event (uniform subsampling)
 //
-// Uniform subsampling matters for the *processed* stream: the core is orders of
-// magnitude slower than the sensor (~280 kevent/s ceiling, see
-// BD_AER_BRAINSTORM.md D6), so it will be overrun in any busy scene. A uniformly
-// subsampled event image still looks like the scene; one that drops whole bursts
-// looks like torn fragments. Decimation turns "drop whatever happens to arrive
-// while the ISR runs" into "drop predictably", and drop_count still says when
-// even that isn't enough.
-//
-// decim is a live input (an AXI-GPIO register), not a parameter, so it can be
-// swept from the PS without a rebuild.
+// Decimation is kept as a local option, but actnow_pl ties it to zero for the
+// requirements-only build.
 module evt_stream #(
     parameter integer DEPTH_LOG2 = 10,   // 1024 events
     parameter integer PKT_WORDS  = 256   // max events per AXI-Stream packet

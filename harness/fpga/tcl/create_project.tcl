@@ -33,7 +33,7 @@ if {[llength $xdc_files] > 0} {
     add_files -fileset constrs_1 -norecurse $xdc_files
 }
 
-source [file join $tcl_dir "create_bd_aer.tcl"]
+source [file join $tcl_dir "create_bd.tcl"]
 
 set bd_files [get_files -quiet "*${design_name}.bd"]
 if {[llength $bd_files] == 0} {

@@ -1,3 +1,5 @@
+`timescale 1ns/1ps
+
 // Verilog wrapper so the AER receiver can be used as a BD module reference
 // (Vivado disallows a SystemVerilog file as the top file of a module reference).
 // Instantiates the SystemVerilog aer_rx_simple; ports match the BD connections.

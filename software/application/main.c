@@ -40,7 +40,8 @@ static __attribute__((noinline)) void isr_handler(void) {
         v[i] = *FIFO_IN;
     }
     for (uint32_t i = 0; i < BATCH; i++) {
-        *FIFO_OUT = v[i] + 1;
+        *FIFO_OUT = v[i];   // Simplest loopback for now
+        // *FIFO_OUT = v[i] + 1;
     }
 }
 

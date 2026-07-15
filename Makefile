@@ -70,6 +70,15 @@ CROSS ?= $(firstword \
         $(if $(shell command -v $(p)gcc 2>/dev/null),$(p))) \
     riscv64-unknown-elf-)
 
+# KR260 hardware bring-up/run defaults. HOST_IP is the address the KR260 should
+# send UDP packets back to; override it if your host is not 192.168.10.1.
+KRIA      ?= kria.local
+KRIA_USER ?= ubuntu
+HOST_IP   ?= 192.168.10.1
+UDP_PORT  ?= 3334
+XSA       ?= harness/fpga/vivado/actnow.xsa
+FW_MEM    ?= software/build/rom.mem
+
 # RV32I tests run through soc by `make software-tests`: the official RISC-V
 # suite under software/tests/unit/ plus our own tests in software/tests/ (.S or
 # .c compiled with rv32i gcc). Derived from the source files, excluding the
@@ -80,7 +89,7 @@ SW_TESTS   := $(filter-out $(MEXT_TESTS),$(basename $(notdir $(wildcard \
                   software/tests/*.S software/tests/*.c \
                   software/tests/unit/*.S software/tests/unit/*.c))))
 
-.PHONY: all test list clean help file-registry software-tests force e2e_fifo_test e2e_fifo_stress_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test $(TESTS)
+.PHONY: all test list clean help file-registry software-tests force kria-run e2e_fifo_test e2e_fifo_stress_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test $(TESTS)
 
 all: test
 
@@ -108,6 +117,8 @@ help:
 	@echo "  make e2e_multi_event_reset_test  16-event back-to-back pressure across reset"
 	@echo "  make rom_program_test        run one program image through soc (see ROM_TEST)"
 	@echo "  make file-registry           (re)generate gen/file_ids.act + gen/file_registry.conf"
+	@echo "  make kria-run                build software/application, deploy to KR260,"
+	@echo "                               start FPGA server, and open the host viewer"
 	@echo "  make clean                   remove local simulator artifacts (gen/, history)"
 	@echo "  make help                    show this message"
 	@echo ""
@@ -117,6 +128,8 @@ help:
 	@echo "                    instead of executing in place from external ROM"
 	@echo "  CROSS=<prefix>    RISC-V cross-compiler prefix (default: auto-detected from PATH)"
 	@echo "  SW_TESTS=\"...\"    subset of programs for software-tests (default: all non-M-ext)"
+	@echo "  KRIA=<host>       KR260 SSH host for kria-run (default: $(KRIA))"
+	@echo "  HOST_IP=<ip>      host UDP address passed to the KR260 (default: $(HOST_IP))"
 	@echo ""
 	@echo "Must be run from this directory (actnow/) -- see the top of this Makefile and"
 	@echo "the README's Toolchain section for why."
@@ -136,6 +149,16 @@ else
 	$(MAKE) -C software/tests TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS)
 endif
 force:
+
+kria-run:
+	$(MAKE) -C software PROG=application CROSS=$(CROSS)
+	python3 harness/host/actnow_client.py \
+		--kria $(KRIA) \
+		--user $(KRIA_USER) \
+		--listen-host $(HOST_IP) \
+		--port $(UDP_PORT) \
+		--xsa $(XSA) \
+		--firmware $(FW_MEM)
 
 # Built once, not force-rebuilt per test like $(ROM_IMAGE) above -- these two
 # are permanent fixtures for e2e_reset_reload_test, not swapped out per run.

@@ -41,6 +41,7 @@ STATIC := $(CURDIR)/static
 BUILD  := $(SIM)/xsim_build
 TB     := $(SIM)/tb_core.v
 TB_PL  := $(SIM)/tb_pl.v
+TB_PL_STRESS := $(SIM)/tb_pl_stress.v
 
 XVLOG := xvlog
 XELAB := xelab
@@ -87,13 +88,13 @@ VIVADO_DIR   := fpga/vivado
 XPR          := $(VIVADO_DIR)/actnow_proj.xpr
 XSA          := $(VIVADO_DIR)/actnow.xsa
 
-.PHONY: all sim test boot fifo reset reset_reload pl rtl \
+.PHONY: all sim test boot fifo reset reset_reload pl pl_stress rtl \
         project synth impl xsa fpga clean clean-all help
 .NOTPARALLEL:
 
 all: sim
 
-sim test: boot fifo reset reset_reload pl
+sim test: boot fifo reset reset_reload pl pl_stress
 	@echo "=== all fpga RTL sim scenarios passed ==="
 
 help:
@@ -107,7 +108,8 @@ help:
 	@echo "  make fifo             two interrupt/FIFO batches through software/application"
 	@echo "  make reset            batch, external reset, batch again (software/application)"
 	@echo "  make reset_reload     boot software/hang, flip ROM bank, reset into software/application"
-	@echo "  make pl               whole PL datapath: AER in -> raw stream + core -> result stream"
+	@echo "  make pl               whole PL datapath: AER in -> core FIFO -> result stream"
+	@echo "  make pl_stress        continuous AER burst through the same PL datapath"
 	@echo ""
 	@echo "RTL generation:"
 	@echo "  make rtl              regenerate gen/*.v from chips/fpga/core.act (convert_verilog.sh)"
@@ -196,12 +198,13 @@ reset_reload: $(BUILD)/.compiled
 #
 # Everything the KR260 build puts in the PL except the block design: a behavioral
 # ECP3 drives real 4-phase AER, the core boots software/application out of a
-# behavioral firmware BRAM, and both output streams are checked (see sim/tb_pl.v).
+# behavioral firmware BRAM, and the result stream is checked (see sim/tb_pl.v
+# and sim/tb_pl_stress.v).
 # aer_rx_simple.sv is SystemVerilog, hence -sv on its own compile.
-$(BUILD)/.compiled_pl: $(GEN_SRCS) $(STATIC_SRCS) $(STATIC_SV) $(TB_PL) | $(BUILD)
+$(BUILD)/.compiled_pl: $(GEN_SRCS) $(STATIC_SRCS) $(STATIC_SV) $(TB_PL) $(TB_PL_STRESS) | $(BUILD)
 	@echo "--- xvlog: PL datapath ($(words $(STATIC_SRCS)) static + $(words $(GEN_SRCS)) generated modules) ---"
 	@cd $(BUILD) && $(XVLOG) --relax -sv $(STATIC_SV)
-	@cd $(BUILD) && $(XVLOG) --relax -i $(GEN) $(GEN_SRCS) $(STATIC_SRCS) $(TB_PL)
+	@cd $(BUILD) && $(XVLOG) --relax -i $(GEN) $(GEN_SRCS) $(STATIC_SRCS) $(TB_PL) $(TB_PL_STRESS)
 	@touch $@
 
 pl: $(BUILD)/.compiled_pl
@@ -219,6 +222,21 @@ pl: $(BUILD)/.compiled_pl
 		echo "pl: PASS"; \
 	fi
 
+pl_stress: $(BUILD)/.compiled_pl
+	@echo "--- pl_stress ---"
+	@rm -f $(ROOT)/software/build/rom.mem
+	@$(MAKE) -s -C $(ROOT)/software PROG=application CROSS=$(CROSS)
+	@cp $(ROOT)/software/build/rom.mem $(BUILD)/rom.mem
+	@cd $(BUILD) && $(XELAB) tb_pl_stress -relax -s pl_stress_snap --timescale 1ns/1ps >/dev/null
+	@cd $(BUILD) && $(XSIM) pl_stress_snap -R | tee pl_stress.log
+	@if grep -q "FAIL" $(BUILD)/pl_stress.log; then \
+		echo "pl_stress: FAIL"; exit 1; \
+	elif ! grep -q "PASS:" $(BUILD)/pl_stress.log; then \
+		echo "pl_stress: FAIL (no completion)"; exit 1; \
+	else \
+		echo "pl_stress: PASS"; \
+	fi
+
 # --- Vivado flow --------------------------------------------------------------
 #
 # The three Tcl steps are the ones run_vivado_flow.sh drives, plus an XSA export
@@ -231,7 +249,7 @@ pl: $(BUILD)/.compiled_pl
 
 project: $(XPR)
 
-$(XPR): $(wildcard static/*.v) $(GEN_SRCS) $(TCL)/create_project.tcl $(TCL)/create_bd_skeleton.tcl
+$(XPR): $(wildcard static/*.v) $(GEN_SRCS) $(TCL)/create_project.tcl $(TCL)/create_bd.tcl
 	@echo "=== Vivado: create project ==="
 	$(VIVADO_RUN) -source $(TCL)/create_project.tcl
 

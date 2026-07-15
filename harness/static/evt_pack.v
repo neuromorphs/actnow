@@ -1,20 +1,14 @@
 `timescale 1ns/1ps
 
-// Pack a decoded AER event into the 32-bit word every downstream consumer sees:
+// Pack a decoded AER event into the requirements ABI:
 //
-//   bits [14:0]  {pol, y[6:0], x[6:0]}  -- bit-identical to aer_rx's last_event,
-//                                          so the host-side parser is unchanged
-//   bits [31:15] ts[16:0]               -- PL timestamp, TICK_NS resolution
+//   [31]    padding
+//   [30:24] x[6:0]
+//   [23:17] y[6:0]
+//   [16:1]  timestep[15:0]
+//   [0]     polarity
 //
-// The timestamp is free here (one counter) and is what makes temporal work
-// possible in the core's ISR at all -- refractory filtering, correlation-based
-// noise rejection -- since a CHP program has no clock of its own. Nothing
-// downstream is required to look at it: the low 15 bits stand alone.
-//
-// TICK_DIV = clocks per timestamp tick (100 @ 100 MHz = 1 us). At 1 us the
-// 17-bit counter wraps every ~131 ms, which is far longer than any plausible
-// inter-event interval the firmware would reason about -- but the firmware must
-// treat ts as modular (compare with a wrapping subtract), not as absolute time.
+// TICK_DIV = clocks per timestamp tick (100 @ 100 MHz = 1 us).
 module evt_pack #(
     parameter integer TICK_DIV = 100
 )(
@@ -26,12 +20,12 @@ module evt_pack #(
     output reg  [31:0] out_data
 );
     reg [31:0] tick_cnt;
-    reg [16:0] ts;
+    reg [15:0] ts;
 
     always @(posedge clk) begin
         if (rst) begin
             tick_cnt <= 32'd0;
-            ts       <= 17'd0;
+            ts       <= 16'd0;
         end else if (tick_cnt == TICK_DIV[31:0] - 1) begin
             tick_cnt <= 32'd0;
             ts       <= ts + 1'b1;
@@ -46,7 +40,7 @@ module evt_pack #(
             out_data  <= 32'd0;
         end else begin
             out_valid <= evt_valid;
-            if (evt_valid) out_data <= {ts, evt_data};
+            if (evt_valid) out_data <= {1'b0, evt_data[6:0], evt_data[13:7], ts, evt_data[14]};
         end
     end
 endmodule

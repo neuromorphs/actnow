@@ -1,3 +1,5 @@
+`timescale 1ns/1ps
+
 // -----------------------------------------------------------------------------
 // aer_rx_simple : SciDVS word-serial AER receiver for KR260 bring-up.
 // 4-phase active-low REQ/ACK handshake receiver (KR260 = receiver: data+REQ in,
@@ -8,7 +10,6 @@
 //   evt_count  : X (column) words        (= decoded pixel events)
 //   last_event : {5'b0, pol, y[6:0], x[6:0]}  last decoded event
 // -----------------------------------------------------------------------------
-`timescale 1ns/1ps
 module aer_rx_simple #(
     parameter int AER_W = 9,
     parameter int SAMP_DELAY = 24    // clocks after REQ-low before sampling data
