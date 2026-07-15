@@ -5,3 +5,8 @@
 *.log
 *.jou
 .Xil
+dashboard/.venv/
+dashboard/frontend/node_modules/
+dashboard/frontend/dist/
+__pycache__/
+*.pyc

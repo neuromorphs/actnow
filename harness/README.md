@@ -77,7 +77,13 @@ python3 host/actnow_client.py \
   --firmware ../software/build/rom.mem
 ```
 
-The host client copies `pynq/actnow_fpga_server.py`, the XSA, and the firmware to
-`ubuntu@kria.local`, starts the server with `sudo` after sourcing
-`/etc/profile.d/pynq_venv.sh`, then renders UDP result words locally. Use
-`--headless` to print rates without opening a viewer.
+From the repository root, run `make dashboard`. It builds the application and
+dashboard dependencies, copies the server, XSA, and firmware to
+`ubuntu@kria.local`, starts PYNQ under `sudo` after sourcing
+`/etc/profile.d/pynq_venv.sh`, and opens the dashboard at
+`http://127.0.0.1:8088`. The dashboard provides the processed DVS view, hardware
+counters, C editing, Easy Mode transformations, and firmware hot reload without
+reloading the XSA.
+
+Use `make kria-headless` for a terminal rate monitor. The direct
+`host/actnow_client.py` command remains available for diagnostics.

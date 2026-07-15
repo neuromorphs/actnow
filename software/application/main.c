@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stdint.h>
 
 /* Interrupt-driven application, running from SRAM after the bootloader
@@ -53,20 +54,20 @@ static int32_t clampi(int32_t v, int32_t lo, int32_t hi) {
     return v;
 }
 
-static uint32_t rotate45(uint32_t word) {
+/* ACTNOW_TRANSFORM_BEGIN */
+static bool transform_event(uint32_t input, uint32_t *output) {
+    uint32_t word = input;
     int32_t x = (int32_t)((word >> X_SHIFT) & 0x7Fu);
     int32_t y = (int32_t)((word >> Y_SHIFT) & 0x7Fu);
-
-    int32_t tx = x - CX;
-    int32_t ty = y - CY;
-    int32_t rx = (tx - ty) >> 1;
-    int32_t ry = (tx + ty) >> 1;
-
-    uint32_t nx = (uint32_t)clampi(rx + CX, 0, SX - 1);
-    uint32_t ny = (uint32_t)clampi(ry + CY, 0, SY - 1);
-
-    return (word & ~XY_MASK) | (nx << X_SHIFT) | (ny << Y_SHIFT);
+    uint32_t p = word & 1u;
+    y = (SY - 1) - y;
+    x = clampi(x, 0, SX - 1);
+    y = clampi(y, 0, SY - 1);
+    *output = (word & ~(XY_MASK | 1u)) | ((uint32_t)x << X_SHIFT) |
+              ((uint32_t)y << Y_SHIFT) | p;
+    return true;
 }
+/* ACTNOW_TRANSFORM_END */
 
 static __attribute__((noinline)) void isr_handler(void) {
     uint32_t v[BATCH];
@@ -74,7 +75,10 @@ static __attribute__((noinline)) void isr_handler(void) {
         v[i] = *FIFO_IN;
     }
     for (uint32_t i = 0; i < BATCH; i++) {
-        *FIFO_OUT = rotate45(v[i]);
+        uint32_t output;
+        if (transform_event(v[i], &output)) {
+            *FIFO_OUT = output;
+        }
     }
 }
 

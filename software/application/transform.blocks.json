@@ -1,0 +1,16 @@
+{
+  "blocks": {
+    "languageVersion": 0,
+    "blocks": [
+      {
+        "type": "mirror",
+        "id": "lN5j83s{Fw/CROa8xnoa",
+        "x": 391,
+        "y": 678,
+        "fields": {
+          "AXIS": "X"
+        }
+      }
+    ]
+  }
+}

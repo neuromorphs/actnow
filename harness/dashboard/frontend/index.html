@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ActNow KR260</title>
+  </head>
+  <body>
+    <div id="app">
+      <aside class="rail">
+        <header><span class="mark">A</span><div><h1>ActNow</h1><small>KR260 live lab</small></div></header>
+        <section>
+          <div class="section-title">System <span id="connection" class="status">Connecting</span></div>
+          <button id="build-apply" class="primary">Build &amp; Apply</button>
+          <div class="button-row"><button id="build">Build</button><button id="save">Save</button></div>
+          <div class="button-row"><button id="reset">Reset core</button><button id="reconnect">Reconnect</button></div>
+        </section>
+        <section>
+          <div class="section-title">Display</div>
+          <label>Persistence <output id="decay-value">80%</output><input id="decay" type="range" min="50" max="99" value="80"></label>
+          <label>Frame cap <output id="fps-value">60</output><input id="fps" type="range" min="15" max="120" value="60"></label>
+          <label>Palette <select id="palette"><option value="signal">Signal</option><option value="mono">Monochrome</option><option value="heat">Heat</option></select></label>
+          <label>Orientation <select id="orientation"><option value="rig">Camera rig</option><option value="native">Native XY</option><option value="mirror">Mirrored</option></select></label>
+          <div class="button-row"><button id="pause">Pause</button><button id="clear">Clear</button></div>
+        </section>
+        <section class="metrics">
+          <div class="section-title">Live telemetry</div>
+          <dl><div><dt>Events</dt><dd id="event-rate">0/s</dd></div><div><dt>Packets</dt><dd id="packet-rate">0/s</dd></div><div><dt>Lost</dt><dd id="lost">0</dd></div><div><dt>PL drops</dt><dd id="drops">0</dd></div><div><dt>Fetches</dt><dd id="fetch">0</dd></div><div><dt>Results</dt><dd id="results">0</dd></div></dl>
+        </section>
+      </aside>
+      <main>
+        <section class="stage">
+          <div class="stage-head"><div><span class="live-dot"></span>FPGA / CORE OUTPUT</div><div id="firmware-state">Firmware unknown</div></div>
+          <div class="canvas-wrap"><canvas id="dvs" width="112" height="126"></canvas><div id="paused-badge">PAUSED</div></div>
+        </section>
+        <div id="workspace-divider" role="separator" aria-label="Resize visualizer and programming panels" aria-orientation="vertical" tabindex="0"></div>
+        <section class="workbench">
+          <nav><button class="tab active" data-tab="code">C Code</button><button class="tab" data-tab="blocks">Easy Mode</button><button class="tab" data-tab="log">Build Log <span id="error-count"></span></button><span id="dirty-state">Saved</span></nav>
+          <div id="code-panel" class="panel active"><div id="editor"></div></div>
+          <div id="blocks-panel" class="panel"><div class="block-toolbar"><span id="block-state">Pipeline synchronized</span></div><div id="blockly"></div></div>
+          <div id="log-panel" class="panel"><pre id="log"></pre></div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

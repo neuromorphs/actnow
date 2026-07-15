@@ -76,8 +76,13 @@ KRIA      ?= kria.local
 KRIA_USER ?= ubuntu
 HOST_IP   ?= 192.168.10.1
 UDP_PORT  ?= 3334
+HTTP_PORT ?= 8088
 XSA       ?= harness/fpga/vivado/actnow.xsa
 FW_MEM    ?= software/build/rom.mem
+DASHBOARD := harness/dashboard
+DASH_PY   := $(DASHBOARD)/.venv/bin/python
+DASH_VENV := $(DASHBOARD)/.venv/.installed
+DASH_DIST := $(DASHBOARD)/frontend/dist/index.html
 
 # RV32I tests run through soc by `make software-tests`: the official RISC-V
 # suite under software/tests/unit/ plus our own tests in software/tests/ (.S or
@@ -89,7 +94,7 @@ SW_TESTS   := $(filter-out $(MEXT_TESTS),$(basename $(notdir $(wildcard \
                   software/tests/*.S software/tests/*.c \
                   software/tests/unit/*.S software/tests/unit/*.c))))
 
-.PHONY: all test list clean help file-registry software-tests force kria-run e2e_fifo_test e2e_fifo_stress_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test $(TESTS)
+.PHONY: all test list clean help file-registry software-tests force dashboard kria-headless dashboard-deps dashboard-test e2e_fifo_test e2e_fifo_stress_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test $(TESTS)
 
 all: test
 
@@ -117,8 +122,9 @@ help:
 	@echo "  make e2e_multi_event_reset_test  16-event back-to-back pressure across reset"
 	@echo "  make rom_program_test        run one program image through soc (see ROM_TEST)"
 	@echo "  make file-registry           (re)generate gen/file_ids.act + gen/file_registry.conf"
-	@echo "  make kria-run                build software/application, deploy to KR260,"
-	@echo "                               start FPGA server, and open the host viewer"
+	@echo "  make kria-headless       run the original terminal/diagnostic viewer"
+	@echo "  make dashboard               build/deploy and open the live coding dashboard"
+	@echo "  make dashboard-test          type-check/build the UI and run dashboard tests"
 	@echo "  make clean                   remove local simulator artifacts (gen/, history)"
 	@echo "  make help                    show this message"
 	@echo ""
@@ -128,7 +134,7 @@ help:
 	@echo "                    instead of executing in place from external ROM"
 	@echo "  CROSS=<prefix>    RISC-V cross-compiler prefix (default: auto-detected from PATH)"
 	@echo "  SW_TESTS=\"...\"    subset of programs for software-tests (default: all non-M-ext)"
-	@echo "  KRIA=<host>       KR260 SSH host for kria-run (default: $(KRIA))"
+	@echo "  KRIA=<host>       KR260 SSH host for dashboard (default: $(KRIA))"
 	@echo "  HOST_IP=<ip>      host UDP address passed to the KR260 (default: $(HOST_IP))"
 	@echo ""
 	@echo "Must be run from this directory (actnow/) -- see the top of this Makefile and"
@@ -150,7 +156,35 @@ else
 endif
 force:
 
-kria-run:
+dashboard-deps: $(DASH_VENV) $(DASH_DIST)
+
+dashboard-test: dashboard-deps
+	$(DASH_PY) -m unittest discover -s $(DASHBOARD)/tests -v
+	cd $(DASHBOARD)/frontend && npm exec tsc -- --noEmit
+
+$(DASH_VENV): $(DASHBOARD)/requirements.txt
+	python3 -m venv $(DASHBOARD)/.venv
+	$(DASHBOARD)/.venv/bin/pip install -r $<
+	touch $@
+
+$(DASHBOARD)/frontend/node_modules: $(DASHBOARD)/frontend/package.json
+	cd $(DASHBOARD)/frontend && npm install
+
+$(DASH_DIST): $(DASHBOARD)/frontend/node_modules $(shell find $(DASHBOARD)/frontend/src -type f) $(DASHBOARD)/frontend/index.html
+	cd $(DASHBOARD)/frontend && npm run build
+
+dashboard: dashboard-deps
+	$(MAKE) -C software PROG=application CROSS=$(CROSS)
+	$(DASH_PY) $(DASHBOARD)/backend/dashboard.py \
+		--kria $(KRIA) \
+		--user $(KRIA_USER) \
+		--listen-host $(HOST_IP) \
+		--udp-port $(UDP_PORT) \
+		--http-port $(HTTP_PORT) \
+		--xsa $(XSA) \
+		--static $(DASHBOARD)/frontend/dist
+
+kria-headless:
 	$(MAKE) -C software PROG=application CROSS=$(CROSS)
 	python3 harness/host/actnow_client.py \
 		--kria $(KRIA) \
@@ -158,7 +192,8 @@ kria-run:
 		--listen-host $(HOST_IP) \
 		--port $(UDP_PORT) \
 		--xsa $(XSA) \
-		--firmware $(FW_MEM)
+		--firmware $(FW_MEM) \
+		--headless
 
 # Built once, not force-rebuilt per test like $(ROM_IMAGE) above -- these two
 # are permanent fixtures for e2e_reset_reload_test, not swapped out per run.

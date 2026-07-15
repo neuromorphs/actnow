@@ -32,7 +32,7 @@ module actnow_pl (
     input  wire [31:0] bram_rddata,
 
     // control (AXI-GPIO outputs from the PS)
-    input  wire [31:0] ctrl,            // bit 0: core warm-reset pulse
+    input  wire [31:0] ctrl,            // bit 0: warm reset; bit 1: pause/discard ingress
 
     // status (AXI-GPIO inputs to the PS)
     output wire [31:0] req_count,       // AER /REQ falling edges
@@ -80,7 +80,9 @@ module actnow_pl (
     );
 
     // ---- events into the core ----
-    wire        core_in_tvalid, core_in_tready;
+    wire        core_in_tvalid;
+    wire        core_feed_tready;
+    wire        core_in_tready = ctrl[1] ? 1'b0 : core_feed_tready;
     wire [31:0] core_in_tdata;
 
     evt_stream #(.DEPTH_LOG2(10)) core_i (
@@ -90,7 +92,9 @@ module actnow_pl (
         .in_valid       (pkt_valid),
         .in_data        (pkt_data),
         .m_axis_tvalid  (core_in_tvalid),
-        .m_axis_tready  (core_in_tready),
+        // While paused, drain and discard queued camera words. This lets the
+        // current firmware finish without admitting another interrupt batch.
+        .m_axis_tready  (ctrl[1] ? 1'b1 : core_feed_tready),
         .m_axis_tdata   (core_in_tdata),
         .m_axis_tlast   (),                 // the core's fifo_push has no packet concept
 
@@ -101,8 +105,8 @@ module actnow_pl (
     actnow_core_wrap core_wrap_i (
         .clk           (clk),
         .rst           (rst),
-        .s_axis_tvalid (core_in_tvalid),
-        .s_axis_tready (core_in_tready),
+        .s_axis_tvalid (core_in_tvalid && !ctrl[1]),
+        .s_axis_tready (core_feed_tready),
         .s_axis_tdata  (core_in_tdata),
         .m_axis_tvalid (m_axis_res_tvalid),
         .m_axis_tready (m_axis_res_tready),
