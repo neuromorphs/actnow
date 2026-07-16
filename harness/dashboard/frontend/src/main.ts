@@ -16,7 +16,15 @@ const energy = new Float32Array(112 * 126 * 2);
 const trackCanvas = q<HTMLCanvasElement>('#track');
 const trackCtx = trackCanvas.getContext('2d')!;
 const trackImage = trackCtx.createImageData(112, 126);
+// Raw tap accumulator: per pixel, per polarity, a decayed event *count* (a
+// histogram over the persistence window) rather than a 0/1 "seen" flag.
 const rawEnergy = new Float32Array(112 * 126 * 2);
+const rawTotal = new Float32Array(112 * 126);   // on+off per pixel, for the denoise neighbour scan
+const RAW_CAP = 64;         // clamp accumulation so a hot/persistent pixel can't run away
+const DENOISE_EPS = 0.3;    // a neighbour with more decayed energy than this counts as "active"
+// Denoise strength (active neighbours of 8 required, self excluded) is read live
+// from the UI -- lower it in low light, where real events are sparse; 0 = off.
+const DISCO_DEG_PER_MS = 0.08;   // hue rotation speed when the disco toggle is on
 let paused = false;
 let dirty = false;
 let transformAtBlockSync = '';
@@ -30,7 +38,7 @@ let pendingRaw: Uint32Array[] = [];
 // Binary websocket frames carry a leading 32-bit stream tag (see dashboard.py).
 const STREAM_RESULT = 0, STREAM_RAW = 1;
 type Mode = 'live' | 'track';
-let mode: Mode = 'live';
+let mode: Mode = 'track';   // tracking is the default view (see index.html defaults)
 
 // Latest tracker status, decoded from the dvs_track result stream. word0 packs
 // (locked<<24)|(cx<<16)|(cy<<8)|count; word1 packs (min_x<<24)|(min_y<<16)|(max_x<<8)|max_y.
@@ -342,15 +350,131 @@ function renderLive() {
   ctx.putImageData(image,0,0);
 }
 
+// --- Spike sound: a dry Geiger-counter tick on every event at the centre pixel.
+// A very short damped tone (+ a touch of noise) so each event reads as a small
+// impulse, not a melodic sample. jAER's SpikeSoundFilter is the "sound on the
+// selected pixel's events" idea. Each event is *scheduled* on the audio clock
+// (not flush-and-restart), so every event in a frame is heard, not collapsed.
+let audioCtx: AudioContext | null = null;
+let clickBuffer: AudioBuffer | null = null;
+let spikeSoundOn = false;
+let clickCursor = 0;                      // next scheduled tick time (audio clock, s)
+const CLICK_SPACING = 0.007;              // min gap between ticks (~140/s before they merge)
+const CLICK_BACKLOG = 0.12;               // drop ticks scheduled further ahead than this (bounds latency)
+const CENTRE_X = 63, CENTRE_Y = 56;       // middle of the 126x112 sensor
+
+function enableSpikeAudio(on: boolean) {
+  spikeSoundOn = on;
+  if (!on) return;
+  if (!audioCtx) {                         // create lazily on the enabling gesture
+    audioCtx = new AudioContext();
+    const sr = audioCtx.sampleRate, len = Math.round(sr * 0.005);   // 5 ms buffer
+    clickBuffer = audioCtx.createBuffer(1, len, sr);
+    const ch = clickBuffer.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      const t = i / sr, env = Math.exp(-t / 0.0010);                // ~1 ms decay -> impulsive
+      ch[i] = (0.8 * Math.sin(2 * Math.PI * 2000 * t) + 0.2 * (Math.random() * 2 - 1)) * env;
+    }
+  }
+  audioCtx.resume();
+}
+
+function playSpike() {
+  if (!spikeSoundOn || !audioCtx || !clickBuffer) return;
+  const t = audioCtx.currentTime;
+  if (clickCursor < t) clickCursor = t;          // catch up to realtime
+  if (clickCursor > t + CLICK_BACKLOG) return;   // rate saturated -> drop this one
+  const src = audioCtx.createBufferSource();
+  src.buffer = clickBuffer;
+  const gain = audioCtx.createGain();
+  gain.gain.value = 0.5;
+  src.connect(gain).connect(audioCtx.destination);
+  src.start(clickCursor);
+  clickCursor += CLICK_SPACING;
+}
+
+// Raw tap: accumulate an event *count* per pixel/polarity (clamped), not a flag.
+function stampRaw(words: Uint32Array) {
+  for (const word of words) {
+    const x = (word >>> 24) & 0x7f, y = (word >>> 17) & 0x7f, p = word & 1;
+    if (x >= 126 || y >= 112) continue;
+    if (x === CENTRE_X && y === CENTRE_Y) playSpike();   // centre-pixel spike monitor
+    const {row, col} = mapEvent(x, y);
+    const idx = (row * 112 + col) * 2 + p;
+    const v = rawEnergy[idx] + 1;
+    rawEnergy[idx] = v > RAW_CAP ? RAW_CAP : v;
+  }
+}
+
+function hsv2rgb(h: number, s: number, v: number): [number, number, number] {
+  h = ((h % 360) + 360) % 360;
+  const c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) { r = c; g = x; } else if (h < 120) { r = x; g = c; }
+  else if (h < 180) { g = c; b = x; } else if (h < 240) { g = x; b = c; }
+  else if (h < 300) { r = x; b = c; } else { r = c; b = x; }
+  return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
+}
+
+// Render the raw tap for the tracker view: spatio-temporal denoise (hide
+// isolated and hot pixels), histogram threshold (Density -> full opacity), and
+// optional disco hue cycling.
+function paintTrack() {
+  const density = Math.max(1, Number(q<HTMLInputElement>('#density').value));
+  const denoise = Number(q<HTMLInputElement>('#denoise').value);   // required active neighbours; 0 = off
+  const disco = q<HTMLInputElement>('#disco').checked;
+  let onCol: number[], offCol: number[];
+  if (disco) {
+    const shift = performance.now() * DISCO_DEG_PER_MS;
+    onCol = hsv2rgb(30 + shift, 1, 1);
+    offCol = hsv2rgb(210 + shift, 1, 1);   // ON/OFF kept ~complementary, rotated together
+  } else { onCol = [245, 150, 30]; offCol = [70, 170, 245]; }
+
+  for (let i = 0; i < 112 * 126; i++) rawTotal[i] = rawEnergy[i * 2] + rawEnergy[i * 2 + 1];
+  const d = trackImage.data;
+  for (let row = 0; row < 126; row++) for (let col = 0; col < 112; col++) {
+    const i = row * 112 + col, j = i * 4, e = rawTotal[i];
+    let R = 0, G = 0, B = 0;
+    if (e > 0) {
+      // Denoise: count active neighbours in the 3x3 block (self excluded). An
+      // isolated noise pixel has none; a hot pixel firing into a quiet
+      // neighbourhood has none either -- both stay hidden.
+      let ncorr = 0;
+      const up = row > 0, dn = row < 125, lf = col > 0, rt = col < 111;
+      if (lf && rawTotal[i - 1] > DENOISE_EPS) ncorr++;
+      if (rt && rawTotal[i + 1] > DENOISE_EPS) ncorr++;
+      if (up && rawTotal[i - 112] > DENOISE_EPS) ncorr++;
+      if (dn && rawTotal[i + 112] > DENOISE_EPS) ncorr++;
+      if (lf && up && rawTotal[i - 113] > DENOISE_EPS) ncorr++;
+      if (rt && up && rawTotal[i - 111] > DENOISE_EPS) ncorr++;
+      if (lf && dn && rawTotal[i + 111] > DENOISE_EPS) ncorr++;
+      if (rt && dn && rawTotal[i + 113] > DENOISE_EPS) ncorr++;
+      if (ncorr >= denoise) {
+        // Histogram threshold: reach full opacity/saturation at `density` events.
+        const inten = Math.min(1, e / density);
+        const wOn = rawEnergy[i * 2 + 1] / e, wOff = rawEnergy[i * 2] / e;
+        R = inten * (onCol[0] * wOn + offCol[0] * wOff);
+        G = inten * (onCol[1] * wOn + offCol[1] * wOff);
+        B = inten * (onCol[2] * wOn + offCol[2] * wOff);
+      }
+    }
+    d[j] = R; d[j + 1] = G; d[j + 2] = B; d[j + 3] = 255;
+  }
+}
+
 function renderTrack() {
   const decay = Number(q<HTMLInputElement>('#decay').value) / 100;
-  const palette = q<HTMLSelectElement>('#palette').value;
   if (!paused) {
     for (let i=0; i<rawEnergy.length; i++) rawEnergy[i] *= decay;
-    for (const words of pendingRaw.splice(0)) stampInto(rawEnergy, words);
+    for (const words of pendingRaw.splice(0)) stampRaw(words);
   }
-  paint(trackImage, rawEnergy, palette);
+  paintTrack();
   trackCtx.putImageData(trackImage,0,0);
+  if (spikeSoundOn) {   // mark the monitored centre pixel
+    const c = mapEvent(CENTRE_X, CENTRE_Y);
+    trackCtx.strokeStyle = '#ffffff'; trackCtx.lineWidth = 1;
+    trackCtx.beginPath(); trackCtx.arc(c.col + 0.5, c.row + 0.5, 2.5, 0, Math.PI * 2); trackCtx.stroke();
+  }
   drawTrackOverlay();
 }
 
@@ -361,6 +485,7 @@ const trackRejected = () => trackBox.count <= 0 || trackBox.count < minEvents();
 
 // Overlay the tracker's bounding box + centroid on the raw canvas.
 function drawTrackOverlay() {
+  if (!q<HTMLInputElement>('#show-track').checked) return;
   if (trackRejected()) return;
   const stale = performance.now() - trackBox.at > 1500;
   const a = mapEvent(trackBox.x0, trackBox.y0), b = mapEvent(trackBox.x1, trackBox.y1);
@@ -368,13 +493,9 @@ function drawTrackOverlay() {
   const top = Math.min(a.row, b.row), bottom = Math.max(a.row, b.row);
   // Neutral so the box stays legible over the orange/blue event field.
   const borderColour = stale ? '#5f6b73' : '#c15cff';
-  const markerColour = stale ? '#5f6b73' : (trackBox.locked ? '#ffffff' : '#aeb9c1');
   trackCtx.lineWidth = 1;
   trackCtx.strokeStyle = borderColour;
   trackCtx.strokeRect(left + 0.5, top + 0.5, (right - left) + 1, (bottom - top) + 1);
-  const c = mapEvent(trackBox.cx, trackBox.cy);
-  trackCtx.fillStyle = markerColour;
-  trackCtx.fillRect(c.col - 1, c.row - 1, 3, 3);
 }
 
 function render() {
@@ -442,10 +563,18 @@ function setMode(next: Mode) {
 }
 q('#mode-live').onclick = () => setMode('live');
 q('#mode-track').onclick = () => setMode('track');
+q('#rail-toggle').onclick = () => {
+  q('#app').classList.toggle('rail-hidden');
+  editor.requestMeasure();               // the stage/workbench widen -- re-measure them
+  Blockly.svgResize(workspace);
+};
 q('#track-start').onclick = () => firmwareAction('track');
 for (const id of ['decay','fps']) q<HTMLInputElement>(`#${id}`).oninput = e => q(`#${id}-value`).textContent = (e.target as HTMLInputElement).value + (id==='decay'?'%':'');
 q<HTMLInputElement>('#radius').oninput = e => q('#radius-value').textContent = (e.target as HTMLInputElement).value;
 q<HTMLInputElement>('#correlation').oninput = e => q('#correlation-value').textContent = (e.target as HTMLInputElement).value;
+q<HTMLInputElement>('#density').oninput = e => q('#density-value').textContent = (e.target as HTMLInputElement).value;
+q<HTMLInputElement>('#denoise').oninput = e => q('#denoise-value').textContent = (e.target as HTMLInputElement).value;
+q<HTMLInputElement>('#spike-sound').onchange = e => enableSpikeAudio((e.target as HTMLInputElement).checked);
 q<HTMLInputElement>('#min-events').oninput = e => { q('#min-events-value').textContent = (e.target as HTMLInputElement).value; updateTrackReadout(); };
 
 const ws = new WebSocket(`ws://${location.host}/ws`); ws.binaryType = 'arraybuffer';
@@ -482,6 +611,7 @@ setInterval(() => {
 },1000);
 
 async function initialize() {
+  setMode(mode);   // sync the DOM/readout/backend to the default (tracking) view
   const source = (await api('source')).source; setSource(source); transformAtBlockSync=transformRegion(source);
   const saved = (await api('blocks')).blocks;
   if (saved) Blockly.serialization.workspaces.load(saved, workspace);

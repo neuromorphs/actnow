@@ -154,7 +154,7 @@
    locked. Overridable at build time (-DGATE_RADIUS=N), which is how the
    dashboard's tracking-radius control retunes the gate without editing this file. */
 #ifndef GATE_RADIUS
-#define GATE_RADIUS 32
+#define GATE_RADIUS 50
 #endif
 
 static int32_t ema_x_fp, ema_y_fp;             /* Q(FRAC) fixed-point running centroid */

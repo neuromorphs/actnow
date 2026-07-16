@@ -7,6 +7,9 @@ button { cursor: pointer; padding: 0 11px; }
 button:hover { border-color: #6c8798; background: #222d35; }
 button:disabled { opacity: .45; cursor: wait; }
 #app { display: grid; grid-template-columns: 250px 1fr; height: 100vh; }
+#app.rail-hidden { grid-template-columns: 1fr; }
+#app.rail-hidden .rail { display: none; }
+#rail-toggle { min-height: 0; padding: 1px 8px; margin-right: 10px; font-size: 15px; line-height: 1.4; background: transparent; }
 .rail { background: #12181d; border-right: 1px solid #283139; padding: 18px 16px; overflow-y: auto; }
 header { display: flex; gap: 11px; align-items: center; margin-bottom: 22px; }
 .mark { display: grid; place-items: center; width: 38px; height: 38px; background: #d74b38; color: white; font: 700 22px Georgia, serif; border-radius: 4px; }
@@ -20,6 +23,8 @@ h1 { font: 650 19px Georgia, serif; margin: 0; } header small { color: #82909a; 
 .button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 7px; }
 label { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; color: #b6c0c7; font-size: 12px; margin: 11px 0; }
 label input { grid-column: 1 / 3; width: 100%; accent-color: #d74b38; }
+label.check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+label.check input { grid-column: auto; width: auto; accent-color: #e0872f; }
 label select { grid-column: 1 / 3; padding: 0 8px; }
 output { color: #e8edf2; }
 dl { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
@@ -31,6 +36,7 @@ main { --stage-width: 45%; display: grid; grid-template-columns: minmax(280px, v
 .live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #e85643; box-shadow: 0 0 8px #e85643; margin-right: 7px; }
 .canvas-wrap { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; container-type: size; background: #050708; border: 1px solid #283139; overflow: hidden; }
 #dvs, #track { display: block; width: min(100cqw, calc(100cqh * 0.888889)); height: auto; aspect-ratio: 112 / 126; image-rendering: pixelated; }
+#track { transform: scaleX(-1); }   /* mirror the tracker view left/right */
 .hidden { display: none !important; }
 main.stage-only { grid-template-columns: 1fr; grid-template-rows: 1fr; }
 main.stage-only #workspace-divider, main.stage-only .workbench { display: none; }
