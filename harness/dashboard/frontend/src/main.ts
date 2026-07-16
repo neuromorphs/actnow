@@ -218,6 +218,51 @@ const SHIBBO_HIST = 112;                            // windows kept in pbin char
 let shibboHist: {pbin: number, valid: number}[] = [];
 let shibboLast = {pbin: 0, valid: 0, total: 0, hot7: 0, wseq: 0};
 let shibboAt = 0;
+// dvs_gravity ("The Gravity Notary"): each status word carries the latched
+// free-fall verdict {seq, valid, fraud, planet, g_est} (bit-faithful with
+// dvs_gravity_view.py's unpack_status). planet: 0=Moon,1=Mars,2=Earth,3=Jupiter;
+// g_est is a 7-bit signed median D2 (sign-extend from 7 bits). We keep one
+// history sample per seq change (one per completed arc) for the scrolling g_est
+// chart; gravityAt = last-update timestamp.
+const GRAVITY_HIST = 112;                         // arcs kept in the g_est chart
+const GRAVITY_PLANET_NAMES = ['Moon', 'Mars', 'Earth', 'Jupiter'];
+const GRAVITY_PLANET_COLORS: [number, number, number][] =
+  [[176, 184, 200], [200, 80, 48], [68, 136, 204], [208, 136, 48]];
+let gravityHist: {g_est: number, planet: number, fraud: number}[] = [];
+let gravityLast = {seq: 0, valid: 0, fraud: 0, planet: 0, g_est: 0};
+let gravityAt = 0;
+// dvs_tremor ("The Tremor Tarot"): each status word carries the latched tremor
+// reading {freqbin, ampbin, card, fortune, valid, seq} (bit-faithful with
+// dvs_tremor_view.py's unpack_status). card 0..21 = major arcana; fortune 0..15.
+// We keep one history sample per seq change (one per completed window) for the
+// scrolling freqbin chart; tremorAt = last-update timestamp.
+const TREMOR_HIST = 112;
+const TREMOR_CARD_NAMES = [
+  'The Fool','The Magician','The High Priestess','The Empress','The Emperor',
+  'The Hierophant','The Lovers','The Chariot','Strength','The Hermit',
+  'Wheel of Fortune','Justice','The Hanged Man','Death','Temperance',
+  'The Devil','The Tower','The Star','The Moon','The Sun','Judgement','The World'];
+let tremorHist: {freqbin: number, valid: number}[] = [];
+let tremorLast = {freqbin: 0, ampbin: 0, card: 0, fortune: 0, valid: 0, seq: 0};
+let tremorAt = 0;
+// dvs_seance ("The Séance Circuit"): each status word carries the latched
+// planchette state {px, py, vx_sign, vy_sign, speed, seq} (bit-faithful with
+// dvs_seance_view.py's unpack_status). px 0..125, py 0..111, speed 0..255.
+// We keep one trail point per seq change for the faint planchette trail on the
+// ouija board; seanceAt = last-update timestamp.
+const SEANCE_TRAIL_MAX = 128;
+let seanceTrail: {px: number, py: number}[] = [];
+let seanceLast = {px: 0, py: 0, vx_sign: 0, vy_sign: 0, speed: 0, seq: 0};
+let seanceAt = 0;
+// dvs_whip ("The Whipcracker"): each status word carries the latched traveling-
+// wave state {valid, seq, front_col, sonic, maxspeedbin} (bit-faithful with
+// dvs_whip_view.py's unpack_status). maxspeedbin 0..15; sonic=1 means bin 15.
+// We keep one history sample per seq change (one per completed window) for the
+// scrolling speed-bin chart; whipAt = last-update timestamp.
+const WHIP_HIST = 112;
+let whipHist: {maxspeedbin: number, sonic: number}[] = [];
+let whipLast = {valid: 0, seq: 0, front_col: 0, sonic: 0, maxspeedbin: 0};
+let whipAt = 0;
 
 // Latest tracker status, decoded from the dvs_track result stream. word0 packs
 // (locked<<24)|(cx<<16)|(cy<<8)|count; word1 packs (min_x<<24)|(min_y<<16)|(max_x<<8)|max_y.
@@ -522,6 +567,10 @@ function resetAppState() {
   mirrorHist = []; mirrorLast = {leader: 0, lag: 0, conf: 0, seq: 0}; mirrorAt = 0;
   heistHist = []; heistLast = {seq: 0, progress: 0, pos: 0, rate: 0, alarm: 0}; heistAt = 0;
   shibboHist = []; shibboLast = {pbin: 0, valid: 0, total: 0, hot7: 0, wseq: 0}; shibboAt = 0;
+  gravityHist = []; gravityLast = {seq: 0, valid: 0, fraud: 0, planet: 0, g_est: 0}; gravityAt = 0;
+  tremorHist = []; tremorLast = {freqbin: 0, ampbin: 0, card: 0, fortune: 0, valid: 0, seq: 0}; tremorAt = 0;
+  seanceTrail = []; seanceLast = {px: 0, py: 0, vx_sign: 0, vy_sign: 0, speed: 0, seq: 0}; seanceAt = 0;
+  whipHist = []; whipLast = {valid: 0, seq: 0, front_col: 0, sonic: 0, maxspeedbin: 0}; whipAt = 0;
   appEnergy.fill(0); pendingApp.length = 0; appTail = [];
 }
 
@@ -664,6 +713,10 @@ function renderApp() {
   else if (loadedApp === 'dvs_mirror') paintMirror();
   else if (loadedApp === 'dvs_heist') paintHeist();
   else if (loadedApp === 'dvs_shibboleth') paintShibboleth();
+  else if (loadedApp === 'dvs_gravity') paintGravity();
+  else if (loadedApp === 'dvs_tremor') paintTremor();
+  else if (loadedApp === 'dvs_seance') paintSeance();
+  else if (loadedApp === 'dvs_whip') paintWhip();
   else paint(appImage, appEnergy, palette);
   appCtx.putImageData(appImage,0,0);
   if (loadedApp === 'dvs_sonar' && appActive) drawSonarRings();
@@ -1459,6 +1512,283 @@ function paintShibboleth() {
   }
 }
 
+// dvs_gravity: the app IS a notary certificate, drawn on the 112(w) x 126(h)
+// display buffer. Layout:
+//   rows 0..59  -- g_est history chart: one column per arc, bars grow up/down
+//                  from centre (row 30) coloured by planet; fraud arcs are dim red.
+//   rows 66..115 -- certificate panel: planet seal (filled disc), planet name,
+//                   g_est reading, and CERTIFIED/FRAUD/TRACKING status.
+// Like seismo/mirror this is an abstract gauge; ignores orientation selector.
+const GRAVITY_BG: [number, number, number]         = [8, 12, 18];
+const GRAVITY_DIM: [number, number, number]        = [42, 46, 56];
+const GRAVITY_CENTRE_ROW = 30;
+const GRAVITY_STRIP_HALF = 28;
+const GRAVITY_CERT_TOP = 66;
+function paintGravity() {
+  for (let i = 0; i < 112 * 126; i++) appImage.data.set([...GRAVITY_BG, 255], i * 4);
+  const px = (row: number, col: number, r: number, g: number, b: number) => {
+    if (row >= 0 && row < 126 && col >= 0 && col < 112)
+      appImage.data.set([r, g, b, 255], (row * 112 + col) * 4);
+  };
+  // Centre baseline for g_est strip chart
+  for (let col = 0; col < 112; col++) px(GRAVITY_CENTRE_ROW, col, ...GRAVITY_DIM);
+  // g_est history strip: one column per arc (newest at the right)
+  for (let col = 0; col < 112; col++) {
+    const h = gravityHist.length - 112 + col;
+    if (h < 0) continue;
+    const {g_est, planet, fraud} = gravityHist[h];
+    const [cr, cg, cb] = fraud ? [160, 60, 60] : GRAVITY_PLANET_COLORS[planet];
+    const bar = Math.min(GRAVITY_STRIP_HALF, Math.round(Math.abs(g_est) * GRAVITY_STRIP_HALF / 64));
+    if (g_est >= 0) {
+      for (let k = 1; k <= bar; k++) px(GRAVITY_CENTRE_ROW - k, col, cr, cg, cb);
+    } else {
+      for (let k = 1; k <= bar; k++) px(GRAVITY_CENTRE_ROW + k, col, cr, cg, cb);
+    }
+  }
+  // Certificate panel background
+  for (let row = GRAVITY_CERT_TOP; row < 126; row++)
+    for (let col = 8; col < 104; col++) px(row, col, 22, 28, 36);
+  // Certificate border (dim gold)
+  for (let col = 8; col < 104; col++) { px(GRAVITY_CERT_TOP, col, 80, 64, 24); px(125, col, 80, 64, 24); }
+  for (let row = GRAVITY_CERT_TOP; row < 126; row++) { px(row, 8, 80, 64, 24); px(row, 103, 80, 64, 24); }
+  // Planet seal: filled disc centred at (col=56, row=82)
+  const [pr, pg, pb] = GRAVITY_PLANET_COLORS[gravityLast.planet];
+  for (let dr = -8; dr <= 8; dr++) for (let dc = -8; dc <= 8; dc++) {
+    const rr = Math.hypot(dc, dr);
+    if (rr < 7) px(82 + dr, 56 + dc, pr >> 1, pg >> 1, pb >> 1);
+    else if (rr < 8.5) px(82 + dr, 56 + dc, pr, pg, pb);
+  }
+  // Planet name row
+  const pname = GRAVITY_PLANET_NAMES[gravityLast.planet];
+  // Render planet initial as a 5x7 pixel glyph (simplified: just colour the seal)
+  // Status colour: green=valid, red=fraud, dim=tracking
+  const statusR = gravityLast.fraud ? 180 : (gravityLast.valid ? 95 : 80);
+  const statusG = gravityLast.fraud ? 60  : (gravityLast.valid ? 180 : 80);
+  const statusB = gravityLast.fraud ? 60  : (gravityLast.valid ? 120 : 80);
+  // g_est bar across the cert panel (scaled 0..111 for g_est -64..63)
+  const g = gravityLast.g_est;
+  const gLen = Math.round((g + 64) * 95 / 127);
+  for (let row = 106; row <= 112; row++) {
+    px(row, 8, ...GRAVITY_DIM); px(row, 103, ...GRAVITY_DIM);
+    for (let col = 9; col <= 9 + gLen; col++) px(row, col, statusR, statusG >> 1, statusB >> 1);
+  }
+  // Bright cap at the g_est level
+  for (let row = 106; row <= 112; row++) if (9 + gLen < 104) px(row, 9 + gLen, statusR, statusG, statusB);
+}
+
+// dvs_tremor: the app IS a tarot card reading, drawn on the 112(w) x 126(h)
+// display buffer. Layout:
+//   rows 0..59  -- freqbin history chart: one column per window; bar height
+//                  proportional to freqbin (0..11 up from row 58); gold when
+//                  valid, dim steel otherwise.
+//   rows 64..125 -- card panel: background + card title text encoded as a
+//                   brightness pattern of rows coloured by freqbin hue; a status
+//                   bar at the bottom shows ampbin.
+// Like quartz/vital this is an abstract gauge; ignores orientation selector.
+const TREMOR_BG: [number, number, number]         = [10, 8, 18];
+const TREMOR_GOLD: [number, number, number]       = [232, 184, 75];
+const TREMOR_DIM: [number, number, number]        = [68, 68, 85];
+const TREMOR_STEEL: [number, number, number]      = [95, 100, 120];
+const TREMOR_CHART_BASE = 58;
+const TREMOR_CHART_ROWS = 55;
+const TREMOR_CARD_TOP = 64;
+function paintTremor() {
+  for (let i = 0; i < 112 * 126; i++) appImage.data.set([...TREMOR_BG, 255], i * 4);
+  const px = (row: number, col: number, r: number, g: number, b: number) => {
+    if (row >= 0 && row < 126 && col >= 0 && col < 112)
+      appImage.data.set([r, g, b, 255], (row * 112 + col) * 4);
+  };
+  // Baseline
+  for (let col = 0; col < 112; col++) px(TREMOR_CHART_BASE, col, ...TREMOR_DIM);
+  // Freqbin history: one column per window, newest at the right; bar grows up from base
+  for (let col = 0; col < 112; col++) {
+    const h = tremorHist.length - 112 + col;
+    if (h < 0) continue;
+    const {freqbin, valid} = tremorHist[h];
+    if (freqbin === 0) continue;
+    const [br, bg2, bb] = valid ? TREMOR_GOLD : TREMOR_STEEL;
+    const bar = Math.max(1, Math.round(freqbin * TREMOR_CHART_ROWS / 11));
+    for (let k = 1; k <= bar; k++) px(TREMOR_CHART_BASE - k, col, br, bg2, bb);
+  }
+  // Card panel background
+  for (let row = TREMOR_CARD_TOP; row < 126; row++)
+    for (let col = 10; col < 102; col++) px(row, col, 26, 21, 48);
+  // Card border (gold if valid, dim otherwise)
+  const [bdr, bdg, bdb] = tremorLast.valid ? TREMOR_GOLD : TREMOR_DIM;
+  for (let col = 10; col < 102; col++) { px(TREMOR_CARD_TOP, col, bdr, bdg, bdb); px(125, col, bdr, bdg, bdb); }
+  for (let row = TREMOR_CARD_TOP; row < 126; row++) { px(row, 10, bdr, bdg, bdb); px(row, 101, bdr, bdg, bdb); }
+  // Horizontal stripe in card panel coloured by freqbin (hue from blue to red)
+  const frac = tremorLast.valid ? tremorLast.freqbin / 11 : 0;
+  const stripeR = Math.round(40 + 160 * frac), stripeB = Math.round(160 - 120 * frac);
+  for (let row = TREMOR_CARD_TOP + 4; row <= TREMOR_CARD_TOP + 12; row++)
+    for (let col = 14; col < 98; col++) px(row, col, stripeR >> 1, 30, stripeB >> 1);
+  // Ampbin bar at the bottom of the card
+  const aLen = tremorLast.valid ? Math.round(tremorLast.ampbin * 86 / 11) : 0;
+  for (let row = 118; row <= 122; row++) {
+    px(row, 10, ...TREMOR_DIM); px(row, 101, ...TREMOR_DIM);
+    for (let col = 11; col <= 11 + aLen; col++) px(row, col, stripeR >> 1, 80, stripeB >> 1);
+  }
+  if (aLen < 90 && tremorLast.valid) for (let row = 118; row <= 122; row++) px(row, 11 + aLen, stripeR, 160, stripeB);
+}
+
+// dvs_seance: the app IS a candle-lit ouija board drawn on the 112(w) x 126(h)
+// display buffer. The board fills the entire canvas (amber letters at grid
+// positions approximating the real ouija layout), with the planchette rendered
+// as a bright oval at (px, py) and a faint orange trail. Like apophenia/loom
+// this replaces the event background (not spatially registered).
+const SEANCE_BG: [number, number, number]         = [13, 11, 7];
+const SEANCE_BOARD: [number, number, number]      = [26, 18, 11];
+const SEANCE_AMBER: [number, number, number]      = [212, 170, 85];
+const SEANCE_GOLD: [number, number, number]       = [232, 200, 80];
+const SEANCE_TRAIL: [number, number, number]      = [255, 140, 42];
+const SEANCE_DIM: [number, number, number]        = [80, 64, 32];
+function paintSeance() {
+  // Fill board background
+  for (let i = 0; i < 112 * 126; i++) appImage.data.set([...SEANCE_BOARD, 255], i * 4);
+  const px = (row: number, col: number, r: number, g: number, b: number, a?: number) => {
+    if (row >= 0 && row < 126 && col >= 0 && col < 112)
+      appImage.data.set([r, g, b, a ?? 255], (row * 112 + col) * 4);
+  };
+  // Board border (amber)
+  for (let col = 2; col < 110; col++) { px(2, col, ...SEANCE_AMBER); px(123, col, ...SEANCE_AMBER); }
+  for (let row = 2; row < 124; row++) { px(row, 2, ...SEANCE_AMBER); px(row, 109, ...SEANCE_AMBER); }
+  // YES / NO corners (3x3 bright blocks)
+  for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+    px(12 + dr, 16 + dc, ...SEANCE_GOLD);    // YES top-left
+    px(12 + dr, 95 + dc, ...SEANCE_GOLD);    // NO top-right
+    px(108 + dr, 56 + dc, ...SEANCE_AMBER);  // GOODBYE bottom
+  }
+  // Faint letter-position grid (top arc A..M, bottom arc N..Z, numbers)
+  const TOP_Y = 35, BOT_Y = 55, NUM_Y = 75;
+  for (let k = 0; k < 13; k++) {
+    const col = Math.round(8 + k * (96 / 12));
+    const arc = Math.round(Math.sin(Math.PI * k / 12) * 4);
+    px(TOP_Y - arc, col, ...SEANCE_DIM);
+  }
+  for (let k = 0; k < 13; k++) {
+    const col = Math.round(8 + k * (96 / 12));
+    const arc = Math.round(Math.sin(Math.PI * k / 12) * 4);
+    px(BOT_Y - arc, col, ...SEANCE_DIM);
+  }
+  for (let k = 0; k < 10; k++) {
+    const col = Math.round(8 + k * (96 / 9));
+    px(NUM_Y, col, ...SEANCE_DIM);
+  }
+  // Planchette trail (faint, fading orange line from oldest to newest)
+  for (let i = 1; i < seanceTrail.length; i++) {
+    const alpha = 0.08 + 0.35 * i / Math.max(seanceTrail.length - 1, 1);
+    // Map sensor coords: px 0..125 -> col 4..107, py 0..111 -> row 8..120
+    const c0 = Math.round(4 + seanceTrail[i-1].px * 103 / 125);
+    const r0 = Math.round(8 + seanceTrail[i-1].py * 112 / 111);
+    const c1 = Math.round(4 + seanceTrail[i].px * 103 / 125);
+    const r1 = Math.round(8 + seanceTrail[i].py * 112 / 111);
+    // Simple Bresenham-ish: just draw endpoints for the faint trail
+    const steps = Math.max(1, Math.round(Math.hypot(c1 - c0, r1 - r0)));
+    for (let s = 0; s <= steps; s++) {
+      const tc = Math.round(c0 + (c1 - c0) * s / steps);
+      const tr = Math.round(r0 + (r1 - r0) * s / steps);
+      const a8 = Math.round(alpha * 255);
+      // Blend over existing board pixel
+      const idx = (tr * 112 + tc) * 4;
+      if (tr >= 0 && tr < 126 && tc >= 0 && tc < 112) {
+        const existing = appImage.data;
+        existing[idx]   = Math.min(255, existing[idx]   + Math.round(a8 * SEANCE_TRAIL[0] / 255));
+        existing[idx+1] = Math.min(255, existing[idx+1] + Math.round(a8 * SEANCE_TRAIL[1] / 255));
+        existing[idx+2] = Math.min(255, existing[idx+2] + Math.round(a8 * SEANCE_TRAIL[2] / 255));
+      }
+    }
+  }
+  // Planchette: bright oval at current (px, py) mapped to canvas coords
+  const pc = Math.round(4 + seanceLast.px * 103 / 125);
+  const pr2 = Math.round(8 + seanceLast.py * 112 / 111);
+  for (let dr = -5; dr <= 5; dr++) for (let dc = -8; dc <= 8; dc++) {
+    const ell = (dc * dc) / (8 * 8) + (dr * dr) / (5 * 5);
+    if (ell < 0.5) px(pr2 + dr, pc + dc, SEANCE_GOLD[0], SEANCE_GOLD[1], SEANCE_GOLD[2]);
+    else if (ell < 1.0) px(pr2 + dr, pc + dc, 255, 224, 100);
+  }
+  // Pupil
+  px(pr2, pc, ...SEANCE_BG);
+}
+
+// dvs_whip: the app IS a Mach-meter drawn on the 112(w) x 126(h) display
+// buffer. Layout:
+//   rows 0..79  -- maxspeedbin history chart: one column per window; bar height
+//                  proportional to maxspeedbin (0..15 growing up from row 79);
+//                  red when sonic=1, orange otherwise, dim steel when not valid.
+//                  A red dashed guide at the sonic threshold (bin 15 = top).
+//   rows 84..125 -- Mach-meter arc: a semicircle (cols 14..97, centre row=84)
+//                   with a needle pointing at the current maxspeedbin; SONIC BOOM
+//                   banner (rows 114..125, cols 14..97) when sonic=1.
+// Like seismo/mirror this is an abstract gauge; ignores orientation selector.
+const WHIP_BG: [number, number, number]       = [11, 13, 20];
+const WHIP_RED: [number, number, number]      = [212, 48, 48];
+const WHIP_ORANGE: [number, number, number]   = [240, 136, 42];
+const WHIP_GREEN: [number, number, number]    = [95, 212, 138];
+const WHIP_STEEL: [number, number, number]    = [138, 148, 166];
+const WHIP_DIM: [number, number, number]      = [42, 46, 56];
+const WHIP_CHART_BASE = 79;
+const WHIP_CHART_ROWS = 76;
+const WHIP_ARC_CX = 56, WHIP_ARC_CY = 102, WHIP_ARC_R = 30;   // Mach-meter centre + radius
+function paintWhip() {
+  for (let i = 0; i < 112 * 126; i++) appImage.data.set([...WHIP_BG, 255], i * 4);
+  const px = (row: number, col: number, r: number, g: number, b: number) => {
+    if (row >= 0 && row < 126 && col >= 0 && col < 112)
+      appImage.data.set([r, g, b, 255], (row * 112 + col) * 4);
+  };
+  // Baseline
+  for (let col = 0; col < 112; col++) px(WHIP_CHART_BASE, col, ...WHIP_DIM);
+  // Sonic-threshold guide (dashed, at the very top of the chart = bin 15)
+  for (let col = 0; col < 112; col += 3) px(WHIP_CHART_BASE - WHIP_CHART_ROWS, col, ...WHIP_RED);
+  // Maxspeedbin history: one column per window, newest at the right
+  for (let col = 0; col < 112; col++) {
+    const h = whipHist.length - 112 + col;
+    if (h < 0) continue;
+    const {maxspeedbin, sonic} = whipHist[h];
+    if (maxspeedbin === 0) continue;
+    const [br, bg2, bb] = sonic ? WHIP_RED : WHIP_ORANGE;
+    const bar = Math.max(1, Math.round(maxspeedbin * WHIP_CHART_ROWS / 15));
+    for (let k = 1; k <= bar; k++) px(WHIP_CHART_BASE - k, col, br, bg2, bb);
+  }
+  // Mach-meter arc (semicircle, theta from pi (left=0) to 0 (right=max))
+  for (let t = 0; t <= 180; t++) {
+    const theta = t * Math.PI / 180;
+    const arx = Math.round(WHIP_ARC_CX - Math.cos(theta) * WHIP_ARC_R);
+    const ary = Math.round(WHIP_ARC_CY - Math.sin(theta) * WHIP_ARC_R);
+    px(ary, arx, ...WHIP_STEEL);
+    // Tick at bin positions (every ~12°)
+    if (t % 12 === 0) {
+      const ri = WHIP_ARC_R - 4;
+      px(Math.round(WHIP_ARC_CY - Math.sin(theta) * ri),
+         Math.round(WHIP_ARC_CX - Math.cos(theta) * ri), ...WHIP_STEEL);
+    }
+  }
+  // Needle: from centre to arc, angle = pi - (maxspeedbin/15)*pi
+  const needleFrac = whipLast.valid ? whipLast.maxspeedbin / 15 : 0;
+  const needleTheta = Math.PI - needleFrac * Math.PI;
+  const [nr, ng2, nb] = whipLast.sonic ? WHIP_RED
+                       : (needleFrac > 0.5 ? WHIP_ORANGE : WHIP_GREEN);
+  for (let t = 0; t <= WHIP_ARC_R - 2; t++) {
+    const nc = Math.round(WHIP_ARC_CX - Math.cos(needleTheta) * t);
+    const nr2 = Math.round(WHIP_ARC_CY - Math.sin(needleTheta) * t);
+    px(nr2, nc, nr, ng2, nb);
+  }
+  // Hub dot
+  for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++)
+    px(WHIP_ARC_CY + dr, WHIP_ARC_CX + dc, ...WHIP_STEEL);
+  // SONIC BOOM banner
+  if (whipLast.sonic) {
+    for (let row = 114; row <= 123; row++)
+      for (let col = 14; col < 98; col++) px(row, col, 48, 8, 8);
+    for (let col = 14; col < 98; col++) { px(114, col, ...WHIP_RED); px(123, col, ...WHIP_RED); }
+    for (let row = 114; row <= 123; row++) { px(row, 14, ...WHIP_RED); px(row, 97, ...WHIP_RED); }
+  }
+  // front_col marker on chart baseline
+  if (whipLast.valid) {
+    const fc = Math.min(111, Math.round(whipLast.front_col * 111 / 125));
+    for (let row = WHIP_CHART_BASE - 3; row <= WHIP_CHART_BASE; row++) px(row, fc, ...WHIP_ORANGE);
+  }
+}
+
 // 8-octant unit vector (x right, y down); N (dy<0) points up. Shared by the
 // stabilize + dir-consensus arrows (matches the mirrors' `dirs` table).
 const OCTANT_VEC: [number, number][] = [[1,0],[1,-1],[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1]];
@@ -1725,6 +2055,43 @@ const APP_OVERLAYS: Record<string, () => void> = {
       : shibboLast.valid
         ? `ACCENT pbin=${shibboLast.pbin} (IEI period bin) iei=${shibboLast.total} hot7=${shibboLast.hot7}`
         : `no accent (iei=${shibboLast.total} hot7=${shibboLast.hot7})`;
+  },
+  dvs_gravity() {
+    // The notary certificate IS the render (paintGravity paints the background);
+    // no cell overlay. Report the current planet verdict and g_est on the status line.
+    const fresh = performance.now() - gravityAt < 1500;
+    const pname = GRAVITY_PLANET_NAMES[gravityLast.planet];
+    q('#app-status').textContent = !fresh ? 'tracking…'
+      : gravityLast.fraud ? 'FRAUD (non-ballistic)'
+      : gravityLast.valid ? `${pname} g_est=${gravityLast.g_est}`
+      : 'tracking…';
+  },
+  dvs_tremor() {
+    // The tarot card IS the render (paintTremor paints the background); no cell
+    // overlay. Report the current card, freq bin, and amp bin on the status line.
+    const fresh = performance.now() - tremorAt < 1500;
+    const cname = (tremorLast.valid && tremorLast.card <= 21)
+                  ? TREMOR_CARD_NAMES[tremorLast.card] : '—';
+    q('#app-status').textContent = !fresh ? 'hold a hand still…'
+      : tremorLast.valid
+        ? `card #${tremorLast.card} ${cname}  freq=${tremorLast.freqbin} amp=${tremorLast.ampbin}`
+        : 'hold a hand still…';
+  },
+  dvs_seance() {
+    // The ouija board IS the render (paintSeance paints the background); no cell
+    // overlay. Report the planchette position and speed on the status line.
+    const fresh = performance.now() - seanceAt < 1500;
+    q('#app-status').textContent = !fresh ? 'planchette (0,0) speed=0'
+      : `planchette (${seanceLast.px},${seanceLast.py}) speed=${seanceLast.speed}`;
+  },
+  dvs_whip() {
+    // The Mach-meter IS the render (paintWhip paints the background); no cell
+    // overlay. Report the sonic verdict and maxspeedbin on the status line.
+    const fresh = performance.now() - whipAt < 1500;
+    q('#app-status').textContent = !fresh ? 'flick a rope…'
+      : whipLast.sonic ? `SONIC BOOM! bin=${whipLast.maxspeedbin}`
+      : whipLast.valid ? `subsonic bin=${whipLast.maxspeedbin}`
+      : 'flick a rope…';
   },
   dvs_track() {
     // Reuse the tracker box, drawn on the app canvas (same overlay as track mode).
@@ -2136,6 +2503,92 @@ const APP_DECODERS: Record<string, (words: Uint32Array) => void> = {
       }
       shibboLast = {pbin, valid, total, hot7, wseq};
       shibboAt = performance.now();
+    }
+  },
+  // dvs_gravity_view.py unpack_status: seq=w&0x7, valid=(w>>3)&1, fraud=(w>>4)&1,
+  // planet=(w>>5)&0x3, g_raw=(w>>7)&0x7F (7-bit signed: g=(g_raw^0x40)-0x40).
+  // The latched arc result is re-emitted every batch; seq only changes when a
+  // new arc latches, so we push one history sample per seq change (mirror of
+  // render_gravity()'s per-arc history collection) and always keep the freshest
+  // word for the certificate/status.
+  dvs_gravity(words) {
+    for (const w of words) {
+      const seq    =  w        & 0x7;
+      const valid  = (w >>  3) & 0x1;
+      const fraud  = (w >>  4) & 0x1;
+      const planet = (w >>  5) & 0x3;
+      const g_raw  = (w >>  7) & 0x7f;
+      const g_est  = ((g_raw ^ 0x40) - 0x40) | 0;   // sign-extend 7-bit
+      if (seq !== gravityLast.seq) {
+        gravityHist.push({g_est, planet, fraud});
+        if (gravityHist.length > GRAVITY_HIST) gravityHist.splice(0, gravityHist.length - GRAVITY_HIST);
+      }
+      gravityLast = {seq, valid, fraud, planet, g_est};
+      gravityAt = performance.now();
+    }
+  },
+  // dvs_tremor_view.py unpack_status: freqbin=w&0xF, ampbin=(w>>4)&0xF,
+  // card=(w>>8)&0x3F, fortune=(w>>14)&0x1F, valid=(w>>19)&1, seq=(w>>20)&0xF.
+  // The latched window result is re-emitted every batch; seq only changes when a
+  // new window latches, so we push one history sample per seq change (mirror of
+  // render_tremor()'s per-window history collection) and always keep the freshest
+  // word for the card/status.
+  dvs_tremor(words) {
+    for (const w of words) {
+      const freqbin = w        & 0xf;
+      const ampbin  = (w >>  4) & 0xf;
+      const card    = (w >>  8) & 0x3f;
+      const fortune = (w >> 14) & 0x1f;
+      const valid   = (w >> 19) & 0x1;
+      const seq     = (w >> 20) & 0xf;
+      if (seq !== tremorLast.seq) {
+        tremorHist.push({freqbin, valid});
+        if (tremorHist.length > TREMOR_HIST) tremorHist.splice(0, tremorHist.length - TREMOR_HIST);
+      }
+      tremorLast = {freqbin, ampbin, card, fortune, valid, seq};
+      tremorAt = performance.now();
+    }
+  },
+  // dvs_seance_view.py unpack_status: seq=w&0xFF, speed=(w>>8)&0xFF,
+  // vy_sign=(w>>16)&1, vx_sign=(w>>17)&1, py=(w>>18)&0x7F, px=(w>>25)&0x7F.
+  // Every batch carries the freshest planchette state; seq advances each window
+  // boundary -- push one trail point per seq change (mirror of render_seance()'s
+  // per-seq trail collection) and always keep the freshest state for the overlay.
+  dvs_seance(words) {
+    for (const w of words) {
+      const seq     =  w        & 0xff;
+      const speed   = (w >>  8) & 0xff;
+      const vy_sign = (w >> 16) & 0x1;
+      const vx_sign = (w >> 17) & 0x1;
+      const py      = (w >> 18) & 0x7f;
+      const px      = (w >> 25) & 0x7f;
+      if (seq !== seanceLast.seq) {
+        seanceTrail.push({px, py});
+        if (seanceTrail.length > SEANCE_TRAIL_MAX) seanceTrail.splice(0, seanceTrail.length - SEANCE_TRAIL_MAX);
+      }
+      seanceLast = {px, py, vx_sign, vy_sign, speed, seq};
+      seanceAt = performance.now();
+    }
+  },
+  // dvs_whip_view.py unpack_status: valid=w&1, seq=(w>>1)&0xF,
+  // front_col=(w>>5)&0x7F, sonic=(w>>12)&1, maxspeedbin=(w>>13)&0xF.
+  // The latched window result is re-emitted every batch; seq only changes when a
+  // new window latches, so we push one history sample per seq change (mirror of
+  // render_whip()'s per-window history collection) and always keep the freshest
+  // word for the Mach-meter/status.
+  dvs_whip(words) {
+    for (const w of words) {
+      const valid       =  w        & 0x1;
+      const seq         = (w >>  1) & 0xf;
+      const front_col   = (w >>  5) & 0x7f;
+      const sonic       = (w >> 12) & 0x1;
+      const maxspeedbin = (w >> 13) & 0xf;
+      if (seq !== whipLast.seq) {
+        whipHist.push({maxspeedbin, sonic});
+        if (whipHist.length > WHIP_HIST) whipHist.splice(0, whipHist.length - WHIP_HIST);
+      }
+      whipLast = {valid, seq, front_col, sonic, maxspeedbin};
+      whipAt = performance.now();
     }
   },
   // dvs_track handled by decodeTrack in track mode; if selected in the app view

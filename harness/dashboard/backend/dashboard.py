@@ -135,6 +135,22 @@ APP_REGISTRY = {
         "prog": "dvs_shibboleth", "label": "Shibboleth",
         "blurb": "PWM-accent identifier: finds the hottest pixel region, builds a 32-bin half-octave IEI log-histogram over that region per window, and reports the dominant period bin when the peak holds at least 1/8 of all IEIs — identifies a flashlight's dimmer frequency invisible to frame cameras.",
         "params": []},
+    "dvs_gravity": {
+        "prog": "dvs_gravity", "label": "The Gravity Notary",
+        "blurb": "Free-fall certificator: tracks vertical centroid of a thrown object across its parabolic arc, computes the discrete 2nd-difference D2 as a gravity proxy, median-filters it, and notarises which planet the arc was recorded on (Moon/Mars/Earth/Jupiter) — stamping FRAUD on non-ballistic motion.",
+        "params": []},
+    "dvs_tremor": {
+        "prog": "dvs_tremor", "label": "The Tremor Tarot",
+        "blurb": "Hold a hand still: the DVS reads involuntary physiological tremor (4-12 Hz) via ROI event-rate EWMA zero-crossings, recovers frequency and amplitude bins, maps the pair to a major-arcana tarot card via a 2D LUT, and draws the card with a fortune.",
+        "params": []},
+    "dvs_seance": {
+        "prog": "dvs_seance", "label": "The Séance Circuit",
+        "blurb": "Crowd ouija planchette: net motion bias (left/right/up/down half-sum imbalance) per 512-event window steers a planchette across a candle-lit ouija board — hot pixels suppressed by a per-region refractory guard.",
+        "params": []},
+    "dvs_whip": {
+        "prog": "dvs_whip", "label": "The Whipcracker",
+        "blurb": "Supersonic tip detector: per-column leaky activity counters and epoch-based activation gates track the traveling wave front; a LUT classifies each column hop into one of 16 speed bins; bin 15 (one tick per column) certifies SONIC BOOM.",
+        "params": []},
 }
 
 
