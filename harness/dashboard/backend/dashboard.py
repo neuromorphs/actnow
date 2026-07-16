@@ -123,6 +123,18 @@ APP_REGISTRY = {
         "prog": "dvs_seismo", "label": "Ballroom Seismology",
         "blurb": "Stares at a fixed vertical edge and detects slow oscillation (building sway / surface vibration) by integrating the signed event-polarity sum into a displacement proxy, counting zero-crossings per window for a frequency label, and gating the output with a resonance threshold so random hot-pixel noise cannot fake a sway.",
         "params": []},
+    "dvs_mirror": {
+        "prog": "dvs_mirror", "label": "Who Is the Mirror?",
+        "blurb": "Causality-lag detector for two-player mimicry: splits the FOV left/right, binarizes per-half time-bin activity against a mean threshold, and finds the lag that maximises AND-popcount between the two bitmasks — names the leader (LEFT/RIGHT/NONE) with lag and confidence.",
+        "params": []},
+    "dvs_heist": {
+        "prog": "dvs_heist", "label": "The Museum Heist",
+        "blurb": "Stealth vs motion-alarm game: a global leaky rate integrator charges on every event and decays per batch — fast motion trips the alarm, slow creep does not; an 8-bin column histogram tracks the burglar's horizontal position and ratchets a progress counter toward a clean crossing.",
+        "params": []},
+    "dvs_shibboleth": {
+        "prog": "dvs_shibboleth", "label": "Shibboleth",
+        "blurb": "PWM-accent identifier: finds the hottest pixel region, builds a 32-bin half-octave IEI log-histogram over that region per window, and reports the dominant period bin when the peak holds at least 1/8 of all IEIs — identifies a flashlight's dimmer frequency invisible to frame cameras.",
+        "params": []},
 }
 
 

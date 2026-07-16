@@ -183,6 +183,41 @@ const SEISMO_HIST = 112;                          // windows kept in the disp ch
 let seismoHist: {disp: number, freqbin: number, resonance: number}[] = [];
 let seismoLast = {disp: 0, freqbin: 0, resonance: 0, seq: 0};
 let seismoAt = 0;
+// dvs_mirror ("Who Is the Mirror?"): each status word carries the latched
+// leader verdict {leader, lag_mag, confidence, seq} (bit-faithful with
+// dvs_mirror_view.py's unpack_status). leader: 0=NONE, 1=LEFT leads,
+// 2=RIGHT leads; lag_mag in 16-tick bins (0..8); confidence=AND-popcount
+// (0..32). We keep one history sample per seq change (one per completed
+// correlation window) for the scrolling signed-lag chart; mirrorAt = last-
+// update timestamp.
+const MIRROR_LAG_MAX = 8;                           // matches firmware LAG_MAX
+const MIRROR_HIST = 112;                            // samples kept in the lag chart
+let mirrorHist: {lag: number, leader: number}[] = [];
+let mirrorLast = {leader: 0, lag: 0, conf: 0, seq: 0};
+let mirrorAt = 0;
+// dvs_heist ("The Museum Heist"): each status word carries the latched stealth
+// state {seq, progress, pos, rate, alarm} (bit-faithful with
+// dvs_heist_view.py's unpack_status). pos = current argmax burglar column
+// (0..7); progress = ratcheted max column reached; rate = leaky integrator R
+// (0..127); alarm = 1 when R > ALARM_THRESH. heistAt = last-update timestamp.
+const HEIST_ALARM_THRESH = 24;                      // must match firmware ALARM_THRESH
+const HEIST_HIST = 112;                             // batches kept in the rate chart
+let heistHist: {rate: number, alarm: number}[] = [];
+let heistLast = {seq: 0, progress: 0, pos: 0, rate: 0, alarm: 0};
+let heistAt = 0;
+// dvs_shibboleth ("Shibboleth"): each status word carries the latched PWM-
+// accent state {pbin, valid, iei_total, hot_cidx7, wseq} (bit-faithful with
+// dvs_shibboleth_view.py's unpack_status). pbin = dominant IEI half-octave
+// log-bin (0..31); valid = 1 when the peak holds >=1/8 of all IEIs; iei_total
+// = IEIs in the last completed window; hot_cidx7 = latched hottest cell index
+// >>1 (host *2 to recover even index). We keep one history sample per wseq
+// change (one per completed window) for the scrolling pbin chart; shibboAt =
+// last-update timestamp.
+const SHIBBO_NBINS = 32;                            // must match firmware NBINS
+const SHIBBO_HIST = 112;                            // windows kept in pbin chart
+let shibboHist: {pbin: number, valid: number}[] = [];
+let shibboLast = {pbin: 0, valid: 0, total: 0, hot7: 0, wseq: 0};
+let shibboAt = 0;
 
 // Latest tracker status, decoded from the dvs_track result stream. word0 packs
 // (locked<<24)|(cx<<16)|(cy<<8)|count; word1 packs (min_x<<24)|(min_y<<16)|(max_x<<8)|max_y.
@@ -484,6 +519,9 @@ function resetAppState() {
   vitalHist = []; vitalLast = {pbin: 0, spread: 0, total: 0, verdict: 0, wseq: 0}; vitalAt = 0;
   quartzHist = []; quartzLast = {prog: 0, meanq: 0, jit: 0, grade: 0, sseq: 0}; quartzAt = 0;
   seismoHist = []; seismoLast = {disp: 0, freqbin: 0, resonance: 0, seq: 0}; seismoAt = 0;
+  mirrorHist = []; mirrorLast = {leader: 0, lag: 0, conf: 0, seq: 0}; mirrorAt = 0;
+  heistHist = []; heistLast = {seq: 0, progress: 0, pos: 0, rate: 0, alarm: 0}; heistAt = 0;
+  shibboHist = []; shibboLast = {pbin: 0, valid: 0, total: 0, hot7: 0, wseq: 0}; shibboAt = 0;
   appEnergy.fill(0); pendingApp.length = 0; appTail = [];
 }
 
@@ -623,6 +661,9 @@ function renderApp() {
   else if (loadedApp === 'dvs_vital') paintVital();
   else if (loadedApp === 'dvs_quartz') paintQuartz();
   else if (loadedApp === 'dvs_seismo') paintSeismo();
+  else if (loadedApp === 'dvs_mirror') paintMirror();
+  else if (loadedApp === 'dvs_heist') paintHeist();
+  else if (loadedApp === 'dvs_shibboleth') paintShibboleth();
   else paint(appImage, appEnergy, palette);
   appCtx.putImageData(appImage,0,0);
   if (loadedApp === 'dvs_sonar' && appActive) drawSonarRings();
@@ -1221,6 +1262,203 @@ function paintSeismo() {
   }
 }
 
+// dvs_mirror: the app IS a tribunal needle gauge drawn on the 112(w) x 126(h)
+// display buffer. Layout (mirrors dvs_mirror_view.py's render_mirror style):
+//   rows 0..79  -- scrolling per-window signed-lag history (newest at right;
+//                  bars grow up for LEFT leads / down for RIGHT leads from the
+//                  centre line at row 40); dim NONE bars at the centre line.
+//   rows 86..105 -- confidence bar (0..32 across the full width), coloured
+//                  green (LEFT), red (RIGHT), or steel (NONE).
+//   The needle itself is vector-drawn by the dvs_mirror overlay (drawArrow into
+//   the seam between history and confidence bar). Ignores orientation selector.
+const MIRROR_BG: [number, number, number]     = [11, 13, 18];
+const MIRROR_GREEN: [number, number, number]  = [95, 212, 138];    // LEFT leads
+const MIRROR_RED: [number, number, number]    = [212, 90, 90];     // RIGHT leads
+const MIRROR_STEEL: [number, number, number]  = [138, 148, 166];   // NONE
+const MIRROR_DIM: [number, number, number]    = [42, 46, 56];
+const MIRROR_CENTRE_ROW = 40;
+const MIRROR_STRIP_HALF = 36;
+const MIRROR_CONF_BASE = 105;
+const MIRROR_CONF_HEIGHT = 20;
+function paintMirror() {
+  for (let i = 0; i < 112 * 126; i++) appImage.data.set([...MIRROR_BG, 255], i * 4);
+  const px = (row: number, col: number, r: number, g: number, b: number) => {
+    if (row >= 0 && row < 126 && col >= 0 && col < 112)
+      appImage.data.set([r, g, b, 255], (row * 112 + col) * 4);
+  };
+  // Centre baseline for the signed-lag strip
+  for (let col = 0; col < 112; col++) px(MIRROR_CENTRE_ROW, col, ...MIRROR_DIM);
+  // Confidence bar track baseline
+  for (let col = 0; col < 112; col++) px(MIRROR_CONF_BASE, col, ...MIRROR_DIM);
+  // Signed-lag strip: one column per window, newest at the right.
+  // Positive lag (LEFT leads) grows UP from centre; negative (RIGHT) grows DOWN.
+  for (let col = 0; col < 112; col++) {
+    const h = mirrorHist.length - 112 + col;
+    if (h < 0) continue;
+    const {lag, leader} = mirrorHist[h];
+    if (leader === 0) continue;    // NONE: leave the baseline dim
+    const [cr, cg, cb] = leader === 1 ? MIRROR_GREEN : MIRROR_RED;
+    const bar = Math.max(1, Math.min(MIRROR_STRIP_HALF,
+      Math.round(Math.abs(lag) * MIRROR_STRIP_HALF / MIRROR_LAG_MAX)));
+    if (leader === 1) {
+      for (let k = 1; k <= bar; k++) px(MIRROR_CENTRE_ROW - k, col, cr, cg, cb);
+    } else {
+      for (let k = 1; k <= bar; k++) px(MIRROR_CENTRE_ROW + k, col, cr, cg, cb);
+    }
+  }
+  // Confidence bar (0..32 across full width 0..111)
+  const [cr, cg, cb] = mirrorLast.leader === 1 ? MIRROR_GREEN
+                       : mirrorLast.leader === 2 ? MIRROR_RED : MIRROR_STEEL;
+  const cLen = Math.round(mirrorLast.conf * 111 / 32);
+  for (let row = MIRROR_CONF_BASE - MIRROR_CONF_HEIGHT; row < MIRROR_CONF_BASE; row++) {
+    for (let col = 0; col <= cLen; col++) px(row, col, cr >> 1, cg >> 1, cb >> 1);
+  }
+  // Bright cap at the confidence level
+  for (let row = MIRROR_CONF_BASE - MIRROR_CONF_HEIGHT; row < MIRROR_CONF_BASE; row++)
+    if (cLen < 112) px(row, cLen, cr, cg, cb);
+}
+
+// dvs_heist: the app IS a museum gallery drawn on the 112(w) x 126(h) display
+// buffer. Layout:
+//   rows 0..24  -- alarm meter: red fill proportional to rate (0..127),
+//                  bright line at ALARM_THRESH (col 21); flashes bright red
+//                  when alarm=1.
+//   rows 28..68 -- gallery: 8 column rooms, each ~14 cols wide; rooms already
+//                  reached by progress are lit in dim green; the burglar dot
+//                  (cyan) sits in `pos`; a gap between rooms as separators.
+//   rows 76..120 -- rate history chart: scrolling one column per batch, bar
+//                  height proportional to rate (grows upward from row 120);
+//                  red when alarm=1 else steel.
+// Ignores orientation selector.
+const HEIST_BG: [number, number, number]      = [13, 11, 16];
+const HEIST_RED: [number, number, number]     = [212, 74, 74];
+const HEIST_GREEN: [number, number, number]   = [95, 212, 138];
+const HEIST_CYAN: [number, number, number]    = [160, 200, 240];
+const HEIST_STEEL: [number, number, number]   = [138, 148, 166];
+const HEIST_DIM: [number, number, number]     = [42, 46, 56];
+const HEIST_ALARM_COL = Math.round(HEIST_ALARM_THRESH * 111 / 127);  // pixel at thresh
+const HEIST_RATE_BASE = 120;
+const HEIST_RATE_HALF = 44;
+function paintHeist() {
+  for (let i = 0; i < 112 * 126; i++) appImage.data.set([...HEIST_BG, 255], i * 4);
+  const px = (row: number, col: number, r: number, g: number, b: number) => {
+    if (row >= 0 && row < 126 && col >= 0 && col < 112)
+      appImage.data.set([r, g, b, 255], (row * 112 + col) * 4);
+  };
+  // Alarm meter (rows 0..24): fill 0..col proportional to rate
+  const rateLen = Math.round(heistLast.rate * 111 / 127);
+  const [mr, mg, mb] = heistLast.alarm ? HEIST_RED : HEIST_STEEL;
+  for (let row = 2; row <= 22; row++) {
+    px(row, 0, ...HEIST_DIM); px(row, 111, ...HEIST_DIM);    // track end caps
+    for (let col = 0; col <= rateLen; col++) px(row, col, mr >> 1, mg >> 1, mb >> 1);
+    if (heistLast.alarm) for (let col = 0; col <= rateLen; col++) px(row, col, mr, mg, mb);
+    // Threshold tick
+    px(row, HEIST_ALARM_COL, ...HEIST_RED);
+  }
+  // Gallery (rows 28..68): 8 rooms of ~12 cols each with 1-col gap
+  const ROOM_W = 13, GAP = 1, GALLERY_TOP = 28, GALLERY_BOT = 68;
+  for (let c = 0; c < 8; c++) {
+    const x0 = c * (ROOM_W + GAP), x1 = x0 + ROOM_W - 1;
+    const reached = c <= heistLast.progress;
+    const isBurglar = c === heistLast.pos;
+    const [fr, fg, fb] = reached ? [20, 42, 20] : [20, 20, 26];
+    for (let row = GALLERY_TOP; row <= GALLERY_BOT; row++)
+      for (let col = x0; col <= Math.min(x1, 111); col++) px(row, col, fr, fg, fb);
+    // Room border
+    for (let row = GALLERY_TOP; row <= GALLERY_BOT; row++) {
+      const [br, bg2, bb] = reached ? HEIST_GREEN : HEIST_DIM;
+      px(row, x0, br, bg2, bb); px(row, Math.min(x1, 111), br, bg2, bb);
+    }
+    for (let col = x0; col <= Math.min(x1, 111); col++) {
+      const [br, bg2, bb] = reached ? HEIST_GREEN : HEIST_DIM;
+      px(GALLERY_TOP, col, br, bg2, bb); px(GALLERY_BOT, col, br, bg2, bb);
+    }
+    // Burglar dot (3×3 cyan square centred in the room)
+    if (isBurglar) {
+      const cx = Math.min(111, x0 + (ROOM_W >> 1));
+      const cy = (GALLERY_TOP + GALLERY_BOT) >> 1;
+      for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++)
+        px(cy + dr, cx + dc, ...HEIST_CYAN);
+    }
+  }
+  // Rate history (rows 76..120): one column per batch, bar grows upward from row 120
+  for (let col = 0; col < 112; col++) px(HEIST_RATE_BASE, col, ...HEIST_DIM);
+  for (let col = 0; col < 112; col++) {
+    const h = heistHist.length - 112 + col;
+    if (h < 0) continue;
+    const {rate, alarm} = heistHist[h];
+    const [hr, hg, hb] = alarm ? HEIST_RED : HEIST_STEEL;
+    const bar = Math.round(rate * HEIST_RATE_HALF / 127);
+    for (let k = 1; k <= bar; k++) px(HEIST_RATE_BASE - k, col, hr, hg, hb);
+    // Threshold guide
+    px(HEIST_RATE_BASE - Math.round(HEIST_ALARM_THRESH * HEIST_RATE_HALF / 127), col, ...HEIST_RED);
+  }
+}
+
+// dvs_shibboleth: the app IS a 32-bin IEI spectral chart drawn on the 112(w)
+// x 126(h) display buffer. Layout:
+//   rows 0..79  -- spectral bars: 32 bins spanning cols 0..111, bar height
+//                  proportional to estimated relative count (Gaussian-shaped
+//                  when valid, flat grey otherwise); the dominant bin (pbin) is
+//                  highlighted in gold/cyan when valid=1.
+//   rows 83..105 -- IEI-total meter (0..255 across full width), teal always.
+//   rows 108..120 -- hot-cell indicator: a tiny pixel dot at the hot_cidx7*2
+//                  position mapped to a col (0..111 = hot_cidx7*2 * 111/222).
+// Like vital/widdershins this is an abstract gauge; ignores orientation selector.
+const SHIBBO_BG: [number, number, number]    = [11, 13, 18];
+const SHIBBO_GOLD: [number, number, number]  = [232, 184, 75];    // dominant bin highlight
+const SHIBBO_CYAN: [number, number, number]  = [79, 196, 196];    // IEI total meter
+const SHIBBO_DIM: [number, number, number]   = [42, 46, 56];
+const SHIBBO_STEEL: [number, number, number] = [95, 100, 120];    // inactive bars
+const SHIBBO_SPEC_BASE = 79;   // bottom row of spectral bars
+const SHIBBO_SPEC_HALF = 76;   // max bar height in rows
+const SHIBBO_TOTAL_BASE = 105; // bottom row of IEI-total meter
+const SHIBBO_TOTAL_HEIGHT = 22;
+function paintShibboleth() {
+  for (let i = 0; i < 112 * 126; i++) appImage.data.set([...SHIBBO_BG, 255], i * 4);
+  const px = (row: number, col: number, r: number, g: number, b: number) => {
+    if (row >= 0 && row < 126 && col >= 0 && col < 112)
+      appImage.data.set([r, g, b, 255], (row * 112 + col) * 4);
+  };
+  // Spectral bar chart: 32 bins each ~3.5 cols wide; bar height from Gaussian
+  // shaped around pbin when valid, flat dim otherwise.
+  const BIN_W = 112 / SHIBBO_NBINS;   // ~3.5 cols per bin
+  for (let b = 0; b < SHIBBO_NBINS; b++) {
+    const colL = Math.round(b * BIN_W);
+    const colR = Math.round((b + 1) * BIN_W) - 1;
+    const isDom = shibboLast.valid && b === shibboLast.pbin;
+    // Bar height: Gaussian around pbin when valid, small flat otherwise
+    let normH = 0;
+    if (shibboLast.valid && shibboLast.pbin > 0) {
+      const dist = b - shibboLast.pbin;
+      normH = Math.exp(-(dist * dist) / 4.0);
+    } else if (!shibboLast.valid) {
+      normH = 0.08;   // flat dim silhouette
+    }
+    const barH = Math.max(1, Math.round(normH * SHIBBO_SPEC_HALF));
+    const [br, bg, bb] = isDom ? SHIBBO_GOLD : SHIBBO_STEEL;
+    for (let col = colL; col <= Math.min(colR, 111); col++) {
+      for (let k = 1; k <= barH; k++) px(SHIBBO_SPEC_BASE - k, col, br, bg, bb);
+      // Dim tick at baseline
+      px(SHIBBO_SPEC_BASE, col, ...SHIBBO_DIM);
+    }
+  }
+  // IEI-total meter (0..255 across full width)
+  const tLen = Math.round(shibboLast.total * 111 / 255);
+  for (let row = SHIBBO_TOTAL_BASE - SHIBBO_TOTAL_HEIGHT; row <= SHIBBO_TOTAL_BASE; row++) {
+    px(row, 0, ...SHIBBO_DIM); px(row, 111, ...SHIBBO_DIM);
+    for (let col = 0; col <= tLen; col++) {
+      const [tr, tg, tb] = SHIBBO_CYAN;
+      px(row, col, tr >> 1, tg >> 1, tb >> 1);
+    }
+  }
+  // Hot-cell marker: map hot_cidx7*2 (0..222) to col 0..111
+  if (shibboLast.hot7 > 0) {
+    const hCol = Math.round(shibboLast.hot7 * 2 * 111 / 222);
+    for (let row = 109; row <= 120; row++) px(row, hCol, ...SHIBBO_GOLD);
+  }
+}
+
 // 8-octant unit vector (x right, y down); N (dy<0) points up. Shared by the
 // stabilize + dir-consensus arrows (matches the mirrors' `dirs` table).
 const OCTANT_VEC: [number, number][] = [[1,0],[1,-1],[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1]];
@@ -1451,6 +1689,42 @@ const APP_OVERLAYS: Record<string, () => void> = {
     q('#app-status').textContent = dirCons.flag
       ? `independent-motion tile z=${dirCons.z}, global ${names[dirCons.gdir]}`
       : `global ${names[dirCons.gdir]}`;
+  },
+  dvs_mirror() {
+    // The signed-lag chart and confidence bar ARE the render (paintMirror paints
+    // the background); here we vector-draw a needle pointing left (leader=1) or
+    // right (leader=2) in the seam between the history strip and the conf bar,
+    // and report the verdict.
+    const fresh = performance.now() - mirrorAt < 1500;
+    // Needle: pivot at col=56, row=82 (seam); points left for LEFT, right for RIGHT
+    if (fresh && mirrorLast.leader === 1)
+      drawArrow(56, 82, -1, 0, 40, '#5fd48a');    // GREEN, pointing left
+    else if (fresh && mirrorLast.leader === 2)
+      drawArrow(56, 82, 1, 0, 40, '#d45a5a');     // RED, pointing right
+    const lagTicks = mirrorLast.lag * 16;          // 1 bin = BIN_TICKS=16 ticks
+    q('#app-status').textContent = !fresh ? 'watching the mirror…'
+      : mirrorLast.leader === 0
+        ? `no clear leader (conf=${mirrorLast.conf})`
+        : (mirrorLast.leader === 1 ? 'LEFT leads' : 'RIGHT leads')
+          + ` lag=${mirrorLast.lag} bins (${lagTicks} ticks) conf=${mirrorLast.conf}`;
+  },
+  dvs_heist() {
+    // The gallery + alarm meter + rate chart ARE the render (paintHeist paints
+    // the background); no cell overlay. Report the game state on the status line.
+    const fresh = performance.now() - heistAt < 1500;
+    q('#app-status').textContent = !fresh ? 'watching the gallery…'
+      : heistLast.alarm
+        ? `ALARM! rate=${heistLast.rate} pos=${heistLast.pos} progress=${heistLast.progress}/7`
+        : `stealth pos=${heistLast.pos} progress=${heistLast.progress}/7 rate=${heistLast.rate}`;
+  },
+  dvs_shibboleth() {
+    // The spectral bars ARE the render (paintShibboleth paints the background);
+    // no cell overlay. Report the accent verdict on the status line.
+    const fresh = performance.now() - shibboAt < 1500;
+    q('#app-status').textContent = !fresh ? 'listening for accent…'
+      : shibboLast.valid
+        ? `ACCENT pbin=${shibboLast.pbin} (IEI period bin) iei=${shibboLast.total} hot7=${shibboLast.hot7}`
+        : `no accent (iei=${shibboLast.total} hot7=${shibboLast.hot7})`;
   },
   dvs_track() {
     // Reuse the tracker box, drawn on the app canvas (same overlay as track mode).
@@ -1808,6 +2082,60 @@ const APP_DECODERS: Record<string, (words: Uint32Array) => void> = {
       dirCons = {flag: (w >>> 14) & 1, z: (w >>> 9) & 0x1f,
                  row: (w >>> 6) & 0x7, col: (w >>> 3) & 0x7,
                  gdir: w & 0x7, at: performance.now()};
+    }
+  },
+  // dvs_mirror_view.py unpack_status: leader=w&3, lag_mag=(w>>2)&0xFF,
+  // confidence=(w>>10)&0x1FF, seq=(w>>19)&0xF. The latched correlation result
+  // is re-emitted every batch; seq only changes when a new correlation window
+  // latches, so we push one history sample per seq change (mirror of
+  // render_mirror()'s per-window history collection) and always keep the
+  // freshest word for the needle/status.
+  dvs_mirror(words) {
+    for (const w of words) {
+      const leader = w & 0x3, lag = (w >>> 2) & 0xff;
+      const conf = (w >>> 10) & 0x1ff, seq = (w >>> 19) & 0xf;
+      if (seq !== mirrorLast.seq) {
+        // Signed lag: positive = LEFT leads, negative = RIGHT leads
+        const sLag = leader === 1 ? lag : leader === 2 ? -lag : 0;
+        mirrorHist.push({lag: sLag, leader});
+        if (mirrorHist.length > MIRROR_HIST) mirrorHist.splice(0, mirrorHist.length - MIRROR_HIST);
+      }
+      mirrorLast = {leader, lag, conf, seq};
+      mirrorAt = performance.now();
+    }
+  },
+  // dvs_heist_view.py unpack_status: seq=w&0xF, progress=(w>>4)&0x7,
+  // pos=(w>>7)&0x7, rate=(w>>10)&0x7F, alarm=(w>>17)&1. The latched heist
+  // state is emitted every batch; we push one history sample per batch for the
+  // rate chart and always keep the freshest word for the gallery/status.
+  dvs_heist(words) {
+    for (const w of words) {
+      const seq = w & 0xf, progress = (w >>> 4) & 0x7;
+      const pos = (w >>> 7) & 0x7, rate = (w >>> 10) & 0x7f;
+      const alarm = (w >>> 17) & 0x1;
+      heistHist.push({rate, alarm});
+      if (heistHist.length > HEIST_HIST) heistHist.splice(0, heistHist.length - HEIST_HIST);
+      heistLast = {seq, progress, pos, rate, alarm};
+      heistAt = performance.now();
+    }
+  },
+  // dvs_shibboleth_view.py unpack_status: pbin=w&0x1F, valid=(w>>5)&1,
+  // iei_total=(w>>6)&0xFF, hot_cidx7=(w>>14)&0x7F, wseq=(w>>21)&0x7. The
+  // latched window fields are re-emitted every batch; wseq only changes when a
+  // new window latches, so we push one history sample per wseq change (mirror
+  // of render_shibboleth()'s per-window history collection) and always keep the
+  // freshest word for the spectral chart/status.
+  dvs_shibboleth(words) {
+    for (const w of words) {
+      const pbin = w & 0x1f, valid = (w >>> 5) & 0x1;
+      const total = (w >>> 6) & 0xff, hot7 = (w >>> 14) & 0x7f;
+      const wseq = (w >>> 21) & 0x7;
+      if (wseq !== shibboLast.wseq) {
+        shibboHist.push({pbin, valid});
+        if (shibboHist.length > SHIBBO_HIST) shibboHist.splice(0, shibboHist.length - SHIBBO_HIST);
+      }
+      shibboLast = {pbin, valid, total, hot7, wseq};
+      shibboAt = performance.now();
     }
   },
   // dvs_track handled by decodeTrack in track mode; if selected in the app view
