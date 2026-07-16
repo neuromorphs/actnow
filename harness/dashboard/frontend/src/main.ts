@@ -121,6 +121,18 @@ const loomOFF = new Float32Array(3 * LOOM_SY * LOOM_COLS);
 let loomWeft = 0;
 let loomAt = 0;
 let loomLast = {slit: 3, y: 0, pol: 0, weft: 0, flag: 0};
+// dvs_entropy ("Entropy's Bloodhound"): each status word carries the latched
+// arrow-of-time state {fwd, rev, verdict, wseq} (bit-faithful with
+// dvs_entropy_view.py's unpack_status). fwd counts same-pixel ON->OFF "decay"
+// transitions in the last completed window, rev the OFF->ON "kindle" ones;
+// verdict = sign of D=fwd-rev outside a MARGIN dead-band (0 undecided,
+// 1 time-FORWARD, 2 BACKWARD). We keep one history sample per wseq change
+// (i.e. per completed window) for the scrolling D chart; entropyAt = last-
+// update timestamp for the status line.
+const ENTROPY_HIST = 96;                          // windows kept in the D chart
+let entropyHist: {fwd: number, rev: number}[] = [];
+let entropyLast = {fwd: 0, rev: 0, verdict: 0, wseq: 0};
+let entropyAt = 0;
 
 // Latest tracker status, decoded from the dvs_track result stream. word0 packs
 // (locked<<24)|(cx<<16)|(cy<<8)|count; word1 packs (min_x<<24)|(min_y<<16)|(max_x<<8)|max_y.
@@ -417,6 +429,7 @@ function resetAppState() {
   flinchLast = {flinch: 0, level: 0, cx: 63, cy: 56, at: 0}; flinchShake = 0;
   loomON.fill(0); loomOFF.fill(0); loomWeft = 0; loomAt = 0;
   loomLast = {slit: 3, y: 0, pol: 0, weft: 0, flag: 0};
+  entropyHist = []; entropyLast = {fwd: 0, rev: 0, verdict: 0, wseq: 0}; entropyAt = 0;
   appEnergy.fill(0); pendingApp.length = 0; appTail = [];
 }
 
@@ -551,6 +564,7 @@ function renderApp() {
   else if (loadedApp === 'dvs_blackhole') paintBlackhole(!paused);
   else if (loadedApp === 'dvs_flinch') paintFlinch(!paused);
   else if (loadedApp === 'dvs_loom') paintLoom();
+  else if (loadedApp === 'dvs_entropy') paintEntropy();
   else paint(appImage, appEnergy, palette);
   appCtx.putImageData(appImage,0,0);
   if (loadedApp === 'dvs_sonar' && appActive) drawSonarRings();
@@ -879,6 +893,53 @@ function paintLoom() {
   }
 }
 
+// dvs_entropy: the app IS a thermodynamic verdict gauge, drawn on the
+// 112(w) x 126(h) display buffer: rows 0..89 are a scrolling per-window
+// D = fwd-rev history chart (newest window at the bottom, gold bars right of
+// the centre spine for D>0 / indigo left for D<0, dim ticks at the +/-MARGIN
+// dead-band); the lower rows are two horizontal bar meters of the latched
+// window counts (gold = fwd "decay" ON->OFF, indigo = rev "kindle" OFF->ON,
+// scale 0..1023). The arrow-of-time needle itself is vector-drawn by the
+// dvs_entropy overlay in the seam between chart and meters. Counterpart of
+// dvs_entropy_view.py's render_entropy(). Like apophenia/loom this is an
+// abstract gauge (not spatially registered), so it ignores the orientation
+// selector.
+const ENTROPY_MARGIN = 16, ENTROPY_CAP = 1023;
+const ENTROPY_CHART_ROWS = 90;   // rows 0..89: one completed window per row
+function paintEntropy() {
+  for (let i = 0; i < 112 * 126; i++) appImage.data.set([13, 11, 16, 255], i * 4);
+  const px = (row: number, col: number, r: number, g: number, b: number) => {
+    if (col >= 0 && col < 112) appImage.data.set([r, g, b, 255], (row * 112 + col) * 4);
+  };
+  const mid = 56, half = 54;   // centre spine column + max bar half-length
+  const mTick = Math.max(1, Math.round(ENTROPY_MARGIN * half / ENTROPY_CAP));
+  for (let r = 0; r < ENTROPY_CHART_ROWS; r++) {
+    px(r, mid, 40, 36, 52);                                    // centre spine
+    px(r, mid + mTick, 30, 28, 40); px(r, mid - mTick, 30, 28, 40);  // dead-band
+    const h = entropyHist.length - ENTROPY_CHART_ROWS + r;     // newest at bottom
+    if (h < 0) continue;
+    const D = entropyHist[h].fwd - entropyHist[h].rev;
+    if (D === 0) continue;
+    const len = Math.max(1, Math.min(half, Math.round(Math.abs(D) * half / ENTROPY_CAP)));
+    const decisive = Math.abs(D) >= ENTROPY_MARGIN;            // inside the dead-band = dim
+    for (let k = 1; k <= len; k++) {
+      if (D > 0) px(r, mid + k, decisive ? 232 : 90, decisive ? 184 : 74, decisive ? 75 : 40);
+      else px(r, mid - k, decisive ? 90 : 45, decisive ? 95 : 47, decisive ? 212 : 90);
+    }
+  }
+  // Bar meters of the latched window counts (0..1023 across the full width).
+  const fLen = Math.round(entropyLast.fwd * 111 / ENTROPY_CAP);
+  const rLen = Math.round(entropyLast.rev * 111 / ENTROPY_CAP);
+  for (let row = 98; row <= 106; row++) {
+    px(row, 0, 60, 50, 30); px(row, 111, 60, 50, 30);          // track ends
+    for (let col = 0; col <= fLen; col++) px(row, col, 232, 184, 75);
+  }
+  for (let row = 114; row <= 122; row++) {
+    px(row, 0, 35, 36, 70); px(row, 111, 35, 36, 70);
+    for (let col = 0; col <= rLen; col++) px(row, col, 90, 95, 212);
+  }
+}
+
 // 8-octant unit vector (x right, y down); N (dy<0) points up. Shared by the
 // stabilize + dir-consensus arrows (matches the mirrors' `dirs` table).
 const OCTANT_VEC: [number, number][] = [[1,0],[1,-1],[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1]];
@@ -1013,6 +1074,20 @@ const APP_OVERLAYS: Record<string, () => void> = {
       : loomLast.slit === 3 ? `weft ${loomLast.weft} (no thread)`
       : `${loomLast.flag ? 'thread' : 'faint thread'} slit ${LOOM_SLIT_LABEL[loomLast.slit]} `
         + `y=${loomLast.y} ${loomLast.pol ? 'ON' : 'OFF'} @weft ${loomLast.weft}`;
+  },
+  dvs_entropy() {
+    // The verdict gauge IS the render (paintEntropy paints the chart + meters);
+    // here we vector-draw the arrow-of-time needle in the seam between the
+    // history chart and the bar meters, and report the verdict.
+    const fresh = performance.now() - entropyAt < 1500;
+    if (fresh && entropyLast.verdict === 1) drawArrow(40, 93, 1, 0, 32, '#e8b84b');
+    else if (fresh && entropyLast.verdict === 2) drawArrow(72, 93, -1, 0, 32, '#5a5fd4');
+    const D = entropyLast.fwd - entropyLast.rev;
+    const sD = D >= 0 ? `+${D}` : `${D}`;
+    q('#app-status').textContent = !fresh ? 'sniffing the arrow of time…'
+      : entropyLast.verdict === 1 ? `TIME RUNS FORWARD (D=${sD}: fwd=${entropyLast.fwd}, rev=${entropyLast.rev})`
+      : entropyLast.verdict === 2 ? `TIME RUNS BACKWARD (D=${sD}: fwd=${entropyLast.fwd}, rev=${entropyLast.rev})`
+      : `undecided (D=${sD}, window ${entropyLast.wseq})`;
   },
   dvs_oms_dirconsensus() {
     // 8x7 tiles, 16x16-px. Highlight the flagged tile + a global-dir arrow.
@@ -1284,6 +1359,24 @@ const APP_DECODERS: Record<string, (words: Uint32Array) => void> = {
       const wgt = flag ? 1.0 : 0.35;
       const field = pol ? loomON : loomOFF;
       if (wgt > field[idx]) field[idx] = wgt;
+    }
+  },
+  // dvs_entropy_view.py unpack_status: fwd=w&0x3FF, rev=(w>>10)&0x3FF,
+  // verdict=(w>>20)&3, wseq=(w>>22)&0xF. fwd/rev are the LATCHED counts of the
+  // last completed window, re-emitted every batch; wseq only changes when a new
+  // window latches, so we push one history sample per wseq change (mirror of
+  // render_entropy()'s per-window history collection) and always keep the
+  // freshest word for the gauge/status.
+  dvs_entropy(words) {
+    for (const w of words) {
+      const fwd = w & 0x3ff, rev = (w >>> 10) & 0x3ff;
+      const verdict = (w >>> 20) & 3, wseq = (w >>> 22) & 0xf;
+      if (wseq !== entropyLast.wseq) {
+        entropyHist.push({fwd, rev});
+        if (entropyHist.length > ENTROPY_HIST) entropyHist.splice(0, entropyHist.length - ENTROPY_HIST);
+      }
+      entropyLast = {fwd, rev, verdict, wseq};
+      entropyAt = performance.now();
     }
   },
   // dvs_oms_dirconsensus_ref.py: word = (flag<<14)|(zc<<9)|(row<<6)|(col<<3)|gdir.

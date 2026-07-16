@@ -95,6 +95,10 @@ APP_REGISTRY = {
         "prog": "dvs_flinch", "label": "The Flinch",
         "blurb": "Locust LGMD looming detector: a giant eye that tracks the covered AREA over a coarse cell grid and FLINCHES (blink + screen-shake) when something LUNGES at the camera (area grows), ignoring pans/waves (constant area) and receding objects (area shrinks).",
         "params": []},
+    "dvs_entropy": {
+        "prog": "dvs_entropy", "label": "Entropy's Bloodhound",
+        "blurb": "Arrow-of-time detector: per-pixel last-polarity memory counts same-pixel ON→OFF (decay) vs OFF→ON (kindle) transitions per window; the signed difference is a thermodynamic verdict needle (FORWARD / BACKWARD / UNDECIDED) — reversing the recording provably flips it, and symmetric hot-pixel chatter cancels exactly.",
+        "params": []},
     "dvs_oms_meister": {
         "prog": "dvs_oms_meister", "label": "OMS Meister",
         "blurb": "Object-motion-sensitivity heat over an 8x8 grid.",
