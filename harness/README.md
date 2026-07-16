@@ -88,10 +88,19 @@ dashboard dependencies, copies the server, XSA, and firmware to
 `/etc/profile.d/pynq_venv.sh`, and opens the dashboard at
 `http://127.0.0.1:8088`. The dashboard provides the processed DVS view, hardware
 counters, C editing, Easy Mode transformations, and firmware hot reload without
-reloading the XSA. It intentionally receives only processed UDP on port 3334.
+reloading the XSA.
 
-While the dashboard/server is running, open the independent raw stream in a
-second terminal:
+The rail's **Mode** switch selects between two views. **Live Lab** is the default
+processed DVS view described above and receives only the processed UDP on port
+3334. **Tracking** loads the `dvs_track` firmware with one click ("Load tracker
+firmware"), then renders the raw event tap (UDP port 3336) overlaid with the
+tracker's live bounding box and centroid, decoded from the two-word status dumps
+`dvs_track` emits on the result stream. The dashboard only subscribes to the raw
+tap while a browser is in Tracking mode, so Live Lab keeps its original
+single-stream bandwidth.
+
+While the dashboard/server is running, you can also open the independent raw
+stream in a second terminal:
 
 ```sh
 make raw-viewer

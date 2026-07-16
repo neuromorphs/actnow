@@ -97,10 +97,13 @@ def main():
     n_dumps_total = n_events // EVENTS_PER_DUMP
     print(f"{n_events} events ({n_dumps_total} dumps of {EVENTS_PER_DUMP} events each)")
 
+    # Pack events the way evt_pack.v does on hardware (x in bits [30:24],
+    # y in [23:17]) -- the ABI software/dvs_track/main.c now decodes. The CSV's
+    # own `le` column is the sim's older low-bit packing, so repack from x/y.
     print(f"writing {EVENTS_PATH} (actsim's input) ...")
     with open(EVENTS_PATH, "w") as f:
-        for le in les[:n_events]:
-            f.write(f"{le}\n")
+        for i in range(n_events):
+            f.write(f"{(xs[i] << 24) | (ys[i] << 17)}\n")
 
     for stale in (RESULTS_PATH,):
         if os.path.exists(stale):

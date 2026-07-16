@@ -184,6 +184,41 @@ class UdpTests(unittest.IsolatedAsyncioTestCase):
         oldest = int.from_bytes(target.event_queue.get_nowait(), "little")
         self.assertEqual(oldest, dashboard_module.EVENT_QUEUE_PACKETS * 3)
 
+    async def test_raw_tap_is_dropped_until_a_client_subscribes(self):
+        dashboard_module = load_dashboard()
+        target = dashboard_module.Dashboard(types.SimpleNamespace())
+        protocol = dashboard_module.RawUdpProtocol(target)
+        body = bytes.fromhex("0100000002000000")
+        packet = dashboard_module.HDR.pack(dashboard_module.MAGIC, 0, 2) + body
+
+        protocol.datagram_received(packet, None)
+        self.assertEqual(target.raw_queue.qsize(), 0)  # nobody watching
+
+        target.raw_websockets.add(object())
+        protocol.datagram_received(packet, None)
+        self.assertEqual(target.raw_queue.get_nowait(), body)  # header stripped
+
+    async def test_stream_sender_prefixes_the_stream_tag(self):
+        dashboard_module = load_dashboard()
+        target = dashboard_module.Dashboard(types.SimpleNamespace())
+        target.raw_queue.put_nowait(b"\x11\x11\x11\x11")
+        target.raw_queue.put_nowait(b"\x22\x22\x22\x22")
+        sent = []
+
+        async def capture(payload, raw):
+            sent.append((payload, raw))
+        target.broadcast_binary = capture
+
+        task = asyncio.create_task(target.stream_sender(
+            target.raw_queue, target.enqueue_raw, dashboard_module.STREAM_RAW, True))
+        await asyncio.sleep(0.05)
+        task.cancel()
+
+        payload, raw = sent[0]
+        self.assertTrue(raw)
+        self.assertEqual(payload, dashboard_module.struct.pack(
+            "<3I", dashboard_module.STREAM_RAW, 0x11111111, 0x22222222))
+
 
 if __name__ == "__main__":
     unittest.main()

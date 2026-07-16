@@ -9,11 +9,30 @@
     <div id="app">
       <aside class="rail">
         <header><span class="mark">A</span><div><h1>ActNow</h1><small>KR260 live lab</small></div></header>
-        <section>
+        <section class="modes">
+          <div class="section-title">Mode</div>
+          <div class="button-row"><button id="mode-live" class="mode-btn active">Live Lab</button><button id="mode-track" class="mode-btn">Tracking</button></div>
+        </section>
+        <section id="system-controls">
           <div class="section-title">System <span id="connection" class="status">Connecting</span></div>
           <button id="build-apply" class="primary">Build &amp; Apply</button>
           <div class="button-row"><button id="build">Build</button><button id="save">Save</button></div>
           <div class="button-row"><button id="reset">Reset core</button><button id="reconnect">Reconnect</button></div>
+        </section>
+        <section id="track-controls" class="hidden">
+          <div class="section-title">Object tracker</div>
+          <label>Gate radius <output id="radius-value">32</output><input id="radius" type="range" min="4" max="126" value="32"></label>
+          <label>Correlation <output id="correlation-value">2</output><input id="correlation" type="range" min="0" max="8" value="2"></label>
+          <button id="track-start" class="primary">Load tracker firmware</button>
+          <p class="hint">Runs <code>dvs_track</code> on the core and overlays its bounding box on the raw event tap. <b>Gate radius</b> bounds how far from the centroid an event may be; <b>Correlation</b> is the spatio-temporal noise filter — how many of an event's 8 neighbours must have fired recently for it to survive (0 = off, 2 = jAER default). Both take effect when you load the tracker.</p>
+          <label>Min events <output id="min-events-value">32</output><input id="min-events" type="range" min="0" max="200" value="32"></label>
+          <p class="hint">Reject a window as noise unless it collected at least this many events — filters flickery low-activity boxes. Applies live; no reload needed.</p>
+          <dl class="track-readout">
+            <div><dt>Lock</dt><dd id="track-lock">—</dd></div>
+            <div><dt>Window</dt><dd id="track-count">0</dd></div>
+            <div><dt>Centroid</dt><dd id="track-centroid">—</dd></div>
+            <div><dt>Box</dt><dd id="track-box">—</dd></div>
+          </dl>
         </section>
         <section>
           <div class="section-title">Display</div>
@@ -30,8 +49,8 @@
       </aside>
       <main>
         <section class="stage">
-          <div class="stage-head"><div><span class="live-dot"></span>FPGA / CORE OUTPUT</div><div id="firmware-state">Firmware unknown</div></div>
-          <div class="canvas-wrap"><canvas id="dvs" width="112" height="126"></canvas><div id="paused-badge">PAUSED</div></div>
+          <div class="stage-head"><div><span class="live-dot"></span><span id="stage-label">FPGA / CORE OUTPUT</span></div><div id="firmware-state">Firmware unknown</div></div>
+          <div class="canvas-wrap"><canvas id="dvs" width="112" height="126"></canvas><canvas id="track" class="hidden" width="112" height="126"></canvas><div id="paused-badge">PAUSED</div></div>
         </section>
         <div id="workspace-divider" role="separator" aria-label="Resize visualizer and programming panels" aria-orientation="vertical" tabindex="0"></div>
         <section class="workbench">

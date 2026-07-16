@@ -24,17 +24,25 @@ TOOLCHAIN_BIN = "/opt/riscv/bin"
 EVENT_QUEUE_PACKETS = 256
 WEBSOCKET_BATCH_BYTES = 64 * 1024
 
+# Binary websocket frames are prefixed with a 4-byte little-endian stream tag so
+# the browser can tell the processed result stream (port 3334) apart from the
+# raw DVS tap (port 3336) they share a socket over.
+STREAM_RESULT = 0
+STREAM_RAW = 1
+
 
 class Dashboard:
     def __init__(self, args):
         self.args = args
         self.websockets = set()
+        self.raw_websockets = set()  # clients currently subscribed to the raw tap
         self.ssh = None
         self.build_lock = asyncio.Lock()
         self.stats = {"words": 0, "packets": 0, "dropped": 0, "sequence": None}
         self.board = {"connected": False, "firmware": "unknown", "counters": {}}
         self.log_lines = []
         self.event_queue = asyncio.Queue(maxsize=EVENT_QUEUE_PACKETS)
+        self.raw_queue = asyncio.Queue(maxsize=EVENT_QUEUE_PACKETS)
 
     async def log(self, message, level="info"):
         print(f"[{level}] {message}", flush=True)
@@ -53,28 +61,37 @@ class Dashboard:
         for ws in dead:
             self.websockets.discard(ws)
 
-    async def broadcast_binary(self, payload):
+    async def broadcast_binary(self, payload, raw=False):
+        targets = self.raw_websockets if raw else self.websockets
         dead = []
-        for ws in self.websockets:
+        for ws in list(targets):
             try:
                 await asyncio.wait_for(ws.send_bytes(payload), 0.1)
             except Exception:
                 dead.append(ws)
         for ws in dead:
             self.websockets.discard(ws)
+            self.raw_websockets.discard(ws)
 
     def enqueue_binary(self, payload):
         if self.event_queue.full():
             self.event_queue.get_nowait()
         self.event_queue.put_nowait(payload)
 
-    async def event_sender(self):
+    def enqueue_raw(self, payload):
+        if self.raw_queue.full():
+            self.raw_queue.get_nowait()
+        self.raw_queue.put_nowait(payload)
+
+    async def stream_sender(self, queue, enqueue, tag, raw):
+        header = struct.pack("<I", tag)
         while True:
-            first = await self.event_queue.get()
-            batch = bytearray(first)
+            first = await queue.get()
+            batch = bytearray(header)
+            batch.extend(first)
             while len(batch) < WEBSOCKET_BATCH_BYTES:
                 try:
-                    payload = self.event_queue.get_nowait()
+                    payload = queue.get_nowait()
                 except asyncio.QueueEmpty:
                     break
                 room = WEBSOCKET_BATCH_BYTES - len(batch)
@@ -82,9 +99,9 @@ class Dashboard:
                     batch.extend(payload)
                 else:
                     batch.extend(payload[:room])
-                    self.enqueue_binary(payload[room:])
+                    enqueue(payload[room:])
                     break
-            await self.broadcast_binary(bytes(batch))
+            await self.broadcast_binary(bytes(batch), raw)
 
     async def run(self, command, cwd=ROOT, env=None):
         await self.log("+ " + " ".join(map(str, command)))
@@ -171,24 +188,23 @@ class Dashboard:
             raise RuntimeError(reply.get("error", "board command failed"))
         return reply
 
-    async def build(self, source=None):
+    async def build(self, source=None, prog="application", extra_cflags=None):
         async with self.build_lock:
             if source is not None:
                 SOURCE.write_text(source)
                 await self.log(f"saved {SOURCE.relative_to(ROOT)}")
             env = os.environ.copy()
             env["PATH"] = TOOLCHAIN_BIN + os.pathsep + env.get("PATH", "")
-            code, output = await self.run(
-                ["make", "-C", "software", "PROG=application"], env=env)
+            command = ["make", "-C", "software", f"PROG={prog}"]
+            if extra_cflags:
+                command.append(f"EXTRA_CFLAGS={extra_cflags}")
+            code, output = await self.run(command, env=env)
             diagnostics = parse_diagnostics(output)
             result = {"ok": code == 0, "diagnostics": diagnostics}
             asyncio.create_task(self.broadcast_json({"type": "build", **result}))
             return result
 
-    async def apply(self, source):
-        result = await self.build(source)
-        if not result["ok"]:
-            return result
+    async def upload_and_reload(self):
         remote = f"{self.args.user}@{self.args.kria}"
         remote_path = f"{self.args.remote_dir.rstrip('/')}/rom.next.mem"
         code, _ = await self.run(["scp", *SSH_OPTIONS, FIRMWARE,
@@ -200,7 +216,34 @@ class Dashboard:
                           counters=reply.get("counters", {}))
         await self.log(f"applied {reply['words']} firmware words")
         await self.broadcast_state()
+        return reply
+
+    async def apply(self, source):
+        result = await self.build(source)
+        if not result["ok"]:
+            return result
+        reply = await self.upload_and_reload()
         return {"ok": True, "diagnostics": [], "board": reply}
+
+    async def track(self, radius=None, correlation=None):
+        # Build+apply the dvs_track firmware. Its result stream carries centroid
+        # and bounding-box status words instead of per-event echoes; the browser
+        # overlays them on the raw DVS tap in the tracking view.
+        flags = []
+        if radius is not None:
+            flags.append(f"-DGATE_RADIUS={max(4, min(126, int(radius)))}")
+        if correlation is not None:
+            flags.append(f"-DCORR_MIN={max(0, min(8, int(correlation)))}")
+        cflags = " ".join(flags) or None
+        # The .elf depends only on sources, not on CFLAGS, so a changed radius or
+        # correlation would otherwise be ignored as "up to date" -- force a fresh
+        # compile.
+        await self.run(["rm", "-rf", "software/dvs_track/build"])
+        result = await self.build(prog="dvs_track", extra_cflags=cflags)
+        if not result["ok"]:
+            return result
+        reply = await self.upload_and_reload()
+        return {"ok": True, "diagnostics": result["diagnostics"], "board": reply}
 
     async def broadcast_state(self):
         asyncio.create_task(self.broadcast_json(
@@ -264,6 +307,25 @@ class UdpProtocol(asyncio.DatagramProtocol):
         self.dashboard.enqueue_binary(data[HDR.size:HDR.size + count * 4])
 
 
+class RawUdpProtocol(asyncio.DatagramProtocol):
+    """The raw DVS tap (port 3336). Dropped cheaply unless a client is watching
+    the tracking view, so the live view is unaffected when nobody subscribes."""
+
+    def __init__(self, dashboard):
+        self.dashboard = dashboard
+
+    def datagram_received(self, data, _addr):
+        if not self.dashboard.raw_websockets:
+            return
+        if len(data) < HDR.size:
+            return
+        magic, _seq, count = HDR.unpack_from(data)
+        if magic != MAGIC:
+            return
+        count = min(count, (len(data) - HDR.size) // 4)
+        self.dashboard.enqueue_raw(data[HDR.size:HDR.size + count * 4])
+
+
 async def make_app(args):
     dashboard = Dashboard(args)
     app = web.Application(client_max_size=2 * 1024 * 1024)
@@ -279,9 +341,22 @@ async def make_app(args):
         await ws.send_json({"type": "init", "board": dashboard.board,
                             "stream": dashboard.stats, "logs": dashboard.log_lines})
         async for message in ws:
-            if message.type == WSMsgType.ERROR:
+            if message.type == WSMsgType.TEXT:
+                try:
+                    request = json.loads(message.data)
+                except ValueError:
+                    continue
+                # Only clients in tracking mode receive the raw tap, so the live
+                # view keeps its original single-stream bandwidth.
+                if request.get("type") == "mode":
+                    if request.get("mode") == "track":
+                        dashboard.raw_websockets.add(ws)
+                    else:
+                        dashboard.raw_websockets.discard(ws)
+            elif message.type == WSMsgType.ERROR:
                 break
         dashboard.websockets.discard(ws)
+        dashboard.raw_websockets.discard(ws)
         return ws
 
     async def source_handler(request):
@@ -309,6 +384,9 @@ async def make_app(args):
                 result = await dashboard.apply(payload["source"])
             elif name == "reset":
                 result = await dashboard.control({"command": "reset"})
+            elif name == "track":
+                result = await dashboard.track(payload.get("radius"),
+                                               payload.get("correlation"))
             elif name == "reconnect":
                 await dashboard.deploy()
                 result = {"ok": True}
@@ -330,7 +408,12 @@ async def make_app(args):
         loop = asyncio.get_running_loop()
         await loop.create_datagram_endpoint(lambda: UdpProtocol(dashboard),
                                             local_addr=("0.0.0.0", args.udp_port))
-        asyncio.create_task(dashboard.event_sender())
+        await loop.create_datagram_endpoint(lambda: RawUdpProtocol(dashboard),
+                                            local_addr=("0.0.0.0", args.raw_udp_port))
+        asyncio.create_task(dashboard.stream_sender(
+            dashboard.event_queue, dashboard.enqueue_binary, STREAM_RESULT, False))
+        asyncio.create_task(dashboard.stream_sender(
+            dashboard.raw_queue, dashboard.enqueue_raw, STREAM_RAW, True))
         asyncio.create_task(dashboard.poll_state())
         if not args.no_deploy:
             asyncio.create_task(dashboard.deploy_reported())

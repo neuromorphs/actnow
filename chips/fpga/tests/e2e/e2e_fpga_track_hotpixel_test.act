@@ -3,30 +3,25 @@ import "core/peripherals/mem.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 
-// FPGA-variant correctness test for software/dvs_track/main.c's hot-pixel
-// filter: replays 40 copies of one synthetic "stuck pixel" event
-// (x=10, y=10, pol=1(ON), ts=0 -> packed word 17674, i.e. (1<<14)|(10<<7)|10)
-// followed by the first 216 events of the same real recorded capture
+// FPGA-variant test for the hot-pixel rejection of software/dvs_track/
+// main.c's spatio-temporal correlation filter: replays 40 copies of one
+// synthetic "stuck pixel" event (x=10, y=10, ts=0 -> packed word 169082880,
+// i.e. (10<<24)|(10<<17) in the hardware ABI evt_pack.v produces) followed
+// by the first 216 events of the same real recorded capture
 // e2e_fpga_track_test.act uses (chips/fpga/dvs_capture_20260714_151049.csv)
 // -- 256 events total, exactly one DUMP_INTERVAL.
 //
-// software/dvs_track/main.c's header explains the filter: a cell (here,
-// the 4x4-pixel cell containing (10,10)) that gets retouched within
-// HOT_GAP_LIMIT=4 events of its own last touch, HOT_STREAK_THRESHOLD=20
-// times in a row, has its further events dropped before they reach the
-// centroid/bbox/window_count. Pushing the identical word back-to-back
-// means every push extends that cell's streak by exactly 1 (gap=1 every
-// time), so pushes 1-19 still register normally (streak hasn't crossed
-// the threshold yet) and pushes 20-40 get dropped -- 21 of the 40 -- while
-// none of the 216 real events (scattered across many different cells,
-// verified not to collide with the same cell or each other) are affected.
-// That's exactly what's asserted below: window_count is 235 (216 real +
-// only the first 19 hot-pixel touches), not the full 256, and the
-// reported bounding box's min_x is 10 (from those first 19 legitimate-
-// looking touches before the filter kicks in -- a real detector always
-// needs a short run to recognize a pattern) while the centroid and box
-// are otherwise built from real events. Both output words are asserted
-// against the same math computed in Python when this file was generated.
+// The correlation filter (see software/dvs_track/main.c's header) keeps an
+// event only if CORR_MIN=2 of the 8 cells around it -- *excluding its own
+// cell* -- were touched within the last CORR_WINDOW=30 events. The stuck
+// pixel sits alone in the 4x4 cell containing (10,10) with a quiet
+// neighbourhood, so every one of its 40 firings finds zero correlated
+// neighbours and is dropped: excluding the cell itself is exactly what stops
+// a hot pixel vouching for its own events. None reach the centroid/bbox/
+// window_count, so the reported box is built purely from the real events and
+// its min_x is 57, not 10 -- the stuck pixel leaves no trace. Both output
+// words are asserted against the same math computed in Python when this file
+// was generated.
 defproc e2e_fpga_track_hotpixel_test() {
     core<4> c;
 
@@ -48,74 +43,74 @@ defproc e2e_fpga_track_hotpixel_test() {
         c.reset_ext!true;
         log("--- replaying 40 stuck-pixel events + 216 real events (64 batches, one dump interval) ---");
 
-        c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA);
-        c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA);
-        c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA);
-        c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA);
-        c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA);
-        c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA);
-        c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA);
-        c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA);
-        c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA);
-        c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA); c.fifo_push!int(17674, WIDTH_DATA);
-        c.fifo_push!int(21489, WIDTH_DATA); c.fifo_push!int(23029, WIDTH_DATA); c.fifo_push!int(7801, WIDTH_DATA); c.fifo_push!int(18299, WIDTH_DATA);
-        c.fifo_push!int(11516, WIDTH_DATA); c.fifo_push!int(22390, WIDTH_DATA); c.fifo_push!int(11388, WIDTH_DATA); c.fifo_push!int(8186, WIDTH_DATA);
-        c.fifo_push!int(5093, WIDTH_DATA); c.fifo_push!int(22970, WIDTH_DATA); c.fifo_push!int(1752, WIDTH_DATA); c.fifo_push!int(23146, WIDTH_DATA);
-        c.fifo_push!int(3426, WIDTH_DATA); c.fifo_push!int(3171, WIDTH_DATA); c.fifo_push!int(9469, WIDTH_DATA); c.fifo_push!int(24021, WIDTH_DATA);
-        c.fifo_push!int(5565, WIDTH_DATA); c.fifo_push!int(5349, WIDTH_DATA); c.fifo_push!int(2122, WIDTH_DATA); c.fifo_push!int(5945, WIDTH_DATA);
-        c.fifo_push!int(26057, WIDTH_DATA); c.fifo_push!int(5180, WIDTH_DATA); c.fifo_push!int(13641, WIDTH_DATA); c.fifo_push!int(26829, WIDTH_DATA);
-        c.fifo_push!int(7649, WIDTH_DATA); c.fifo_push!int(9948, WIDTH_DATA); c.fifo_push!int(2012, WIDTH_DATA); c.fifo_push!int(9031, WIDTH_DATA);
-        c.fifo_push!int(4558, WIDTH_DATA); c.fifo_push!int(22848, WIDTH_DATA); c.fifo_push!int(9177, WIDTH_DATA); c.fifo_push!int(2773, WIDTH_DATA);
-        c.fifo_push!int(3910, WIDTH_DATA); c.fifo_push!int(1605, WIDTH_DATA); c.fifo_push!int(3291, WIDTH_DATA); c.fifo_push!int(9077, WIDTH_DATA);
-        c.fifo_push!int(2653, WIDTH_DATA); c.fifo_push!int(4193, WIDTH_DATA); c.fifo_push!int(22894, WIDTH_DATA); c.fifo_push!int(3806, WIDTH_DATA);
-        c.fifo_push!int(25272, WIDTH_DATA); c.fifo_push!int(9553, WIDTH_DATA); c.fifo_push!int(10100, WIDTH_DATA); c.fifo_push!int(17273, WIDTH_DATA);
-        c.fifo_push!int(3173, WIDTH_DATA); c.fifo_push!int(10056, WIDTH_DATA); c.fifo_push!int(21884, WIDTH_DATA); c.fifo_push!int(5062, WIDTH_DATA);
-        c.fifo_push!int(3804, WIDTH_DATA); c.fifo_push!int(3785, WIDTH_DATA); c.fifo_push!int(6076, WIDTH_DATA); c.fifo_push!int(3032, WIDTH_DATA);
-        c.fifo_push!int(3180, WIDTH_DATA); c.fifo_push!int(2398, WIDTH_DATA); c.fifo_push!int(8922, WIDTH_DATA); c.fifo_push!int(7920, WIDTH_DATA);
-        c.fifo_push!int(25532, WIDTH_DATA); c.fifo_push!int(1488, WIDTH_DATA); c.fifo_push!int(23151, WIDTH_DATA); c.fifo_push!int(3410, WIDTH_DATA);
-        c.fifo_push!int(4302, WIDTH_DATA); c.fifo_push!int(9401, WIDTH_DATA); c.fifo_push!int(23012, WIDTH_DATA); c.fifo_push!int(10734, WIDTH_DATA);
-        c.fifo_push!int(26183, WIDTH_DATA); c.fifo_push!int(2154, WIDTH_DATA); c.fifo_push!int(1996, WIDTH_DATA); c.fifo_push!int(3413, WIDTH_DATA);
-        c.fifo_push!int(5317, WIDTH_DATA); c.fifo_push!int(5949, WIDTH_DATA); c.fifo_push!int(7248, WIDTH_DATA); c.fifo_push!int(23275, WIDTH_DATA);
-        c.fifo_push!int(7751, WIDTH_DATA); c.fifo_push!int(23538, WIDTH_DATA); c.fifo_push!int(25700, WIDTH_DATA); c.fifo_push!int(2662, WIDTH_DATA);
-        c.fifo_push!int(7605, WIDTH_DATA); c.fifo_push!int(6742, WIDTH_DATA); c.fifo_push!int(26068, WIDTH_DATA); c.fifo_push!int(2262, WIDTH_DATA);
-        c.fifo_push!int(20301, WIDTH_DATA); c.fifo_push!int(3933, WIDTH_DATA); c.fifo_push!int(3155, WIDTH_DATA); c.fifo_push!int(18281, WIDTH_DATA);
-        c.fifo_push!int(4432, WIDTH_DATA); c.fifo_push!int(18405, WIDTH_DATA); c.fifo_push!int(11855, WIDTH_DATA); c.fifo_push!int(4070, WIDTH_DATA);
-        c.fifo_push!int(25446, WIDTH_DATA); c.fifo_push!int(9202, WIDTH_DATA); c.fifo_push!int(13127, WIDTH_DATA); c.fifo_push!int(12499, WIDTH_DATA);
-        c.fifo_push!int(7754, WIDTH_DATA); c.fifo_push!int(11460, WIDTH_DATA); c.fifo_push!int(24766, WIDTH_DATA); c.fifo_push!int(2646, WIDTH_DATA);
-        c.fifo_push!int(6211, WIDTH_DATA); c.fifo_push!int(23896, WIDTH_DATA); c.fifo_push!int(3273, WIDTH_DATA); c.fifo_push!int(24885, WIDTH_DATA);
-        c.fifo_push!int(21492, WIDTH_DATA); c.fifo_push!int(8029, WIDTH_DATA); c.fifo_push!int(23153, WIDTH_DATA); c.fifo_push!int(4935, WIDTH_DATA);
-        c.fifo_push!int(8181, WIDTH_DATA); c.fifo_push!int(3924, WIDTH_DATA); c.fifo_push!int(10952, WIDTH_DATA); c.fifo_push!int(26082, WIDTH_DATA);
-        c.fifo_push!int(25574, WIDTH_DATA); c.fifo_push!int(23098, WIDTH_DATA); c.fifo_push!int(22393, WIDTH_DATA); c.fifo_push!int(3418, WIDTH_DATA);
-        c.fifo_push!int(19926, WIDTH_DATA); c.fifo_push!int(7143, WIDTH_DATA); c.fifo_push!int(2882, WIDTH_DATA); c.fifo_push!int(23020, WIDTH_DATA);
-        c.fifo_push!int(3015, WIDTH_DATA); c.fifo_push!int(25799, WIDTH_DATA); c.fifo_push!int(11465, WIDTH_DATA); c.fifo_push!int(6871, WIDTH_DATA);
-        c.fifo_push!int(5692, WIDTH_DATA); c.fifo_push!int(24526, WIDTH_DATA); c.fifo_push!int(8263, WIDTH_DATA); c.fifo_push!int(26052, WIDTH_DATA);
-        c.fifo_push!int(6996, WIDTH_DATA); c.fifo_push!int(3281, WIDTH_DATA); c.fifo_push!int(7351, WIDTH_DATA); c.fifo_push!int(8947, WIDTH_DATA);
-        c.fifo_push!int(1998, WIDTH_DATA); c.fifo_push!int(5189, WIDTH_DATA); c.fifo_push!int(22467, WIDTH_DATA); c.fifo_push!int(9204, WIDTH_DATA);
-        c.fifo_push!int(9180, WIDTH_DATA); c.fifo_push!int(7662, WIDTH_DATA); c.fifo_push!int(9326, WIDTH_DATA); c.fifo_push!int(2554, WIDTH_DATA);
-        c.fifo_push!int(4932, WIDTH_DATA); c.fifo_push!int(7786, WIDTH_DATA); c.fifo_push!int(26083, WIDTH_DATA); c.fifo_push!int(9928, WIDTH_DATA);
-        c.fifo_push!int(5972, WIDTH_DATA); c.fifo_push!int(5187, WIDTH_DATA); c.fifo_push!int(6722, WIDTH_DATA); c.fifo_push!int(3038, WIDTH_DATA);
-        c.fifo_push!int(8057, WIDTH_DATA); c.fifo_push!int(24634, WIDTH_DATA); c.fifo_push!int(8289, WIDTH_DATA); c.fifo_push!int(10865, WIDTH_DATA);
-        c.fifo_push!int(25319, WIDTH_DATA); c.fifo_push!int(18161, WIDTH_DATA); c.fifo_push!int(5963, WIDTH_DATA); c.fifo_push!int(25798, WIDTH_DATA);
-        c.fifo_push!int(6870, WIDTH_DATA); c.fifo_push!int(25290, WIDTH_DATA); c.fifo_push!int(10604, WIDTH_DATA); c.fifo_push!int(21110, WIDTH_DATA);
-        c.fifo_push!int(609, WIDTH_DATA); c.fifo_push!int(17019, WIDTH_DATA); c.fifo_push!int(5184, WIDTH_DATA); c.fifo_push!int(20288, WIDTH_DATA);
-        c.fifo_push!int(5568, WIDTH_DATA); c.fifo_push!int(10213, WIDTH_DATA); c.fifo_push!int(25036, WIDTH_DATA); c.fifo_push!int(18294, WIDTH_DATA);
-        c.fifo_push!int(23273, WIDTH_DATA); c.fifo_push!int(18403, WIDTH_DATA); c.fifo_push!int(26447, WIDTH_DATA); c.fifo_push!int(22392, WIDTH_DATA);
-        c.fifo_push!int(9403, WIDTH_DATA); c.fifo_push!int(11171, WIDTH_DATA); c.fifo_push!int(4322, WIDTH_DATA); c.fifo_push!int(5941, WIDTH_DATA);
-        c.fifo_push!int(5845, WIDTH_DATA); c.fifo_push!int(7350, WIDTH_DATA); c.fifo_push!int(7547, WIDTH_DATA); c.fifo_push!int(2645, WIDTH_DATA);
-        c.fifo_push!int(2275, WIDTH_DATA); c.fifo_push!int(2812, WIDTH_DATA); c.fifo_push!int(23756, WIDTH_DATA); c.fifo_push!int(25544, WIDTH_DATA);
-        c.fifo_push!int(9844, WIDTH_DATA); c.fifo_push!int(9337, WIDTH_DATA); c.fifo_push!int(5445, WIDTH_DATA); c.fifo_push!int(24511, WIDTH_DATA);
-        c.fifo_push!int(5441, WIDTH_DATA); c.fifo_push!int(7621, WIDTH_DATA); c.fifo_push!int(10618, WIDTH_DATA); c.fifo_push!int(2533, WIDTH_DATA);
-        c.fifo_push!int(3282, WIDTH_DATA); c.fifo_push!int(24809, WIDTH_DATA); c.fifo_push!int(22872, WIDTH_DATA); c.fifo_push!int(5584, WIDTH_DATA);
-        c.fifo_push!int(4928, WIDTH_DATA); c.fifo_push!int(9969, WIDTH_DATA); c.fifo_push!int(1477, WIDTH_DATA); c.fifo_push!int(26178, WIDTH_DATA);
-        c.fifo_push!int(20860, WIDTH_DATA); c.fifo_push!int(24657, WIDTH_DATA); c.fifo_push!int(25927, WIDTH_DATA); c.fifo_push!int(26080, WIDTH_DATA);
-        c.fifo_push!int(22340, WIDTH_DATA); c.fifo_push!int(22891, WIDTH_DATA); c.fifo_push!int(3533, WIDTH_DATA); c.fifo_push!int(9084, WIDTH_DATA);
-        c.fifo_push!int(3405, WIDTH_DATA); c.fifo_push!int(25272, WIDTH_DATA); c.fifo_push!int(24889, WIDTH_DATA); c.fifo_push!int(24812, WIDTH_DATA);
-        c.fifo_push!int(25061, WIDTH_DATA); c.fifo_push!int(5583, WIDTH_DATA); c.fifo_push!int(5343, WIDTH_DATA); c.fifo_push!int(25958, WIDTH_DATA);
-        c.fifo_push!int(2294, WIDTH_DATA); c.fifo_push!int(22892, WIDTH_DATA); c.fifo_push!int(22867, WIDTH_DATA); c.fifo_push!int(18297, WIDTH_DATA);
+        c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA);
+        c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA);
+        c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA);
+        c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA);
+        c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA);
+        c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA);
+        c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA);
+        c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA);
+        c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA);
+        c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA); c.fifo_push!int(169082880, WIDTH_DATA);
+        c.fifo_push!int(1900937216, WIDTH_DATA); c.fifo_push!int(1969618944, WIDTH_DATA); c.fifo_push!int(2037907456, WIDTH_DATA); c.fifo_push!int(2065432576, WIDTH_DATA);
+        c.fifo_push!int(2092040192, WIDTH_DATA); c.fifo_push!int(1985740800, WIDTH_DATA); c.fifo_push!int(2091909120, WIDTH_DATA); c.fifo_push!int(2055077888, WIDTH_DATA);
+        c.fifo_push!int(1699610624, WIDTH_DATA); c.fifo_push!int(979763200, WIDTH_DATA); c.fifo_push!int(1478098944, WIDTH_DATA); c.fifo_push!int(1785200640, WIDTH_DATA);
+        c.fifo_push!int(1647575040, WIDTH_DATA); c.fifo_push!int(1664090112, WIDTH_DATA); c.fifo_push!int(2106720256, WIDTH_DATA); c.fifo_push!int(1433796608, WIDTH_DATA);
+        c.fifo_push!int(1029046272, WIDTH_DATA); c.fifo_push!int(1699872768, WIDTH_DATA); c.fifo_push!int(1243611136, WIDTH_DATA); c.fifo_push!int(962330624, WIDTH_DATA);
+        c.fifo_push!int(1234567168, WIDTH_DATA); c.fifo_push!int(1011875840, WIDTH_DATA); c.fifo_push!int(1238630400, WIDTH_DATA); c.fifo_push!int(1302462464, WIDTH_DATA);
+        c.fifo_push!int(1635123200, WIDTH_DATA); c.fifo_push!int(1553596416, WIDTH_DATA); c.fifo_push!int(1545469952, WIDTH_DATA); c.fifo_push!int(1200357376, WIDTH_DATA);
+        c.fifo_push!int(1313210368, WIDTH_DATA); c.fifo_push!int(1080295424, WIDTH_DATA); c.fifo_push!int(1502478336, WIDTH_DATA); c.fifo_push!int(1428815872, WIDTH_DATA);
+        c.fifo_push!int(1178337280, WIDTH_DATA); c.fifo_push!int(1159200768, WIDTH_DATA); c.fifo_push!int(1530003456, WIDTH_DATA); c.fifo_push!int(1972109312, WIDTH_DATA);
+        c.fifo_push!int(1562902528, WIDTH_DATA); c.fifo_push!int(1631584256, WIDTH_DATA); c.fifo_push!int(1852047360, WIDTH_DATA); c.fifo_push!int(1580859392, WIDTH_DATA);
+        c.fifo_push!int(948568064, WIDTH_DATA); c.fifo_push!int(1368653824, WIDTH_DATA); c.fifo_push!int(1956380672, WIDTH_DATA); c.fifo_push!int(2030829568, WIDTH_DATA);
+        c.fifo_push!int(1697644544, WIDTH_DATA); c.fifo_push!int(1218183168, WIDTH_DATA); c.fifo_push!int(2085879808, WIDTH_DATA); c.fifo_push!int(1179516928, WIDTH_DATA);
+        c.fifo_push!int(1547304960, WIDTH_DATA); c.fifo_push!int(1228537856, WIDTH_DATA); c.fifo_push!int(1012793344, WIDTH_DATA); c.fifo_push!int(1479409664, WIDTH_DATA);
+        c.fifo_push!int(1815085056, WIDTH_DATA); c.fifo_push!int(1579417600, WIDTH_DATA); c.fifo_push!int(1518993408, WIDTH_DATA); c.fifo_push!int(1887043584, WIDTH_DATA);
+        c.fifo_push!int(1015939072, WIDTH_DATA); c.fifo_push!int(1343619072, WIDTH_DATA); c.fifo_push!int(1869086720, WIDTH_DATA); c.fifo_push!int(1379139584, WIDTH_DATA);
+        c.fifo_push!int(1312948224, WIDTH_DATA); c.fifo_push!int(965869568, WIDTH_DATA); c.fifo_push!int(1684406272, WIDTH_DATA); c.fifo_push!int(1856372736, WIDTH_DATA);
+        c.fifo_push!int(1201143808, WIDTH_DATA); c.fifo_push!int(1780482048, WIDTH_DATA); c.fifo_push!int(1277034496, WIDTH_DATA); c.fifo_push!int(1429471232, WIDTH_DATA);
+        c.fifo_push!int(1163001856, WIDTH_DATA); c.fifo_push!int(1029439488, WIDTH_DATA); c.fifo_push!int(1349517312, WIDTH_DATA); c.fifo_push!int(1802108928, WIDTH_DATA);
+        c.fifo_push!int(1199046656, WIDTH_DATA); c.fifo_push!int(1919811584, WIDTH_DATA); c.fifo_push!int(1687158784, WIDTH_DATA); c.fifo_push!int(1713897472, WIDTH_DATA);
+        c.fifo_push!int(896925696, WIDTH_DATA); c.fifo_push!int(1449656320, WIDTH_DATA); c.fifo_push!int(1419116544, WIDTH_DATA); c.fifo_push!int(1445068800, WIDTH_DATA);
+        c.fifo_push!int(1295777792, WIDTH_DATA); c.fifo_push!int(1564213248, WIDTH_DATA); c.fifo_push!int(1395654656, WIDTH_DATA); c.fifo_push!int(1763442688, WIDTH_DATA);
+        c.fifo_push!int(1346633728, WIDTH_DATA); c.fifo_push!int(1696464896, WIDTH_DATA); c.fifo_push!int(1337458688, WIDTH_DATA); c.fifo_push!int(1715339264, WIDTH_DATA);
+        c.fifo_push!int(1720451072, WIDTH_DATA); c.fifo_push!int(1921908736, WIDTH_DATA); c.fifo_push!int(1204551680, WIDTH_DATA); c.fifo_push!int(1405222912, WIDTH_DATA);
+        c.fifo_push!int(1249378304, WIDTH_DATA); c.fifo_push!int(1152516096, WIDTH_DATA); c.fifo_push!int(1048707072, WIDTH_DATA); c.fifo_push!int(1445462016, WIDTH_DATA);
+        c.fifo_push!int(1130364928, WIDTH_DATA); c.fifo_push!int(1483997184, WIDTH_DATA); c.fifo_push!int(1228013568, WIDTH_DATA); c.fifo_push!int(897843200, WIDTH_DATA);
+        c.fifo_push!int(1951268864, WIDTH_DATA); c.fifo_push!int(1568407552, WIDTH_DATA); c.fifo_push!int(1902641152, WIDTH_DATA); c.fifo_push!int(1196163072, WIDTH_DATA);
+        c.fifo_push!int(1971191808, WIDTH_DATA); c.fifo_push!int(1413218304, WIDTH_DATA); c.fifo_push!int(1219100672, WIDTH_DATA); c.fifo_push!int(1653997568, WIDTH_DATA);
+        c.fifo_push!int(1720582144, WIDTH_DATA); c.fifo_push!int(979894272, WIDTH_DATA); c.fifo_push!int(2036072448, WIDTH_DATA); c.fifo_push!int(1513357312, WIDTH_DATA);
+        c.fifo_push!int(1446379520, WIDTH_DATA); c.fifo_push!int(1735262208, WIDTH_DATA); c.fifo_push!int(1110179840, WIDTH_DATA); c.fifo_push!int(1818624000, WIDTH_DATA);
+        c.fifo_push!int(1194196992, WIDTH_DATA); c.fifo_push!int(1200750592, WIDTH_DATA); c.fifo_push!int(1236402176, WIDTH_DATA); c.fifo_push!int(1466564608, WIDTH_DATA);
+        c.fifo_push!int(1012400128, WIDTH_DATA); c.fifo_push!int(1316880384, WIDTH_DATA); c.fifo_push!int(1199570944, WIDTH_DATA); c.fifo_push!int(1150681088, WIDTH_DATA);
+        c.fifo_push!int(1416364032, WIDTH_DATA); c.fifo_push!int(1362231296, WIDTH_DATA); c.fifo_push!int(930217984, WIDTH_DATA); c.fifo_push!int(1938423808, WIDTH_DATA);
+        c.fifo_push!int(1310588928, WIDTH_DATA); c.fifo_push!int(1162870784, WIDTH_DATA); c.fifo_push!int(1130233856, WIDTH_DATA); c.fifo_push!int(1955463168, WIDTH_DATA);
+        c.fifo_push!int(1552809984, WIDTH_DATA); c.fifo_push!int(1853227008, WIDTH_DATA); c.fifo_push!int(1854930944, WIDTH_DATA); c.fifo_push!int(2049310720, WIDTH_DATA);
+        c.fifo_push!int(1145831424, WIDTH_DATA); c.fifo_push!int(1786249216, WIDTH_DATA); c.fifo_push!int(1670774784, WIDTH_DATA); c.fifo_push!int(1218052096, WIDTH_DATA);
+        c.fifo_push!int(1415315456, WIDTH_DATA); c.fifo_push!int(1129316352, WIDTH_DATA); c.fifo_push!int(1114112000, WIDTH_DATA); c.fifo_push!int(1580072960, WIDTH_DATA);
+        c.fifo_push!int(2038169600, WIDTH_DATA); c.fifo_push!int(981467136, WIDTH_DATA); c.fifo_push!int(1635778560, WIDTH_DATA); c.fifo_push!int(1906835456, WIDTH_DATA);
+        c.fifo_push!int(1737097216, WIDTH_DATA); c.fifo_push!int(1897529344, WIDTH_DATA); c.fifo_push!int(1264320512, WIDTH_DATA); c.fifo_push!int(1183973376, WIDTH_DATA);
+        c.fifo_push!int(1449787392, WIDTH_DATA); c.fifo_push!int(1250557952, WIDTH_DATA); c.fifo_push!int(1822687232, WIDTH_DATA); c.fifo_push!int(1984430080, WIDTH_DATA);
+        c.fifo_push!int(1627914240, WIDTH_DATA); c.fifo_push!int(2064121856, WIDTH_DATA); c.fifo_push!int(1078984704, WIDTH_DATA); c.fifo_push!int(1077673984, WIDTH_DATA);
+        c.fifo_push!int(1079377920, WIDTH_DATA); c.fifo_push!int(1704853504, WIDTH_DATA); c.fifo_push!int(1283850240, WIDTH_DATA); c.fifo_push!int(1981546496, WIDTH_DATA);
+        c.fifo_push!int(1768554496, WIDTH_DATA); c.fifo_push!int(1662910464, WIDTH_DATA); c.fifo_push!int(1335623680, WIDTH_DATA); c.fifo_push!int(2019295232, WIDTH_DATA);
+        c.fifo_push!int(999424000, WIDTH_DATA); c.fifo_push!int(598605824, WIDTH_DATA); c.fifo_push!int(1648492544, WIDTH_DATA); c.fifo_push!int(895221760, WIDTH_DATA);
+        c.fifo_push!int(1431961600, WIDTH_DATA); c.fifo_push!int(913440768, WIDTH_DATA); c.fifo_push!int(2071199744, WIDTH_DATA); c.fifo_push!int(1428684800, WIDTH_DATA);
+        c.fifo_push!int(1663172608, WIDTH_DATA); c.fifo_push!int(2083127296, WIDTH_DATA); c.fifo_push!int(1282539520, WIDTH_DATA); c.fifo_push!int(1217265664, WIDTH_DATA);
+        c.fifo_push!int(1956118528, WIDTH_DATA); c.fifo_push!int(2039480320, WIDTH_DATA); c.fifo_push!int(1163132928, WIDTH_DATA); c.fifo_push!int(1065222144, WIDTH_DATA);
+        c.fifo_push!int(1096024064, WIDTH_DATA); c.fifo_push!int(1165361152, WIDTH_DATA); c.fifo_push!int(2057568256, WIDTH_DATA); c.fifo_push!int(1696989184, WIDTH_DATA);
+        c.fifo_push!int(1379008512, WIDTH_DATA); c.fifo_push!int(1770127360, WIDTH_DATA); c.fifo_push!int(1482948608, WIDTH_DATA); c.fifo_push!int(1347813376, WIDTH_DATA);
+        c.fifo_push!int(1078722560, WIDTH_DATA); c.fifo_push!int(1905917952, WIDTH_DATA); c.fifo_push!int(1159069696, WIDTH_DATA); c.fifo_push!int(1117257728, WIDTH_DATA);
+        c.fifo_push!int(2084831232, WIDTH_DATA); c.fifo_push!int(1367343104, WIDTH_DATA); c.fifo_push!int(1200881664, WIDTH_DATA); c.fifo_push!int(1620443136, WIDTH_DATA);
+        c.fifo_push!int(1146880000, WIDTH_DATA); c.fifo_push!int(1801715712, WIDTH_DATA); c.fifo_push!int(1295384576, WIDTH_DATA); c.fifo_push!int(2089549824, WIDTH_DATA);
+        c.fifo_push!int(1295253504, WIDTH_DATA); c.fifo_push!int(948568064, WIDTH_DATA); c.fifo_push!int(964952064, WIDTH_DATA); c.fifo_push!int(1820459008, WIDTH_DATA);
+        c.fifo_push!int(1703280640, WIDTH_DATA); c.fifo_push!int(1331036160, WIDTH_DATA); c.fifo_push!int(1599209472, WIDTH_DATA); c.fifo_push!int(1720975360, WIDTH_DATA);
+        c.fifo_push!int(1981939712, WIDTH_DATA); c.fifo_push!int(1818492928, WIDTH_DATA); c.fifo_push!int(1399062528, WIDTH_DATA); c.fifo_push!int(2031878144, WIDTH_DATA);
 
         log("--- dump triggered at batch 64: popping status + bbox words ---");
-        fout.pop?result; assert(result = 23080427, "status word: want 23080427 (locked=1 cx=96 cy=45 count=235 -- 21 hot-pixel events dropped), got ", result);
-        fout.pop?result; assert(result = 168066410, "bbox word: want 168066410 (min=10,4 max=125,106), got ", result);
+        fout.pop?result; assert(result = 21704484, "status word: want 21704484 (locked=1 cx=75 cy=47 count=36 -- all 40 hot-pixel events dropped), got ", result);
+        fout.pop?result; assert(result = 957249113, "bbox word: want 957249113 (min=57,14 max=118,89 -- hot pixel at (10,10) excluded), got ", result);
 
         log("======== dvs track hot-pixel filter test complete ========")
     }

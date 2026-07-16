@@ -30,7 +30,15 @@ main { --stage-width: 45%; display: grid; grid-template-columns: minmax(280px, v
 .stage-head { display: flex; justify-content: space-between; color: #84919a; font-size: 11px; padding: 0 0 9px; }
 .live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #e85643; box-shadow: 0 0 8px #e85643; margin-right: 7px; }
 .canvas-wrap { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; container-type: size; background: #050708; border: 1px solid #283139; overflow: hidden; }
-#dvs { display: block; width: min(100cqw, calc(100cqh * 0.888889)); height: auto; aspect-ratio: 112 / 126; image-rendering: pixelated; }
+#dvs, #track { display: block; width: min(100cqw, calc(100cqh * 0.888889)); height: auto; aspect-ratio: 112 / 126; image-rendering: pixelated; }
+.hidden { display: none !important; }
+main.stage-only { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+main.stage-only #workspace-divider, main.stage-only .workbench { display: none; }
+.mode-btn.active { background: #c94535; border-color: #e2604e; color: white; font-weight: 650; }
+.hint { color: #85939c; font-size: 11px; line-height: 1.5; margin: 9px 0; }
+.hint code { color: #cdd8df; font-family: ui-monospace, monospace; }
+.track-readout { grid-template-columns: 1fr; margin-top: 11px; }
+.track-readout dd { font-size: 13px; }
 #paused-badge { display: none; position: absolute; padding: 7px 10px; background: #0c1115cc; border: 1px solid #53616b; font-size: 11px; }
 #workspace-divider { position: relative; cursor: col-resize; background: #1b2329; border-left: 1px solid #36414a; border-right: 1px solid #0b0f12; touch-action: none; }
 #workspace-divider::after { content: ''; position: absolute; width: 2px; height: 36px; left: 2px; top: 50%; transform: translateY(-50%); background: #66747d; border-radius: 1px; }
