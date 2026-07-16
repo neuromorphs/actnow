@@ -71,6 +71,10 @@ APP_REGISTRY = {
         "prog": "dvs_heartbeats", "label": "Secret Heartbeats",
         "blurb": "Per-region period/frequency colour grid (8x7 regions).",
         "params": [_corr_param(2)]},
+    "dvs_apophenia": {
+        "prog": "dvs_apophenia", "label": "Apophenia Engine",
+        "blurb": "A living Rorschach: coarse decaying activity mirrored 4-fold into a breathing inkblot.",
+        "params": []},
     "dvs_oms_meister": {
         "prog": "dvs_oms_meister", "label": "OMS Meister",
         "blurb": "Object-motion-sensitivity heat over an 8x8 grid.",

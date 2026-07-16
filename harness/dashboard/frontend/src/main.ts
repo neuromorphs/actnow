@@ -58,6 +58,12 @@ let stabVec = {dx: 0, dy: 0, oct: 0, mag: 0, at: 0};
 type HeartCell = {bin: number; conf: number};
 const heartGrid: (HeartCell | null)[] = new Array(8 * 7).fill(null);
 let dirCons = {flag: 0, z: 0, row: 0, col: 0, gdir: 0, at: 0};
+// dvs_apophenia: coarse 32-col x 14-row activity grid (mirror of the firmware's
+// GRID_COLS x GRID_ROWS). The status words feed this buffer with a gentle host
+// decay; the renderer 4-fold mirrors it into a symmetric, breathing inkblot.
+const APOPH_COLS = 32, APOPH_ROWS = 14;
+const apophGrid = new Float32Array(APOPH_COLS * APOPH_ROWS);   // [yq*COLS + xq]
+let apophAt = 0;
 
 // Latest tracker status, decoded from the dvs_track result stream. word0 packs
 // (locked<<24)|(cx<<16)|(cy<<8)|count; word1 packs (min_x<<24)|(min_y<<16)|(max_x<<8)|max_y.
@@ -345,6 +351,7 @@ function resetAppState() {
   stabVec = {dx: 0, dy: 0, oct: 0, mag: 0, at: 0};
   heartGrid.fill(null);
   dirCons = {flag: 0, z: 0, row: 0, col: 0, gdir: 0, at: 0};
+  apophGrid.fill(0); apophAt = 0;
   appEnergy.fill(0); pendingApp.length = 0; appTail = [];
 }
 
@@ -472,7 +479,9 @@ function renderApp() {
     for (let i=0; i<appEnergy.length; i++) appEnergy[i] *= decay;
     for (const words of pendingApp.splice(0)) stampInto(appEnergy, words);
   }
-  if (loadedApp === 'dvs_mayfly') paintMayfly(); else paint(appImage, appEnergy, palette);
+  if (loadedApp === 'dvs_mayfly') paintMayfly();
+  else if (loadedApp === 'dvs_apophenia') paintApophenia();
+  else paint(appImage, appEnergy, palette);
   appCtx.putImageData(appImage,0,0);
   const overlay = APP_OVERLAYS[loadedApp];
   if (appActive && overlay) overlay();
@@ -487,6 +496,69 @@ function paintMayfly() {
     const {row, col} = mapEvent(cx, cy);
     if (row < 0 || row >= 126 || col < 0 || col >= 112) continue;
     appImage.data.set([255,205,120,255], (row*112 + col)*4);
+  }
+}
+
+// dvs_apophenia: the app IS a living Rorschach. Take the coarse 32x14 activity
+// grid, 4-fold mirror it (reflect the left half across x, then the top half
+// across y) into a symmetric inkblot, then paint it upscaled over the whole
+// canvas with a smooth magma-like colormap. Bit-faithful counterpart of
+// dvs_apophenia_view.py's mirror4()/render_inkblot(). Replaces the event
+// background (like mayfly) so the symmetric shape fills the stage.
+function apophColor(t: number): [number, number, number] {
+  // Compact magma-ish ramp: black -> deep purple -> magenta -> orange -> pale.
+  const stops: [number, number, number, number][] = [
+    [0.0,   0,   0,   4],
+    [0.25, 60,  15,  90],
+    [0.5, 165,  45, 110],
+    [0.75,240, 100,  60],
+    [1.0, 252, 230, 180],
+  ];
+  const u = Math.max(0, Math.min(1, t));
+  for (let i = 1; i < stops.length; i++) {
+    if (u <= stops[i][0]) {
+      const a = stops[i-1], b = stops[i];
+      const f = (u - a[0]) / (b[0] - a[0] || 1);
+      return [a[1] + (b[1]-a[1])*f, a[2] + (b[2]-a[2])*f, a[3] + (b[3]-a[3])*f];
+    }
+  }
+  return [stops[stops.length-1][1], stops[stops.length-1][2], stops[stops.length-1][3]];
+}
+
+function paintApophenia() {
+  const halfC = APOPH_COLS >> 1, halfR = APOPH_ROWS >> 1;
+  // Build the 4-fold mirrored coarse field (same construction as mirror4()):
+  // seed = left half of the grid, mirrored onto the right (x-symmetry), then
+  // the top half folded onto the bottom (y-symmetry).
+  const blot = new Float32Array(APOPH_COLS * APOPH_ROWS);
+  let peak = 0;
+  for (let yq = 0; yq < APOPH_ROWS; yq++) {
+    const syq = yq < halfR ? yq : (APOPH_ROWS - 1 - yq);   // fold rows about the mid-line
+    for (let xq = 0; xq < APOPH_COLS; xq++) {
+      const sxq = xq < halfC ? xq : (APOPH_COLS - 1 - xq); // fold cols about the mid-line
+      const v = apophGrid[syq * APOPH_COLS + sxq];
+      blot[yq * APOPH_COLS + xq] = v;
+      if (v > peak) peak = v;
+    }
+  }
+  const inv = peak > 0 ? 1 / peak : 0;
+
+  // Paint the 112(w) x 126(h) canvas by sampling the coarse blot with bilinear
+  // interpolation so the inkblot is smooth, not blocky. Canvas index is
+  // (row*112 + col); map each pixel to grid coords (col->xq axis, row->yq axis).
+  for (let row = 0; row < 126; row++) {
+    const gy = (row / 125) * (APOPH_ROWS - 1);
+    const y0 = Math.floor(gy), y1 = Math.min(APOPH_ROWS - 1, y0 + 1), fy = gy - y0;
+    for (let col = 0; col < 112; col++) {
+      const gx = (col / 111) * (APOPH_COLS - 1);
+      const x0 = Math.floor(gx), x1 = Math.min(APOPH_COLS - 1, x0 + 1), fx = gx - x0;
+      const v00 = blot[y0*APOPH_COLS + x0], v01 = blot[y0*APOPH_COLS + x1];
+      const v10 = blot[y1*APOPH_COLS + x0], v11 = blot[y1*APOPH_COLS + x1];
+      const top = v00 + (v01 - v00)*fx, bot = v10 + (v11 - v10)*fx;
+      const v = (top + (bot - top)*fy) * inv;
+      const [r, g, b] = apophColor(v);
+      appImage.data.set([r, g, b, 255], (row*112 + col)*4);
+    }
   }
 }
 
@@ -573,6 +645,15 @@ const APP_OVERLAYS: Record<string, () => void> = {
         `hsla(${hue},70%,50%,${alpha*0.5})`);
     }
     q('#app-status').textContent = painted ? `${painted} region(s) reporting` : 'listening…';
+  },
+  dvs_apophenia() {
+    // The inkblot IS the render (paintApophenia paints the background); no cell
+    // overlay. Just report liveness + current peak so the status line moves.
+    let peak = 0;
+    for (let i = 0; i < apophGrid.length; i++) if (apophGrid[i] > peak) peak = apophGrid[i];
+    const fresh = performance.now() - apophAt < 1500;
+    q('#app-status').textContent = (fresh && peak > 0)
+      ? `inkblot alive, peak=${Math.round(peak)}` : 'listening…';
   },
   dvs_oms_dirconsensus() {
     // 8x7 tiles, 16x16-px. Highlight the flagged tile + a global-dir arrow.
@@ -721,6 +802,21 @@ const APP_DECODERS: Record<string, (words: Uint32Array) => void> = {
       const region = w & 0x3f;
       if (region >= 8 * 7) continue;
       heartGrid[region] = {bin: (w >>> 6) & 0xf, conf: (w >>> 10) & 0xf};
+    }
+  },
+  // dvs_apophenia_view.py unpack_status: xq=w&0x1F, yq=(w>>5)&0xF, val=(w>>9)&0xFF,
+  // flag=(w>>17)&1. Feed the coarse grid with a gentle host decay (mirror of
+  // accumulate_grid): a real peak (flag=1) writes its value, a below-threshold
+  // fallback report nudges its cell at half weight so the field never fully dies.
+  dvs_apophenia(words) {
+    for (const w of words) {
+      const xq = w & 0x1f, yq = (w >>> 5) & 0xf, val = (w >>> 9) & 0xff, flag = (w >>> 17) & 1;
+      if (xq >= APOPH_COLS || yq >= APOPH_ROWS) continue;
+      for (let i = 0; i < apophGrid.length; i++) apophGrid[i] *= 0.90;
+      const idx = yq * APOPH_COLS + xq;
+      const nudged = flag ? val : val * 0.5;
+      if (nudged > apophGrid[idx]) apophGrid[idx] = nudged;
+      apophAt = performance.now();
     }
   },
   // dvs_oms_dirconsensus_ref.py: word = (flag<<14)|(zc<<9)|(row<<6)|(col<<3)|gdir.
