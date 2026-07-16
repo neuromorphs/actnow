@@ -157,6 +157,19 @@ const VITAL_HIST = 112;                           // windows kept in the spread 
 let vitalHist: {spread: number, verdict: number}[] = [];
 let vitalLast = {pbin: 0, spread: 0, total: 0, verdict: 0, wseq: 0};
 let vitalAt = 0;
+// dvs_quartz ("The Human Quartz"): each status word carries the latched
+// tap-timing grade {prog, meanq, jit, grade, sseq} (bit-faithful with
+// dvs_quartz_view.py's unpack_status). prog = live count of accepted
+// inter-tap intervals toward the next grade (0..15); meanq = latched mean
+// ITI>>5 (tempo = meanq<<5 ticks); jit = latched MAD jitter in ticks
+// (clamped 1023); grade 0=JELLY, 1=MORTAL HAND, 2=METRONOME, 3=QUARTZ;
+// sseq = session counter (0 = no measurement yet). We keep one history
+// sample per sseq change (i.e. per completed 16-tap measurement) for the
+// scrolling jitter chart; quartzAt = last-update timestamp.
+const QUARTZ_HIST = 112;                          // sessions kept in the jitter chart (one per band column)
+let quartzHist: {jit: number, grade: number}[] = [];
+let quartzLast = {prog: 0, meanq: 0, jit: 0, grade: 0, sseq: 0};
+let quartzAt = 0;
 
 // Latest tracker status, decoded from the dvs_track result stream. word0 packs
 // (locked<<24)|(cx<<16)|(cy<<8)|count; word1 packs (min_x<<24)|(min_y<<16)|(max_x<<8)|max_y.
@@ -456,6 +469,7 @@ function resetAppState() {
   entropyHist = []; entropyLast = {fwd: 0, rev: 0, verdict: 0, wseq: 0}; entropyAt = 0;
   widderHist = []; widderLast = {oct: 0, valid: 0, wind: 0, turns: 0, wseq: 0, radq: 0}; widderAt = 0;
   vitalHist = []; vitalLast = {pbin: 0, spread: 0, total: 0, verdict: 0, wseq: 0}; vitalAt = 0;
+  quartzHist = []; quartzLast = {prog: 0, meanq: 0, jit: 0, grade: 0, sseq: 0}; quartzAt = 0;
   appEnergy.fill(0); pendingApp.length = 0; appTail = [];
 }
 
@@ -593,6 +607,7 @@ function renderApp() {
   else if (loadedApp === 'dvs_entropy') paintEntropy();
   else if (loadedApp === 'dvs_widdershins') paintWiddershins();
   else if (loadedApp === 'dvs_vital') paintVital();
+  else if (loadedApp === 'dvs_quartz') paintQuartz();
   else paint(appImage, appEnergy, palette);
   appCtx.putImageData(appImage,0,0);
   if (loadedApp === 'dvs_sonar' && appActive) drawSonarRings();
@@ -1069,6 +1084,75 @@ function paintVital() {
   }
 }
 
+// dvs_quartz: the app IS an oscillator-grade certificate, drawn on the 112(w)
+// x 126(h) display buffer: a crystal glyph (filled diamond) at the top
+// coloured by the latched grade (JELLY=dim, MORTAL HAND=steel,
+// METRONOME=indigo, QUARTZ=gold; grey until the first measurement), a
+// 16-pip progress row for the live prog field (accepted inter-tap intervals
+// toward the next grade), a scrolling per-session jitter history chart (one
+// column per completed 16-tap measurement, newest at the right, bar height
+// log-scaled, coloured by that session's grade, dim guide rows at the
+// J_QUARTZ/J_STEADY/J_MORTAL grade thresholds), and a bottom tempo meter of
+// the latched mean ITI (meanq, scale 0..2047). Counterpart of
+// dvs_quartz_view.py's render_quartz(). Like entropy/widdershins/vital this
+// is an abstract gauge (not spatially registered), so it ignores the
+// orientation selector.
+const QUARTZ_JQ = 16, QUARTZ_JS = 64, QUARTZ_JM = 256;   // jitter grade thresholds
+const QUARTZ_CX = 56, QUARTZ_CY = 32, QUARTZ_R = 22;     // crystal centre + half-diagonal
+const QUARTZ_PIP_Y = 64;                                 // progress pip row
+const QUARTZ_CHART_BASE = 105, QUARTZ_CHART_ROWS = 32;   // chart baseline row + height
+const QUARTZ_MEANQ_CAP = 2047;                           // tempo meter full-scale
+const QUARTZ_COLOURS: [number, number, number][] =       // per-grade RGB (0=JELLY..3=QUARTZ)
+  [[85, 85, 102], [138, 148, 166], [90, 95, 212], [232, 184, 75]];
+// Log-scaled bar height for a jitter value (0..1023 -> 1..32 rows); the same
+// mapping places the three threshold guide rows.
+const quartzBarH = (jit: number) =>
+  Math.max(1, Math.min(QUARTZ_CHART_ROWS, Math.round(Math.log2(jit + 1) * 3.2)));
+function paintQuartz() {
+  for (let i = 0; i < 112 * 126; i++) appImage.data.set([13, 11, 16, 255], i * 4);
+  const px = (row: number, col: number, r: number, g: number, b: number) => {
+    if (row >= 0 && row < 126 && col >= 0 && col < 112)
+      appImage.data.set([r, g, b, 255], (row * 112 + col) * 4);
+  };
+  // Crystal glyph: filled diamond (|dr|+|dc| < R) + bright rim, coloured by
+  // the latched grade; grey until the first completed measurement (sseq==0).
+  const [cr, cg, cb] = quartzLast.sseq === 0 ? [70, 70, 80] : QUARTZ_COLOURS[quartzLast.grade];
+  for (let dr = -QUARTZ_R; dr <= QUARTZ_R; dr++)
+    for (let dc = -QUARTZ_R; dc <= QUARTZ_R; dc++) {
+      const m = Math.abs(dr) + Math.abs(dc);
+      if (m < QUARTZ_R - 1) px(QUARTZ_CY + dr, QUARTZ_CX + dc, cr >> 1, cg >> 1, cb >> 1);
+      else if (m <= QUARTZ_R) px(QUARTZ_CY + dr, QUARTZ_CX + dc, cr, cg, cb);
+    }
+  // Progress pips: 16 pips, 3 px wide, lit gold while collecting (p < prog).
+  for (let p = 0; p < 16; p++) {
+    const lit = p < quartzLast.prog;
+    for (let k = 0; k < 3; k++)
+      px(QUARTZ_PIP_Y, 8 + p * 6 + k, lit ? 232 : 40, lit ? 184 : 36, lit ? 75 : 52);
+  }
+  // Jitter history chart: baseline + log-scaled guide rows at the three grade
+  // thresholds, then one column per completed session (newest at the right).
+  for (let col = 0; col < 112; col++) {
+    px(QUARTZ_CHART_BASE, col, 40, 36, 52);                             // baseline
+    px(QUARTZ_CHART_BASE - quartzBarH(QUARTZ_JQ), col, 74, 62, 34);     // QUARTZ guide
+    px(QUARTZ_CHART_BASE - quartzBarH(QUARTZ_JS), col, 46, 48, 84);     // METRONOME guide
+    px(QUARTZ_CHART_BASE - quartzBarH(QUARTZ_JM), col, 60, 64, 74);     // MORTAL guide
+  }
+  for (let col = 0; col < 112; col++) {
+    const h = quartzHist.length - 112 + col;
+    if (h < 0) continue;
+    const {jit, grade} = quartzHist[h];
+    const [br, bg, bb] = QUARTZ_COLOURS[grade];
+    const len = quartzBarH(jit);
+    for (let k = 1; k <= len; k++) px(QUARTZ_CHART_BASE - k, col, br, bg, bb);
+  }
+  // Latched-tempo meter (meanq 0..2047 across the full width).
+  const tLen = Math.round(quartzLast.meanq * 111 / QUARTZ_MEANQ_CAP);
+  for (let row = 114; row <= 120; row++) {
+    px(row, 0, 60, 50, 30); px(row, 111, 60, 50, 30);                   // track ends
+    for (let col = 0; col <= tLen; col++) px(row, col, 232, 184, 75);
+  }
+}
+
 // 8-octant unit vector (x right, y down); N (dy<0) points up. Shared by the
 // stabilize + dir-consensus arrows (matches the mirrors' `dirs` table).
 const OCTANT_VEC: [number, number][] = [[1,0],[1,-1],[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1]];
@@ -1252,6 +1336,24 @@ const APP_OVERLAYS: Record<string, () => void> = {
     q('#app-status').textContent = !fresh ? 'taking the pulse…'
       : vitalLast.verdict === 0 ? `DORMANT (only ${vitalLast.total} confirmed bursts)`
       : `${names[vitalLast.verdict]} (spread=${vitalLast.spread} bins, ${vitalLast.total} IBIs, peak bin ${vitalLast.pbin})`;
+  },
+  dvs_quartz() {
+    // The crystal + jitter chart ARE the render (paintQuartz paints the
+    // background); no cell overlay. When freshly graded QUARTZ, vector-draw a
+    // soft pulsing gold ring around the crystal so the certificate gleams;
+    // then report the grade / collection progress.
+    const fresh = performance.now() - quartzAt < 1500;
+    if (fresh && quartzLast.sseq !== 0 && quartzLast.grade === 3) {
+      const pulse = 3 + 2 * Math.sin(performance.now() / 300);
+      appCtx.strokeStyle = 'rgba(232,184,75,0.6)'; appCtx.lineWidth = 1;
+      appCtx.beginPath();
+      appCtx.arc(QUARTZ_CX, QUARTZ_CY, QUARTZ_R + pulse, 0, 2 * Math.PI);
+      appCtx.stroke();
+    }
+    const names = ['JELLY', 'MORTAL HAND', 'METRONOME', 'QUARTZ'];
+    q('#app-status').textContent = !fresh ? 'listening for taps…'
+      : quartzLast.sseq === 0 ? `collecting taps (${quartzLast.prog}/16 intervals)`
+      : `${names[quartzLast.grade]} (jitter=${quartzLast.jit} ticks, tempo=${quartzLast.meanq << 5} ticks, ${quartzLast.prog}/16 toward next)`;
   },
   dvs_oms_dirconsensus() {
     // 8x7 tiles, 16x16-px. Highlight the flagged tile + a global-dir arrow.
@@ -1580,6 +1682,24 @@ const APP_DECODERS: Record<string, (words: Uint32Array) => void> = {
       }
       vitalLast = {pbin, spread, total, verdict, wseq};
       vitalAt = performance.now();
+    }
+  },
+  // dvs_quartz_view.py unpack_status: prog=w&0xF, meanq=(w>>4)&0x7FF,
+  // jit=(w>>15)&0x3FF, grade=(w>>25)&3, sseq=(w>>27)&0xF. The latched grade
+  // is re-emitted every batch (prog is live); sseq only changes when a new
+  // 16-tap measurement latches, so we push one history sample per sseq change
+  // (mirror of render_quartz()'s per-session history collection) and always
+  // keep the freshest word for the crystal/status.
+  dvs_quartz(words) {
+    for (const w of words) {
+      const prog = w & 0xf, meanq = (w >>> 4) & 0x7ff, jit = (w >>> 15) & 0x3ff;
+      const grade = (w >>> 25) & 3, sseq = (w >>> 27) & 0xf;
+      if (sseq !== quartzLast.sseq) {
+        quartzHist.push({jit, grade});
+        if (quartzHist.length > QUARTZ_HIST) quartzHist.splice(0, quartzHist.length - QUARTZ_HIST);
+      }
+      quartzLast = {prog, meanq, jit, grade, sseq};
+      quartzAt = performance.now();
     }
   },
   // dvs_oms_dirconsensus_ref.py: word = (flag<<14)|(zc<<9)|(row<<6)|(col<<3)|gdir.

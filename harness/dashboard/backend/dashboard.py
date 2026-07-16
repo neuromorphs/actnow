@@ -107,6 +107,10 @@ APP_REGISTRY = {
         "prog": "dvs_vital", "label": "The Vitalometer",
         "blurb": "Alive-or-mechanism séance gauge from burst TIMING only (position-invariant): confirmed inter-burst intervals fill a 32-bin half-octave log histogram per window; a tight spread reads MECHANISM (metronome), a wide spread reads ALIVE (jitter/drift), too few confirmed bursts reads DORMANT — dense sparkle never pauses long enough to form bursts and singleton noise never confirms one, so noise cannot fake a pulse.",
         "params": []},
+    "dvs_quartz": {
+        "prog": "dvs_quartz", "label": "The Human Quartz",
+        "blurb": "Finger-tap timing graded like a crystal oscillator (position-invariant, timing only): the burst detector confirms each tap, 16 consecutive in-tempo inter-tap intervals yield a multiply-free mean tempo + MAD jitter, and a four-way grade is latched — QUARTZ / METRONOME / MORTAL HAND / JELLY; dense sparkle never forms taps, singletons never confirm, and out-of-tempo pairs reset the collection, so noise cannot fake a grade.",
+        "params": []},
     "dvs_oms_meister": {
         "prog": "dvs_oms_meister", "label": "OMS Meister",
         "blurb": "Object-motion-sensitivity heat over an 8x8 grid.",
