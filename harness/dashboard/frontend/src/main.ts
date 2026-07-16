@@ -64,6 +64,15 @@ let dirCons = {flag: 0, z: 0, row: 0, col: 0, gdir: 0, at: 0};
 const APOPH_COLS = 32, APOPH_ROWS = 14;
 const apophGrid = new Float32Array(APOPH_COLS * APOPH_ROWS);   // [yq*COLS + xq]
 let apophAt = 0;
+// dvs_sonar ("Radial Motion Oracle"): each status word (dominant octant, radius,
+// pol, strength, flag) spawns an expanding, fading sonar ring at that polar
+// position. We keep a small pool of live rings; the renderer grows + fades each
+// frame (mirror of dvs_sonar_view.py's render_sonar). Octant unit vectors reuse
+// OCTANT_VEC (defined below). born = performance.now() timestamp.
+const SONAR_RADIUS_SHIFT = 1;   // must match RADIUS_SHIFT in software/dvs_sonar/main.c
+type SonarRing = {octant: number; radius: number; pol: number; strength: number; flag: number; born: number};
+let sonarRings: SonarRing[] = [];
+let sonarLast = {octant: 0, radius: 0, pol: 0, strength: 0, flag: 0, at: 0};
 
 // Latest tracker status, decoded from the dvs_track result stream. word0 packs
 // (locked<<24)|(cx<<16)|(cy<<8)|count; word1 packs (min_x<<24)|(min_y<<16)|(max_x<<8)|max_y.
@@ -352,6 +361,7 @@ function resetAppState() {
   heartGrid.fill(null);
   dirCons = {flag: 0, z: 0, row: 0, col: 0, gdir: 0, at: 0};
   apophGrid.fill(0); apophAt = 0;
+  sonarRings = []; sonarLast = {octant: 0, radius: 0, pol: 0, strength: 0, flag: 0, at: 0};
   appEnergy.fill(0); pendingApp.length = 0; appTail = [];
 }
 
@@ -481,8 +491,10 @@ function renderApp() {
   }
   if (loadedApp === 'dvs_mayfly') paintMayfly();
   else if (loadedApp === 'dvs_apophenia') paintApophenia();
+  else if (loadedApp === 'dvs_sonar') paintSonar();
   else paint(appImage, appEnergy, palette);
   appCtx.putImageData(appImage,0,0);
+  if (loadedApp === 'dvs_sonar' && appActive) drawSonarRings();
   const overlay = APP_OVERLAYS[loadedApp];
   if (appActive && overlay) overlay();
 }
@@ -560,6 +572,72 @@ function paintApophenia() {
       appImage.data.set([r, g, b, 255], (row*112 + col)*4);
     }
   }
+}
+
+// dvs_sonar: the app IS a radar/sonar oracle. Each emitted (octant, radius) ping
+// spawns a ring at that polar birth point (out from the sensor centre) that grows
+// outward and fades over its lifetime -- a living oracle display. Bit-faithful
+// counterpart of dvs_sonar_view.py's render_sonar(): birth point from the compass
+// octant vector scaled by the de-quantized radius, hue by octant, ON/OFF by
+// polarity. paintSonar() clears to a dark radar backdrop; drawSonarRings() strokes
+// the live rings as arcs on the app canvas.
+const SONAR_RING_LIFE_MS = 1400;   // how long a ring lives before fading out
+const SONAR_RING_SPEED = 45;       // canvas px a ring expands per second
+
+// Polar (octant, radius) -> canvas birth point (col,row), out from centre. Mirror
+// of dvs_sonar_view.py's ripple_position(): de-quantize the radius (<<SHIFT back to
+// sensor px), place it along the octant's unit vector from the sensor centre, and
+// map through mapEvent so it honours the orientation selector.
+function sonarBirthPoint(octant: number, radius: number) {
+  const [ux, uy] = OCTANT_VEC[octant];
+  const mag = Math.hypot(ux, uy) || 1;
+  const rPx = radius << SONAR_RADIUS_SHIFT;           // back to sensor-pixel scale
+  const sx = 63 + (ux / mag) * rPx;                   // sensor-space birth point
+  const sy = 56 + (uy / mag) * rPx;
+  const {row, col} = mapEvent(Math.round(sx), Math.round(sy));
+  return {col, row};
+}
+
+function sonarColor(octant: number, pol: number): string {
+  // Hue spun around the wheel by octant; ON warm / OFF cool via lightness+shift.
+  const hue = (octant / 8) * 360;
+  const light = pol ? 62 : 48;
+  return `hsl(${hue},80%,${light}%)`;
+}
+
+function paintSonar() {
+  // Dark radar backdrop with a faint centre glow so the rings read clearly.
+  const c = mapEvent(63, 56);
+  for (let row = 0; row < 126; row++) {
+    for (let col = 0; col < 112; col++) {
+      const d = Math.hypot(col - c.col, row - c.row);
+      const glow = Math.max(0, 1 - d / 90);
+      const r = 6 + 10 * glow, g = 14 + 18 * glow, b = 20 + 28 * glow;
+      appImage.data.set([r, g, b, 255], (row * 112 + col) * 4);
+    }
+  }
+}
+
+function drawSonarRings() {
+  const now = performance.now();
+  // Retire dead rings, then stroke each survivor as an expanding, fading arc.
+  sonarRings = sonarRings.filter(ring => now - ring.born <= SONAR_RING_LIFE_MS);
+  const c = mapEvent(63, 56);
+  for (const ring of sonarRings) {
+    const age = (now - ring.born) / 1000;             // seconds alive
+    const fade = 1 - (now - ring.born) / SONAR_RING_LIFE_MS;   // 1 -> 0
+    if (fade <= 0) continue;
+    const {col, row} = sonarBirthPoint(ring.octant, ring.radius);
+    const ringR = SONAR_RING_SPEED * age;             // grows over time
+    const amp = fade * (0.3 + 0.7 * (ring.strength / 31)) * (ring.flag ? 1 : 0.4);
+    appCtx.globalAlpha = Math.max(0, Math.min(1, amp));
+    appCtx.strokeStyle = sonarColor(ring.octant, ring.pol);
+    appCtx.lineWidth = ring.flag ? 1.5 : 1;
+    appCtx.beginPath();
+    appCtx.arc(col, row, ringR, 0, 2 * Math.PI);
+    appCtx.stroke();
+  }
+  appCtx.globalAlpha = 1;
 }
 
 // 8-octant unit vector (x right, y down); N (dy<0) points up. Shared by the
@@ -654,6 +732,15 @@ const APP_OVERLAYS: Record<string, () => void> = {
     const fresh = performance.now() - apophAt < 1500;
     q('#app-status').textContent = (fresh && peak > 0)
       ? `inkblot alive, peak=${Math.round(peak)}` : 'listening…';
+  },
+  dvs_sonar() {
+    // The rings ARE the render (paintSonar + drawSonarRings draw the oracle); no
+    // cell overlay. Just report the latest ping so the status line moves.
+    const names = ['E','NE','N','NW','W','SW','S','SE'];
+    const fresh = performance.now() - sonarLast.at < 1500;
+    q('#app-status').textContent = (fresh && sonarLast.flag)
+      ? `ping ${names[sonarLast.octant]} r=${sonarLast.radius} str=${sonarLast.strength} ${sonarLast.pol ? 'ON' : 'OFF'}`
+      : (fresh ? `faint ${names[sonarLast.octant]} r=${sonarLast.radius}` : 'listening…');
   },
   dvs_oms_dirconsensus() {
     // 8x7 tiles, 16x16-px. Highlight the flagged tile + a global-dir arrow.
@@ -817,6 +904,20 @@ const APP_DECODERS: Record<string, (words: Uint32Array) => void> = {
       const nudged = flag ? val : val * 0.5;
       if (nudged > apophGrid[idx]) apophGrid[idx] = nudged;
       apophAt = performance.now();
+    }
+  },
+  // dvs_sonar_view.py unpack_status: octant=w&0x7, radius=(w>>3)&0x1F,
+  // pol=(w>>8)&1, strength=(w>>9)&0x1F, flag=(w>>14)&1. Each word spawns an
+  // expanding sonar ring (drawn by drawSonarRings); keep the last for the status.
+  dvs_sonar(words) {
+    for (const w of words) {
+      const octant = w & 0x7, radius = (w >>> 3) & 0x1f, pol = (w >>> 8) & 1;
+      const strength = (w >>> 9) & 0x1f, flag = (w >>> 14) & 1;
+      sonarRings.push({octant, radius, pol, strength, flag, born: performance.now()});
+      // Cap the ring pool so a fast stream can't grow it without bound; dead rings
+      // are already retired each frame in drawSonarRings.
+      if (sonarRings.length > 256) sonarRings.splice(0, sonarRings.length - 256);
+      sonarLast = {octant, radius, pol, strength, flag, at: performance.now()};
     }
   },
   // dvs_oms_dirconsensus_ref.py: word = (flag<<14)|(zc<<9)|(row<<6)|(col<<3)|gdir.

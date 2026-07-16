@@ -75,6 +75,10 @@ APP_REGISTRY = {
         "prog": "dvs_apophenia", "label": "Apophenia Engine",
         "blurb": "A living Rorschach: coarse decaying activity mirrored 4-fold into a breathing inkblot.",
         "params": []},
+    "dvs_sonar": {
+        "prog": "dvs_sonar", "label": "Radial Sonar",
+        "blurb": "Radial Motion Oracle: per-batch dominant octant/radius drawn as expanding, fading sonar rings from centre.",
+        "params": []},
     "dvs_oms_meister": {
         "prog": "dvs_oms_meister", "label": "OMS Meister",
         "blurb": "Object-motion-sensitivity heat over an 8x8 grid.",
