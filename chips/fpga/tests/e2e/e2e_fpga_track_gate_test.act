@@ -1,0 +1,195 @@
+import "chips/fpga/core.act";
+import "core/peripherals/mem.act";
+import "core/peripherals/fifo_out.act";
+import "gen/file_ids.act";
+
+// FPGA-variant correctness test for software/dvs_track/main.c's tracking
+// gate: proves a locked-on window's bounding box stays tight around the
+// real object instead of ballooning out to include unrelated activity
+// elsewhere in the frame -- see that file's header for why the gate exists
+// (a real 173k-event recording showed near-full-sensor boxes every window
+// without it) and how it works (Chebyshev distance from the current
+// centroid, only enforced once a window has actually locked on, reset wide
+// open to search again after any window that fails to lock).
+//
+// Window 1 (256 events, one DUMP_INTERVAL): 32 cycles of an 8-point cluster
+// tightly packed around (62,52) -- x in [58,66], y in [48,56] -- easily
+// clears LOCK_THRESHOLD=32, so the gate activates for window 2. No single
+// 4x4 cell is retouched faster than every 8 events, so the hot-pixel filter
+// never engages either.
+//
+// Window 2 (256 events): 200 more events from the *same* cluster (25 more
+// cycles) plus 56 events from an unrelated cluster near (120,10) -- far
+// outside GATE_RADIUS=24 of window 1's locked-on centroid. If the gate
+// weren't working, the bounding box would balloon out to include (120,10);
+// instead every one of those 56 events should be rejected, leaving
+// window 2's bbox identical to window 1's tight cluster and window_count
+// at 200 (216->200: only the near-cluster events), not 256. Both windows'
+// output words are asserted against the same math computed in Python when
+// this file was generated.
+defproc e2e_fpga_track_gate_test() {
+    core<4> c;
+
+    mem<true, ROM_IMAGE> rom;
+    rom.addr = c.rom_addr;
+    rom.mode = c.rom_mode;
+    rom.rdata = c.rom_rdata;
+
+    fifo_out<4> fout;
+    fout.addr = c.io_addr;
+    fout.mode = c.io_mode;
+    fout.wdata = c.io_wdata;
+    fout.rdata = c.io_rdata;
+
+    int<WIDTH_DATA> result;
+
+    chp {
+        log("======== dvs track gate test start (fpga) ========");
+        c.reset_ext!true;
+        log("--- window 1: 256 events, tight cluster near (62,52) -- should lock ---");
+
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+
+        log("--- dump 1 triggered: popping status + bbox words ---");
+        fout.pop?result; assert(result = 20788479, "window 1 status: want 20788479 (locked=1 cx=61 cy=52 count=256), got ", result);
+        fout.pop?result; assert(result = 976241208, "window 1 bbox: want 976241208 (min=58,48 max=66,56), got ", result);
+
+        log("--- window 2: 200 more near-cluster events + 56 far events near (120,10) -- gate should reject the far ones ---");
+
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(22586, WIDTH_DATA); c.fifo_push!int(22594, WIDTH_DATA); c.fifo_push!int(23610, WIDTH_DATA); c.fifo_push!int(23618, WIDTH_DATA);
+        c.fifo_push!int(23102, WIDTH_DATA); c.fifo_push!int(22844, WIDTH_DATA); c.fifo_push!int(23360, WIDTH_DATA); c.fifo_push!int(23229, WIDTH_DATA);
+        c.fifo_push!int(17526, WIDTH_DATA); c.fifo_push!int(17530, WIDTH_DATA); c.fifo_push!int(18038, WIDTH_DATA); c.fifo_push!int(18042, WIDTH_DATA);
+        c.fifo_push!int(17526, WIDTH_DATA); c.fifo_push!int(17530, WIDTH_DATA); c.fifo_push!int(18038, WIDTH_DATA); c.fifo_push!int(18042, WIDTH_DATA);
+        c.fifo_push!int(17526, WIDTH_DATA); c.fifo_push!int(17530, WIDTH_DATA); c.fifo_push!int(18038, WIDTH_DATA); c.fifo_push!int(18042, WIDTH_DATA);
+        c.fifo_push!int(17526, WIDTH_DATA); c.fifo_push!int(17530, WIDTH_DATA); c.fifo_push!int(18038, WIDTH_DATA); c.fifo_push!int(18042, WIDTH_DATA);
+        c.fifo_push!int(17526, WIDTH_DATA); c.fifo_push!int(17530, WIDTH_DATA); c.fifo_push!int(18038, WIDTH_DATA); c.fifo_push!int(18042, WIDTH_DATA);
+        c.fifo_push!int(17526, WIDTH_DATA); c.fifo_push!int(17530, WIDTH_DATA); c.fifo_push!int(18038, WIDTH_DATA); c.fifo_push!int(18042, WIDTH_DATA);
+        c.fifo_push!int(17526, WIDTH_DATA); c.fifo_push!int(17530, WIDTH_DATA); c.fifo_push!int(18038, WIDTH_DATA); c.fifo_push!int(18042, WIDTH_DATA);
+        c.fifo_push!int(17526, WIDTH_DATA); c.fifo_push!int(17530, WIDTH_DATA); c.fifo_push!int(18038, WIDTH_DATA); c.fifo_push!int(18042, WIDTH_DATA);
+        c.fifo_push!int(17526, WIDTH_DATA); c.fifo_push!int(17530, WIDTH_DATA); c.fifo_push!int(18038, WIDTH_DATA); c.fifo_push!int(18042, WIDTH_DATA);
+        c.fifo_push!int(17526, WIDTH_DATA); c.fifo_push!int(17530, WIDTH_DATA); c.fifo_push!int(18038, WIDTH_DATA); c.fifo_push!int(18042, WIDTH_DATA);
+        c.fifo_push!int(17526, WIDTH_DATA); c.fifo_push!int(17530, WIDTH_DATA); c.fifo_push!int(18038, WIDTH_DATA); c.fifo_push!int(18042, WIDTH_DATA);
+        c.fifo_push!int(17526, WIDTH_DATA); c.fifo_push!int(17530, WIDTH_DATA); c.fifo_push!int(18038, WIDTH_DATA); c.fifo_push!int(18042, WIDTH_DATA);
+        c.fifo_push!int(17526, WIDTH_DATA); c.fifo_push!int(17530, WIDTH_DATA); c.fifo_push!int(18038, WIDTH_DATA); c.fifo_push!int(18042, WIDTH_DATA);
+        c.fifo_push!int(17526, WIDTH_DATA); c.fifo_push!int(17530, WIDTH_DATA); c.fifo_push!int(18038, WIDTH_DATA); c.fifo_push!int(18042, WIDTH_DATA);
+
+        log("--- dump 2 triggered: popping status + bbox words ---");
+        fout.pop?result; assert(result = 20788424, "window 2 status: want 20788424 (locked=1 cx=61 cy=52 count=200 -- 56 far events gated out), got ", result);
+        fout.pop?result; assert(result = 976241208, "window 2 bbox: want 976241208 (min=58,48 max=66,56 -- NOT (120,10), gate held), got ", result);
+
+        log("======== dvs track gate test complete ========")
+    }
+}
+
+e2e_fpga_track_gate_test e2e;

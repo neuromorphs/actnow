@@ -20,12 +20,12 @@ ROM_TEST ?= simple
 
 ROM_IMAGE := software/tests/build/rom_image.mem
 
-.PHONY: test e2e_fpga_boot_test e2e_fpga_fifo_test e2e_fpga_fifo_stress e2e_fpga_reset_test e2e_fpga_reset_reload_test e2e_fpga_rotate_test e2e_fpga_track_test e2e_fpga_track_hotpixel_test
+.PHONY: test e2e_fpga_boot_test e2e_fpga_fifo_test e2e_fpga_fifo_stress e2e_fpga_reset_test e2e_fpga_reset_reload_test e2e_fpga_rotate_test e2e_fpga_track_test e2e_fpga_track_hotpixel_test e2e_fpga_track_gate_test
 
 # Run every fpga e2e test. multi_event / gpio scenarios from chips/bench are
 # deliberately absent: this variant wires only a single interrupt (event_id_0)
 # and has no GPIO peripheral, so neither is applicable here.
-test: e2e_fpga_boot_test e2e_fpga_fifo_test e2e_fpga_fifo_stress e2e_fpga_reset_test e2e_fpga_reset_reload_test e2e_fpga_rotate_test e2e_fpga_track_test e2e_fpga_track_hotpixel_test
+test: e2e_fpga_boot_test e2e_fpga_fifo_test e2e_fpga_fifo_stress e2e_fpga_reset_test e2e_fpga_reset_reload_test e2e_fpga_rotate_test e2e_fpga_track_test e2e_fpga_track_hotpixel_test e2e_fpga_track_gate_test
 	@echo "=== all fpga e2e tests passed ==="
 
 # Boot software/boot_only/main.c XIP from the raw ROM route and confirm it
@@ -224,4 +224,30 @@ e2e_fpga_track_hotpixel_test:
 		echo "e2e_fpga_track_hotpixel_test: FAIL (no completion)"; exit 1; \
 	else \
 		echo "e2e_fpga_track_hotpixel_test: PASS"; \
+	fi
+
+# Two-window test proving software/dvs_track/main.c's tracking gate actually
+# keeps a locked-on bounding box tight instead of ballooning out to include
+# unrelated activity elsewhere in the frame -- see e2e_fpga_track_gate_test.act's
+# header for the exact scenario (a tight cluster locks in window 1, then a
+# far-away 56-event burst in window 2 must be rejected by the gate). Same
+# ROM-pinning rationale as the other e2e_* targets.
+e2e_fpga_track_gate_test:
+	@echo "--- e2e_fpga_track_gate_test ---"
+	@rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem
+	@$(MAKE) -s -C $(ROOT) ROM_TEST=dvs_track CROSS=$(CROSS) file-registry
+	@cd $(ROOT) && $(AFLAT) chips/fpga/tests/e2e/e2e_fpga_track_gate_test.act
+	@out=$$(cd $(ROOT) && printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf chips/fpga/tests/e2e/e2e_fpga_track_gate_test.act e2e_fpga_track_gate_test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem; \
+	$(MAKE) -s -C $(ROOT) ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
+	if [ $$status -ne 0 ]; then \
+		echo "e2e_fpga_track_gate_test: FAIL"; exit $$status; \
+	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+		echo "e2e_fpga_track_gate_test: FAIL"; exit 1; \
+	elif ! echo "$$out" | grep -qi "test complete"; then \
+		echo "e2e_fpga_track_gate_test: FAIL (no completion)"; exit 1; \
+	else \
+		echo "e2e_fpga_track_gate_test: PASS"; \
 	fi
