@@ -119,6 +119,10 @@ APP_REGISTRY = {
         "prog": "dvs_oms_dirconsensus", "label": "OMS Dir-consensus",
         "blurb": "Flags independent-motion tiles + a global-direction arrow.",
         "params": []},
+    "dvs_seismo": {
+        "prog": "dvs_seismo", "label": "Ballroom Seismology",
+        "blurb": "Stares at a fixed vertical edge and detects slow oscillation (building sway / surface vibration) by integrating the signed event-polarity sum into a displacement proxy, counting zero-crossings per window for a frequency label, and gating the output with a resonance threshold so random hot-pixel noise cannot fake a sway.",
+        "params": []},
 }
 
 

@@ -170,6 +170,19 @@ const QUARTZ_HIST = 112;                          // sessions kept in the jitter
 let quartzHist: {jit: number, grade: number}[] = [];
 let quartzLast = {prog: 0, meanq: 0, jit: 0, grade: 0, sseq: 0};
 let quartzAt = 0;
+// dvs_seismo ("Ballroom Seismology"): each status word carries the latched
+// oscillation state {disp_q, freqbin, resonance_q, seq} (bit-faithful with
+// dvs_seismo_view.py's unpack_status). disp_q is a signed 8-bit displacement
+// proxy (two's-complement; host sign-extends via (w & 0xFF) ^ 0x80) - 0x80);
+// freqbin 0..31 is a monotone frequency label (0 = no oscillation detected);
+// resonance_q 0..1023 is a leaky |D| energy estimate; seq 0..15 is a window
+// counter (0 = not yet valid). We keep one history sample per seq change (i.e.
+// per completed window) for the scrolling disp_q strip chart; seismoLast holds
+// the freshest decoded fields for the resonance bar and status overlay.
+const SEISMO_HIST = 112;                          // windows kept in the disp chart
+let seismoHist: {disp: number, freqbin: number, resonance: number}[] = [];
+let seismoLast = {disp: 0, freqbin: 0, resonance: 0, seq: 0};
+let seismoAt = 0;
 
 // Latest tracker status, decoded from the dvs_track result stream. word0 packs
 // (locked<<24)|(cx<<16)|(cy<<8)|count; word1 packs (min_x<<24)|(min_y<<16)|(max_x<<8)|max_y.
@@ -470,6 +483,7 @@ function resetAppState() {
   widderHist = []; widderLast = {oct: 0, valid: 0, wind: 0, turns: 0, wseq: 0, radq: 0}; widderAt = 0;
   vitalHist = []; vitalLast = {pbin: 0, spread: 0, total: 0, verdict: 0, wseq: 0}; vitalAt = 0;
   quartzHist = []; quartzLast = {prog: 0, meanq: 0, jit: 0, grade: 0, sseq: 0}; quartzAt = 0;
+  seismoHist = []; seismoLast = {disp: 0, freqbin: 0, resonance: 0, seq: 0}; seismoAt = 0;
   appEnergy.fill(0); pendingApp.length = 0; appTail = [];
 }
 
@@ -608,6 +622,7 @@ function renderApp() {
   else if (loadedApp === 'dvs_widdershins') paintWiddershins();
   else if (loadedApp === 'dvs_vital') paintVital();
   else if (loadedApp === 'dvs_quartz') paintQuartz();
+  else if (loadedApp === 'dvs_seismo') paintSeismo();
   else paint(appImage, appEnergy, palette);
   appCtx.putImageData(appImage,0,0);
   if (loadedApp === 'dvs_sonar' && appActive) drawSonarRings();
@@ -1153,6 +1168,59 @@ function paintQuartz() {
   }
 }
 
+// dvs_seismo: the app IS a seismograph drawn on the 112(w) x 126(h) display
+// buffer. Layout (mirrors dvs_seismo_view.py's render_seismo style):
+//   rows 0..79  -- seismograph strip chart: scrolling disp_q history, newest
+//                  at the right; bars grow up/down from the centre line (row 40)
+//                  in teal when no oscillation is detected or amber when
+//                  freqbin>0 (oscillation); centre baseline drawn in dim grey.
+//   rows 86..105 -- resonance bar: height proportional to resonance_q (0..1023),
+//                   coloured teal (quiet) or amber (freqbin>0), with a dashed
+//                   dim guide row at the MIN_RES_VALID threshold (scaled).
+//   rows 108..125 -- solid border/frame at the very bottom (visual anchor).
+// Like vital/widdershins this is an abstract gauge; ignores orientation.
+const SEISMO_BG: [number, number, number]       = [11, 13, 18];
+const SEISMO_TEAL: [number, number, number]     = [79, 196, 196];
+const SEISMO_AMBER: [number, number, number]    = [232, 168, 58];
+const SEISMO_DIM: [number, number, number]      = [42, 46, 56];
+const SEISMO_CENTRE_ROW = 40;                   // baseline row for disp strip
+const SEISMO_STRIP_HALF = 36;                   // half-height of strip (±36 rows)
+const SEISMO_RES_BASE = 105;                    // bottom row of resonance bar
+const SEISMO_RES_HEIGHT = 20;                   // max bar height in rows
+const SEISMO_MIN_RES_GUIDE = 64;               // MIN_RES_VALID from firmware
+function paintSeismo() {
+  for (let i = 0; i < 112 * 126; i++) appImage.data.set([...SEISMO_BG, 255], i * 4);
+  const px = (row: number, col: number, r: number, g: number, b: number) => {
+    if (row >= 0 && row < 126 && col >= 0 && col < 112)
+      appImage.data.set([r, g, b, 255], (row * 112 + col) * 4);
+  };
+  // Baseline (centre line of strip chart)
+  for (let col = 0; col < 112; col++) px(SEISMO_CENTRE_ROW, col, ...SEISMO_DIM);
+  // Resonance bar track baseline
+  for (let col = 0; col < 112; col++) px(SEISMO_RES_BASE, col, ...SEISMO_DIM);
+  // Resonance MIN_RES_VALID guide row (dashed)
+  const guideRow = SEISMO_RES_BASE - Math.round(SEISMO_MIN_RES_GUIDE * SEISMO_RES_HEIGHT / 1023);
+  for (let col = 0; col < 112; col += 4) px(guideRow, col, ...SEISMO_DIM);
+  // Strip chart: one column per window, newest at the right
+  for (let col = 0; col < 112; col++) {
+    const h = seismoHist.length - 112 + col;
+    if (h < 0) continue;
+    const {disp, freqbin, resonance} = seismoHist[h];
+    const [cr, cg, cb] = freqbin > 0 ? SEISMO_AMBER : SEISMO_TEAL;
+    // bar height proportional to |disp| (disp in -128..127; scale to ±STRIP_HALF)
+    const bar = Math.round(Math.abs(disp) * SEISMO_STRIP_HALF / 128);
+    if (disp >= 0) {
+      for (let k = 1; k <= bar; k++) px(SEISMO_CENTRE_ROW - k, col, cr, cg, cb);
+    } else {
+      for (let k = 1; k <= bar; k++) px(SEISMO_CENTRE_ROW + k, col, cr, cg, cb);
+    }
+    // Also render a faint resonance column beneath the strip
+    const rBar = Math.round(resonance * SEISMO_RES_HEIGHT / 1023);
+    const [rr, rg, rb] = freqbin > 0 ? SEISMO_AMBER : SEISMO_TEAL;
+    for (let k = 1; k <= rBar; k++) px(SEISMO_RES_BASE - k, col, rr >> 1, rg >> 1, rb >> 1);
+  }
+}
+
 // 8-octant unit vector (x right, y down); N (dy<0) points up. Shared by the
 // stabilize + dir-consensus arrows (matches the mirrors' `dirs` table).
 const OCTANT_VEC: [number, number][] = [[1,0],[1,-1],[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1]];
@@ -1354,6 +1422,16 @@ const APP_OVERLAYS: Record<string, () => void> = {
     q('#app-status').textContent = !fresh ? 'listening for taps…'
       : quartzLast.sseq === 0 ? `collecting taps (${quartzLast.prog}/16 intervals)`
       : `${names[quartzLast.grade]} (jitter=${quartzLast.jit} ticks, tempo=${quartzLast.meanq << 5} ticks, ${quartzLast.prog}/16 toward next)`;
+  },
+  dvs_seismo() {
+    // The seismograph strip + resonance bar ARE the render (paintSeismo paints
+    // the background); here we just report the text status line.
+    const fresh = performance.now() - seismoAt < 1500;
+    q('#app-status').textContent = !fresh ? 'watching the edge…'
+      : seismoLast.seq === 0 ? 'collecting first window…'
+      : seismoLast.freqbin > 0
+        ? `SWAYING freqbin=${seismoLast.freqbin} resonance=${seismoLast.resonance} disp=${seismoLast.disp}`
+        : `still (resonance=${seismoLast.resonance} disp=${seismoLast.disp})`;
   },
   dvs_oms_dirconsensus() {
     // 8x7 tiles, 16x16-px. Highlight the flagged tile + a global-dir arrow.
@@ -1682,6 +1760,27 @@ const APP_DECODERS: Record<string, (words: Uint32Array) => void> = {
       }
       vitalLast = {pbin, spread, total, verdict, wseq};
       vitalAt = performance.now();
+    }
+  },
+  // dvs_seismo_view.py unpack_status: disp_u8=w&0xFF (sign-extend: (u^0x80)-0x80),
+  // freqbin=(w>>8)&0x1F, resonance_q=(w>>13)&0x3FF, seq=(w>>23)&0xF. The latched
+  // window fields are re-emitted every batch; seq only changes when a new window
+  // latches, so we push one history sample per seq change (mirror of
+  // render_seismo()'s per-window history collection) and always keep the freshest
+  // word for the strip chart / resonance bar / status. seq=0 means not yet valid.
+  dvs_seismo(words) {
+    for (const w of words) {
+      const disp_u8 = w & 0xff;
+      const disp = ((disp_u8 ^ 0x80) - 0x80) | 0;   // sign-extend 8-bit two's-complement
+      const freqbin = (w >>> 8) & 0x1f;
+      const resonance = (w >>> 13) & 0x3ff;
+      const seq = (w >>> 23) & 0xf;
+      if (seq !== seismoLast.seq) {
+        seismoHist.push({disp, freqbin, resonance});
+        if (seismoHist.length > SEISMO_HIST) seismoHist.splice(0, seismoHist.length - SEISMO_HIST);
+      }
+      seismoLast = {disp, freqbin, resonance, seq};
+      seismoAt = performance.now();
     }
   },
   // dvs_quartz_view.py unpack_status: prog=w&0xF, meanq=(w>>4)&0x7FF,
