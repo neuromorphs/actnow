@@ -73,6 +73,17 @@ const SONAR_RADIUS_SHIFT = 1;   // must match RADIUS_SHIFT in software/dvs_sonar
 type SonarRing = {octant: number; radius: number; pol: number; strength: number; flag: number; born: number};
 let sonarRings: SonarRing[] = [];
 let sonarLast = {octant: 0, radius: 0, pol: 0, strength: 0, flag: 0, at: 0};
+// dvs_caustics ("Event-Caustic Refractor"): each status word carries a refracted
+// (warped) sample {xr, yr, pol, strength, flag}. We accumulate the samples into
+// two decaying float caustic fields (ON/OFF) over the 126x112 sensor frame -- a
+// per-frame multiplicative fade + additive cyan splats -- and paint them as
+// shimmering underwater light (mirror of dvs_caustics_view.py's accumulate_field /
+// underwater_rgb). causticAt = last-update timestamp for the status line.
+const CAUSTIC_W = 126, CAUSTIC_H = 112;
+const causticON = new Float32Array(CAUSTIC_W * CAUSTIC_H);   // [y*W + x]
+const causticOFF = new Float32Array(CAUSTIC_W * CAUSTIC_H);
+let causticAt = 0;
+let causticLast = {xr: 0, yr: 0, pol: 0, strength: 0, flag: 0};
 
 // Latest tracker status, decoded from the dvs_track result stream. word0 packs
 // (locked<<24)|(cx<<16)|(cy<<8)|count; word1 packs (min_x<<24)|(min_y<<16)|(max_x<<8)|max_y.
@@ -362,6 +373,8 @@ function resetAppState() {
   dirCons = {flag: 0, z: 0, row: 0, col: 0, gdir: 0, at: 0};
   apophGrid.fill(0); apophAt = 0;
   sonarRings = []; sonarLast = {octant: 0, radius: 0, pol: 0, strength: 0, flag: 0, at: 0};
+  causticON.fill(0); causticOFF.fill(0); causticAt = 0;
+  causticLast = {xr: 0, yr: 0, pol: 0, strength: 0, flag: 0};
   appEnergy.fill(0); pendingApp.length = 0; appTail = [];
 }
 
@@ -492,6 +505,7 @@ function renderApp() {
   if (loadedApp === 'dvs_mayfly') paintMayfly();
   else if (loadedApp === 'dvs_apophenia') paintApophenia();
   else if (loadedApp === 'dvs_sonar') paintSonar();
+  else if (loadedApp === 'dvs_caustics') paintCaustics(!paused);
   else paint(appImage, appEnergy, palette);
   appCtx.putImageData(appImage,0,0);
   if (loadedApp === 'dvs_sonar' && appActive) drawSonarRings();
@@ -640,6 +654,46 @@ function drawSonarRings() {
   appCtx.globalAlpha = 1;
 }
 
+// dvs_caustics: the app IS a shimmering underwater caustic field. The decoder
+// splats each refracted sample into the ON/OFF float fields; here we apply a gentle
+// per-frame multiplicative fade (so the water ripples/shimmers even between splats)
+// and paint the two fields with a blue/cyan "underwater light" colormap -- OFF ->
+// deep blue, ON -> bright cyan. Bit-faithful counterpart of dvs_caustics_view.py's
+// underwater_rgb(). Replaces the event background (like mayfly/sonar) so the liquid
+// light fills the stage. `advance` gates the fade so a paused view holds still.
+const CAUSTIC_FRAME_DECAY = 0.94;   // per-frame field fade (shimmer between splats)
+function paintCaustics(advance: boolean) {
+  if (advance) {
+    for (let i = 0; i < causticON.length; i++) { causticON[i] *= CAUSTIC_FRAME_DECAY; causticOFF[i] *= CAUSTIC_FRAME_DECAY; }
+  }
+  // Peak-normalise so the field stays legible regardless of stream rate.
+  let peak = 0;
+  for (let i = 0; i < causticON.length; i++) { const t = causticON[i] + causticOFF[i]; if (t > peak) peak = t; }
+  const inv = peak > 0 ? 1 / peak : 0;
+  // Paint the 112(w) x 126(h) canvas by sampling the 126(w) x 112(h) sensor field
+  // through mapEvent so it honours the orientation selector. Canvas index is
+  // (row*112 + col).
+  for (let sy = 0; sy < CAUSTIC_H; sy++) {
+    for (let sx = 0; sx < CAUSTIC_W; sx++) {
+      const idx = sy * CAUSTIC_W + sx;
+      const on = causticON[idx] * inv, off = causticOFF[idx] * inv;
+      const t = Math.min(1, on + off);
+      // Underwater gradient: dark navy backdrop -> cyan-white as intensity rises;
+      // ON warms/brightens toward cyan, OFF deepens the blue.
+      let r = 0.02 + 0.20 * on + 0.05 * t;
+      let g = 0.06 + 0.55 * t + 0.30 * on;
+      let b = 0.12 + 0.85 * t + 0.10 * off;
+      const veil = Math.min(1, t * 3.0);
+      r = 0.01 * (1 - veil) + r * veil;
+      g = 0.03 * (1 - veil) + g * veil;
+      b = 0.07 * (1 - veil) + b * veil;
+      const {row, col} = mapEvent(sx, sy);
+      if (row < 0 || row >= 126 || col < 0 || col >= 112) continue;
+      appImage.data.set([r * 255, g * 255, b * 255, 255], (row * 112 + col) * 4);
+    }
+  }
+}
+
 // 8-octant unit vector (x right, y down); N (dy<0) points up. Shared by the
 // stabilize + dir-consensus arrows (matches the mirrors' `dirs` table).
 const OCTANT_VEC: [number, number][] = [[1,0],[1,-1],[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1]];
@@ -741,6 +795,14 @@ const APP_OVERLAYS: Record<string, () => void> = {
     q('#app-status').textContent = (fresh && sonarLast.flag)
       ? `ping ${names[sonarLast.octant]} r=${sonarLast.radius} str=${sonarLast.strength} ${sonarLast.pol ? 'ON' : 'OFF'}`
       : (fresh ? `faint ${names[sonarLast.octant]} r=${sonarLast.radius}` : 'listening…');
+  },
+  dvs_caustics() {
+    // The caustic field IS the render (paintCaustics paints the background); no
+    // cell overlay. Just report the latest refracted splat so the status moves.
+    const fresh = performance.now() - causticAt < 1500;
+    q('#app-status').textContent = (fresh && causticLast.flag)
+      ? `caustic (${causticLast.xr},${causticLast.yr}) str=${causticLast.strength} ${causticLast.pol ? 'ON' : 'OFF'}`
+      : (fresh ? `faint (${causticLast.xr},${causticLast.yr})` : 'listening…');
   },
   dvs_oms_dirconsensus() {
     // 8x7 tiles, 16x16-px. Highlight the flagged tile + a global-dir arrow.
@@ -918,6 +980,32 @@ const APP_DECODERS: Record<string, (words: Uint32Array) => void> = {
       // are already retired each frame in drawSonarRings.
       if (sonarRings.length > 256) sonarRings.splice(0, sonarRings.length - 256);
       sonarLast = {octant, radius, pol, strength, flag, at: performance.now()};
+    }
+  },
+  // dvs_caustics_view.py unpack_status: xr=w&0x7F, yr=(w>>7)&0x7F, pol=(w>>14)&1,
+  // strength=(w>>15)&0x1F, flag=(w>>20)&1. Each word splats a refracted sample into
+  // the ON/OFF caustic fields (additive gaussian, brightness by strength/flag);
+  // paintCaustics fades + paints them. Mirror of accumulate_field().
+  dvs_caustics(words) {
+    for (const w of words) {
+      const xr = w & 0x7f, yr = (w >>> 7) & 0x7f, pol = (w >>> 14) & 1;
+      const strength = (w >>> 15) & 0x1f, flag = (w >>> 20) & 1;
+      if (xr >= CAUSTIC_W || yr >= CAUSTIC_H) continue;
+      const amp = (0.25 + 0.75 * (strength / 31)) * (flag ? 1 : 0.35);
+      // Additive 3x3 gaussian-ish splat around (xr,yr) into the polarity field.
+      const field = pol ? causticON : causticOFF;
+      for (let dy = -2; dy <= 2; dy++) {
+        const yy = yr + dy;
+        if (yy < 0 || yy >= CAUSTIC_H) continue;
+        for (let dx = -2; dx <= 2; dx++) {
+          const xx = xr + dx;
+          if (xx < 0 || xx >= CAUSTIC_W) continue;
+          const g = Math.exp(-(dx * dx + dy * dy) / (2 * 2.2 * 2.2));
+          field[yy * CAUSTIC_W + xx] += amp * g;
+        }
+      }
+      causticLast = {xr, yr, pol, strength, flag};
+      causticAt = performance.now();
     }
   },
   // dvs_oms_dirconsensus_ref.py: word = (flag<<14)|(zc<<9)|(row<<6)|(col<<3)|gdir.

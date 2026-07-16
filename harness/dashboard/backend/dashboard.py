@@ -79,6 +79,10 @@ APP_REGISTRY = {
         "prog": "dvs_sonar", "label": "Radial Sonar",
         "blurb": "Radial Motion Oracle: per-batch dominant octant/radius drawn as expanding, fading sonar rings from centre.",
         "params": []},
+    "dvs_caustics": {
+        "prog": "dvs_caustics", "label": "Caustic Refractor",
+        "blurb": "Event-Caustic Refractor: events warped through a wavy sine-LUT water surface into a shimmering, decaying underwater light-caustic field.",
+        "params": []},
     "dvs_oms_meister": {
         "prog": "dvs_oms_meister", "label": "OMS Meister",
         "blurb": "Object-motion-sensitivity heat over an 8x8 grid.",
