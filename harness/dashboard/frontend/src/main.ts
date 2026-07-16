@@ -133,6 +133,18 @@ const ENTROPY_HIST = 96;                          // windows kept in the D chart
 let entropyHist: {fwd: number, rev: number}[] = [];
 let entropyLast = {fwd: 0, rev: 0, verdict: 0, wseq: 0};
 let entropyAt = 0;
+// dvs_widdershins ("The Widdershins Engine"): each status word carries the
+// latched winding state {oct, valid, wind, turns, wseq, radq} (bit-faithful
+// with dvs_widdershins_view.py's unpack_status; wind is a 12-bit and turns an
+// 8-bit two's-complement field -- sign-extend on decode). wind accumulates
+// circular octant differences of a median tracker around frame centre
+// (eighth-turns; >0 deosil/clockwise-on-screen, <0 widdershins); turns =
+// wind>>3 floor. We keep one history sample per wseq change (i.e. per sample
+// period) for the scrolling wind chart; widderAt = last-update timestamp.
+const WIDDER_HIST = 112;                          // samples kept in the wind chart (one per band column)
+let widderHist: number[] = [];
+let widderLast = {oct: 0, valid: 0, wind: 0, turns: 0, wseq: 0, radq: 0};
+let widderAt = 0;
 
 // Latest tracker status, decoded from the dvs_track result stream. word0 packs
 // (locked<<24)|(cx<<16)|(cy<<8)|count; word1 packs (min_x<<24)|(min_y<<16)|(max_x<<8)|max_y.
@@ -430,6 +442,7 @@ function resetAppState() {
   loomON.fill(0); loomOFF.fill(0); loomWeft = 0; loomAt = 0;
   loomLast = {slit: 3, y: 0, pol: 0, weft: 0, flag: 0};
   entropyHist = []; entropyLast = {fwd: 0, rev: 0, verdict: 0, wseq: 0}; entropyAt = 0;
+  widderHist = []; widderLast = {oct: 0, valid: 0, wind: 0, turns: 0, wseq: 0, radq: 0}; widderAt = 0;
   appEnergy.fill(0); pendingApp.length = 0; appTail = [];
 }
 
@@ -565,6 +578,7 @@ function renderApp() {
   else if (loadedApp === 'dvs_flinch') paintFlinch(!paused);
   else if (loadedApp === 'dvs_loom') paintLoom();
   else if (loadedApp === 'dvs_entropy') paintEntropy();
+  else if (loadedApp === 'dvs_widdershins') paintWiddershins();
   else paint(appImage, appEnergy, palette);
   appCtx.putImageData(appImage,0,0);
   if (loadedApp === 'dvs_sonar' && appActive) drawSonarRings();
@@ -940,6 +954,53 @@ function paintEntropy() {
   }
 }
 
+// dvs_widdershins: the app IS a brass compass + winding gauge, drawn on the
+// 112(w) x 126(h) display buffer: a dial ring centred at (56,50) with dim
+// octant-boundary ticks (octant 0 = East/right, index increasing clockwise on
+// screen, matching the firmware's y-down octant classifier), and a scrolling
+// per-sample wind history band along the bottom (newest at the right, gold
+// above the centre line for deosil/positive wind, indigo below for
+// widdershins/negative, scale +/-1023). The needle itself is vector-drawn by
+// the dvs_widdershins overlay. Counterpart of dvs_widdershins_view.py's
+// render_widdershins(). Like entropy/loom this is an abstract gauge (not
+// spatially registered), so it ignores the orientation selector.
+const WIDDER_CX = 56, WIDDER_CY = 50, WIDDER_R = 40;   // dial centre + radius
+const WIDDER_CAP = 1023;                               // |wind| full-scale
+const WIDDER_CHART_Y = 110, WIDDER_CHART_HALF = 14;    // history band centre row + half-height
+function paintWiddershins() {
+  for (let i = 0; i < 112 * 126; i++) appImage.data.set([13, 11, 16, 255], i * 4);
+  const px = (row: number, col: number, r: number, g: number, b: number) => {
+    if (row >= 0 && row < 126 && col >= 0 && col < 112)
+      appImage.data.set([r, g, b, 255], (row * 112 + col) * 4);
+  };
+  // Dial ring.
+  for (let row = WIDDER_CY - WIDDER_R - 2; row <= WIDDER_CY + WIDDER_R + 2; row++)
+    for (let col = WIDDER_CX - WIDDER_R - 2; col <= WIDDER_CX + WIDDER_R + 2; col++) {
+      const r = Math.hypot(col - WIDDER_CX, row - WIDDER_CY);
+      if (Math.abs(r - WIDDER_R) < 1.2) px(row, col, 51, 45, 64);
+    }
+  // Octant-boundary ticks at 0, 45, 90, ... degrees (E, SE, S, ... on screen).
+  for (let k = 0; k < 8; k++) {
+    const a = k * Math.PI / 4, ux = Math.cos(a), uy = Math.sin(a);
+    for (let t = WIDDER_R - 5; t < WIDDER_R - 1; t++)
+      px(Math.round(WIDDER_CY + uy * t), Math.round(WIDDER_CX + ux * t), 70, 62, 88);
+  }
+  // Scrolling wind history band (one column per sample, newest at the right).
+  for (let col = 0; col < 112; col++) px(WIDDER_CHART_Y, col, 40, 36, 52);   // centre line
+  for (let col = 0; col < 112; col++) {
+    const h = widderHist.length - 112 + col;
+    if (h < 0) continue;
+    const wind = widderHist[h];
+    if (wind === 0) continue;
+    const len = Math.max(1, Math.min(WIDDER_CHART_HALF,
+      Math.round(Math.abs(wind) * WIDDER_CHART_HALF / WIDDER_CAP)));
+    for (let k = 1; k <= len; k++) {
+      if (wind > 0) px(WIDDER_CHART_Y - k, col, 232, 184, 75);   // deosil: gold, up
+      else px(WIDDER_CHART_Y + k, col, 90, 95, 212);             // widdershins: indigo, down
+    }
+  }
+}
+
 // 8-octant unit vector (x right, y down); N (dy<0) points up. Shared by the
 // stabilize + dir-consensus arrows (matches the mirrors' `dirs` table).
 const OCTANT_VEC: [number, number][] = [[1,0],[1,-1],[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1]];
@@ -1088,6 +1149,24 @@ const APP_OVERLAYS: Record<string, () => void> = {
       : entropyLast.verdict === 1 ? `TIME RUNS FORWARD (D=${sD}: fwd=${entropyLast.fwd}, rev=${entropyLast.rev})`
       : entropyLast.verdict === 2 ? `TIME RUNS BACKWARD (D=${sD}: fwd=${entropyLast.fwd}, rev=${entropyLast.rev})`
       : `undecided (D=${sD}, window ${entropyLast.wseq})`;
+  },
+  dvs_widdershins() {
+    // The compass + wind chart ARE the render (paintWiddershins paints the
+    // background); here we vector-draw the needle at the last valid octant's
+    // centre angle (45*oct + 22.5 degrees from East, clockwise on screen since
+    // the firmware classifies with y down), and report the winding state.
+    const fresh = performance.now() - widderAt < 1500;
+    if (fresh && widderLast.valid) {
+      const a = (45 * widderLast.oct + 22.5) * Math.PI / 180;
+      drawArrow(WIDDER_CX, WIDDER_CY, Math.cos(a), Math.sin(a), WIDDER_R - 8, '#e8b84b');
+    }
+    const w = widderLast.wind, sW = w >= 0 ? `+${w}` : `${w}`;
+    const sT = widderLast.turns >= 0 ? `+${widderLast.turns}` : `${widderLast.turns}`;
+    q('#app-status').textContent = !fresh ? 'winding the engine…'
+      : w >= 8 ? `DEOSIL wind=${sW} (${sT} turns)`
+      : w <= -8 ? `WIDDERSHINS wind=${sW} (${sT} turns)`
+      : widderLast.valid ? `unwound (wind=${sW}, oct ${widderLast.oct})`
+      : `unwound (wind=${sW}, still)`;
   },
   dvs_oms_dirconsensus() {
     // 8x7 tiles, 16x16-px. Highlight the flagged tile + a global-dir arrow.
@@ -1377,6 +1456,27 @@ const APP_DECODERS: Record<string, (words: Uint32Array) => void> = {
       }
       entropyLast = {fwd, rev, verdict, wseq};
       entropyAt = performance.now();
+    }
+  },
+  // dvs_widdershins_view.py unpack_status: oct=w&7, valid=(w>>3)&1,
+  // wind=(w>>4)&0xFFF sign-extended from 12 bits, turns=(w>>16)&0xFF
+  // sign-extended from 8 bits, wseq=(w>>24)&0xF, radq=(w>>28)&0xF. The latched
+  // state is re-emitted every batch; wseq only changes when a new sample fires,
+  // so we push one wind history sample per wseq change (mirror of
+  // render_widdershins()'s per-sample history collection) and always keep the
+  // freshest word for the needle/status.
+  dvs_widdershins(words) {
+    for (const w of words) {
+      const oct = w & 7, valid = (w >>> 3) & 1;
+      let wind = (w >>> 4) & 0xfff; if (wind >= 2048) wind -= 4096;
+      let turns = (w >>> 16) & 0xff; if (turns >= 128) turns -= 256;
+      const wseq = (w >>> 24) & 0xf, radq = (w >>> 28) & 0xf;
+      if (wseq !== widderLast.wseq) {
+        widderHist.push(wind);
+        if (widderHist.length > WIDDER_HIST) widderHist.splice(0, widderHist.length - WIDDER_HIST);
+      }
+      widderLast = {oct, valid, wind, turns, wseq, radq};
+      widderAt = performance.now();
     }
   },
   // dvs_oms_dirconsensus_ref.py: word = (flag<<14)|(zc<<9)|(row<<6)|(col<<3)|gdir.

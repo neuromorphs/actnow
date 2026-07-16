@@ -99,6 +99,10 @@ APP_REGISTRY = {
         "prog": "dvs_entropy", "label": "Entropy's Bloodhound",
         "blurb": "Arrow-of-time detector: per-pixel last-polarity memory counts same-pixel ON→OFF (decay) vs OFF→ON (kindle) transitions per window; the signed difference is a thermodynamic verdict needle (FORWARD / BACKWARD / UNDECIDED) — reversing the recording provably flips it, and symmetric hot-pixel chatter cancels exactly.",
         "params": []},
+    "dvs_widdershins": {
+        "prog": "dvs_widdershins", "label": "Widdershins Engine",
+        "blurb": "Communal winding-number counter: a median tracker follows the activity locus; its compass octant around frame centre is sampled on an event-count timebase and circular octant differences accumulate into a signed winding register — circle the camera deosil (clockwise) to wind it up, widdershins to unwind it; noise/stillness freeze it via a radius dead-zone.",
+        "params": []},
     "dvs_oms_meister": {
         "prog": "dvs_oms_meister", "label": "OMS Meister",
         "blurb": "Object-motion-sensitivity heat over an 8x8 grid.",
