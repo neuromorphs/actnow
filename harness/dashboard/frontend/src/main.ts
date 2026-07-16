@@ -105,6 +105,22 @@ let blackholeLast = {xq: 0, yq: 0, strength: 0, flag: 0};
 // = last-update timestamp for the status line.
 let flinchLast = {flinch: 0, level: 0, cx: 63, cy: 56, at: 0};
 let flinchShake = 0;      // screen-shake magnitude, kicked by a flinch, decays per frame
+// dvs_loom ("The Finish-Line Loom"): each status word carries one slit-scan
+// sample {slit, y, pol, weft, flag} (bit-faithful with dvs_loom_view.py's
+// unpack_status; slit=3 is a no-hit sentinel that still carries the live weft
+// so the loom keeps advancing). We weave three cloth strips over ON/OFF float
+// fields of shape [3 slits][SY=112 warp rows][WEFT_COLS=128 weft columns]
+// (mirror of weave_cloth: deposit 1.0 for flagged threads, 0.35 for faint,
+// max not sum). When the wrapping weft advances, the column it enters is
+// cleared in all strips so the loom overwrites the oldest cloth. loomAt =
+// last-update timestamp for the status line.
+const LOOM_SY = 112, LOOM_COLS = 128;
+const LOOM_SLIT_LABEL = ['x=21', 'x=61', 'x=101'];   // slit centre x labels
+const loomON = new Float32Array(3 * LOOM_SY * LOOM_COLS);    // [(slit*SY+y)*COLS+weft]
+const loomOFF = new Float32Array(3 * LOOM_SY * LOOM_COLS);
+let loomWeft = 0;
+let loomAt = 0;
+let loomLast = {slit: 3, y: 0, pol: 0, weft: 0, flag: 0};
 
 // Latest tracker status, decoded from the dvs_track result stream. word0 packs
 // (locked<<24)|(cx<<16)|(cy<<8)|count; word1 packs (min_x<<24)|(min_y<<16)|(max_x<<8)|max_y.
@@ -399,6 +415,8 @@ function resetAppState() {
   blackholeWell.fill(0); blackholeRing.fill(0); blackholeAt = 0;
   blackholeLast = {xq: 0, yq: 0, strength: 0, flag: 0};
   flinchLast = {flinch: 0, level: 0, cx: 63, cy: 56, at: 0}; flinchShake = 0;
+  loomON.fill(0); loomOFF.fill(0); loomWeft = 0; loomAt = 0;
+  loomLast = {slit: 3, y: 0, pol: 0, weft: 0, flag: 0};
   appEnergy.fill(0); pendingApp.length = 0; appTail = [];
 }
 
@@ -532,6 +550,7 @@ function renderApp() {
   else if (loadedApp === 'dvs_caustics') paintCaustics(!paused);
   else if (loadedApp === 'dvs_blackhole') paintBlackhole(!paused);
   else if (loadedApp === 'dvs_flinch') paintFlinch(!paused);
+  else if (loadedApp === 'dvs_loom') paintLoom();
   else paint(appImage, appEnergy, palette);
   appCtx.putImageData(appImage,0,0);
   if (loadedApp === 'dvs_sonar' && appActive) drawSonarRings();
@@ -821,6 +840,45 @@ function paintFlinch(advance: boolean) {
   }
 }
 
+// dvs_loom: the app IS three woven cloth strips (one per slit), stacked
+// vertically on the 112(w) x 126(h) display buffer: canvas col = warp row (y,
+// 0..111 -- exactly the canvas width), and each strip's 42 canvas rows span the
+// 128 weft columns (time). Each canvas row covers ~3 weft columns; we take the
+// MAX over that span so no thread is skipped by subsampling. ON threads warm
+// gold, OFF threads indigo, faint (flag=0) threads carry their 0.35 weight
+// already; the strip rows containing the live weft column are gently lit as
+// the shuttle cursor. Counterpart of dvs_loom_view.py's render_loom(). The
+// cloth is an abstract time-weave (not spatially registered), so like
+// apophenia it ignores the orientation selector.
+const LOOM_STRIP_H = 42;   // 3 strips * 42 rows = 126 canvas rows
+function paintLoom() {
+  for (let strip = 0; strip < 3; strip++) {
+    for (let r = 0; r < LOOM_STRIP_H; r++) {
+      const row = strip * LOOM_STRIP_H + r;
+      // Weft span covered by this canvas row (nearest-span, max-sampled).
+      const w0 = Math.floor(r * LOOM_COLS / LOOM_STRIP_H);
+      const w1 = Math.min(LOOM_COLS, Math.floor((r + 1) * LOOM_COLS / LOOM_STRIP_H));
+      const cursor = loomWeft >= w0 && loomWeft < w1;
+      const edge = r === LOOM_STRIP_H - 1;   // seam between strips
+      for (let col = 0; col < 112; col++) {
+        const base = (strip * LOOM_SY + col) * LOOM_COLS;
+        let on = 0, off = 0;
+        for (let w = w0; w < w1; w++) {
+          if (loomON[base + w] > on) on = loomON[base + w];
+          if (loomOFF[base + w] > off) off = loomOFF[base + w];
+        }
+        // Dark loom backdrop; gold ON thread / indigo OFF thread by max.
+        let rC = Math.max(0.05, 1.00 * on, 0.35 * off);
+        let gC = Math.max(0.04, 0.78 * on, 0.40 * off);
+        let bC = Math.max(0.07, 0.25 * on, 0.95 * off);
+        if (cursor) { rC = Math.min(1, rC + 0.10); gC = Math.min(1, gC + 0.09); bC = Math.min(1, bC + 0.04); }
+        if (edge) { rC *= 0.5; gC *= 0.5; bC *= 0.5; }
+        appImage.data.set([rC * 255, gC * 255, bC * 255, 255], (row * 112 + col) * 4);
+      }
+    }
+  }
+}
+
 // 8-octant unit vector (x right, y down); N (dy<0) points up. Shared by the
 // stabilize + dir-consensus arrows (matches the mirrors' `dirs` table).
 const OCTANT_VEC: [number, number][] = [[1,0],[1,-1],[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1]];
@@ -946,6 +1004,15 @@ const APP_OVERLAYS: Record<string, () => void> = {
     q('#app-status').textContent = (fresh && flinchLast.flinch)
       ? `FLINCH! looming @(${flinchLast.cx},${flinchLast.cy})`
       : (fresh ? `tension ${flinchLast.level}/63 @(${flinchLast.cx},${flinchLast.cy})` : 'watching…');
+  },
+  dvs_loom() {
+    // The woven cloth IS the render (paintLoom paints the background); no cell
+    // overlay. Just report the latest thread sample so the status line moves.
+    const fresh = performance.now() - loomAt < 1500;
+    q('#app-status').textContent = !fresh ? 'warping the loom…'
+      : loomLast.slit === 3 ? `weft ${loomLast.weft} (no thread)`
+      : `${loomLast.flag ? 'thread' : 'faint thread'} slit ${LOOM_SLIT_LABEL[loomLast.slit]} `
+        + `y=${loomLast.y} ${loomLast.pol ? 'ON' : 'OFF'} @weft ${loomLast.weft}`;
   },
   dvs_oms_dirconsensus() {
     // 8x7 tiles, 16x16-px. Highlight the flagged tile + a global-dir arrow.
@@ -1192,6 +1259,31 @@ const APP_DECODERS: Record<string, (words: Uint32Array) => void> = {
       const cx = (w >>> 7) & 0x7f, cy = (w >>> 14) & 0x7f;
       flinchLast = {flinch, level, cx, cy, at: performance.now()};
       if (flinch) flinchShake = 5;   // kick the recoil (decays in paintFlinch)
+    }
+  },
+  // dvs_loom_view.py unpack_status: slit=w&3, y=(w>>2)&0x7F, pol=(w>>9)&1,
+  // weft=(w>>10)&0x7F, flag=(w>>17)&1. slit=3 is a no-hit sentinel that still
+  // carries the live weft. Mirror of weave_cloth(): deposit max(1.0 flagged /
+  // 0.35 faint) at [slit, y, weft]; when the wrapping weft advances, clear the
+  // column it enters in all strips so the loom overwrites the oldest cloth.
+  dvs_loom(words) {
+    for (const w of words) {
+      const slit = w & 3, y = (w >>> 2) & 0x7f, pol = (w >>> 9) & 1;
+      const weft = (w >>> 10) & 0x7f, flag = (w >>> 17) & 1;
+      if (weft !== loomWeft) {
+        loomWeft = weft;
+        for (let s = 0; s < 3; s++) for (let yy = 0; yy < LOOM_SY; yy++) {
+          const idx = (s * LOOM_SY + yy) * LOOM_COLS + weft;
+          loomON[idx] = 0; loomOFF[idx] = 0;
+        }
+      }
+      loomLast = {slit, y, pol, weft, flag};
+      loomAt = performance.now();
+      if (slit === 3 || y >= LOOM_SY) continue;   // sentinel only advances the weft
+      const idx = (slit * LOOM_SY + y) * LOOM_COLS + weft;
+      const wgt = flag ? 1.0 : 0.35;
+      const field = pol ? loomON : loomOFF;
+      if (wgt > field[idx]) field[idx] = wgt;
     }
   },
   // dvs_oms_dirconsensus_ref.py: word = (flag<<14)|(zc<<9)|(row<<6)|(col<<3)|gdir.
