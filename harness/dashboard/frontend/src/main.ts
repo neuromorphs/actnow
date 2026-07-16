@@ -97,6 +97,14 @@ const blackholeWell = new Float32Array(BH_W * BH_H);   // [y*W + x] dark implodi
 const blackholeRing = new Float32Array(BH_W * BH_H);   // [y*W + x] bright lensing halo
 let blackholeAt = 0;
 let blackholeLast = {xq: 0, yq: 0, strength: 0, flag: 0};
+// dvs_flinch ("The Flinch"): each status word carries the looming-detector state
+// {flinch, level, cx, cy} (bit-faithful with dvs_flinch_view.py unpack_status). The
+// app IS a giant eye: `level` (0..63) dilates the pupil (rising tension), `flinch`
+// snaps the lid shut + kicks a screen-shake recoil, and the gaze points toward the
+// focus of expansion (cx,cy). flinchShake decays each frame for the recoil; flinchAt
+// = last-update timestamp for the status line.
+let flinchLast = {flinch: 0, level: 0, cx: 63, cy: 56, at: 0};
+let flinchShake = 0;      // screen-shake magnitude, kicked by a flinch, decays per frame
 
 // Latest tracker status, decoded from the dvs_track result stream. word0 packs
 // (locked<<24)|(cx<<16)|(cy<<8)|count; word1 packs (min_x<<24)|(min_y<<16)|(max_x<<8)|max_y.
@@ -390,6 +398,7 @@ function resetAppState() {
   causticLast = {xr: 0, yr: 0, pol: 0, strength: 0, flag: 0};
   blackholeWell.fill(0); blackholeRing.fill(0); blackholeAt = 0;
   blackholeLast = {xq: 0, yq: 0, strength: 0, flag: 0};
+  flinchLast = {flinch: 0, level: 0, cx: 63, cy: 56, at: 0}; flinchShake = 0;
   appEnergy.fill(0); pendingApp.length = 0; appTail = [];
 }
 
@@ -522,6 +531,7 @@ function renderApp() {
   else if (loadedApp === 'dvs_sonar') paintSonar();
   else if (loadedApp === 'dvs_caustics') paintCaustics(!paused);
   else if (loadedApp === 'dvs_blackhole') paintBlackhole(!paused);
+  else if (loadedApp === 'dvs_flinch') paintFlinch(!paused);
   else paint(appImage, appEnergy, palette);
   appCtx.putImageData(appImage,0,0);
   if (loadedApp === 'dvs_sonar' && appActive) drawSonarRings();
@@ -747,6 +757,70 @@ function paintBlackhole(advance: boolean) {
   }
 }
 
+// dvs_flinch: the app IS a giant eye. The decoder just latches the freshest
+// {flinch, level, cx, cy}; here we DRAW the eye straight into the display buffer
+// (126 rows x 112 cols). `level` (0..63) sets the iris tension + pupil dilation, the
+// gaze points toward the mapped focus (cx,cy), and a flinch snaps the lid shut over a
+// red flash while `flinchShake` kicks a screen-shake recoil that decays per frame.
+// Counterpart of dvs_flinch_view.py's eye_rgb(). `advance` gates the shake decay so a
+// paused view holds still. Replaces the event background (like caustics/blackhole).
+const FLINCH_SHAKE_DECAY = 0.80;
+function paintFlinch(advance: boolean) {
+  const H = 126, W = 112;                  // display buffer geometry (row=x, col=y)
+  const ecx0 = W / 2, ecy0 = H / 2;
+  // Screen-shake: a small deterministic wobble that decays each frame.
+  if (advance) flinchShake *= FLINCH_SHAKE_DECAY;
+  if (flinchShake < 0.05) flinchShake = 0;
+  const t = performance.now() / 40;
+  const shx = flinchShake * Math.sin(t * 1.7);
+  const shy = flinchShake * Math.cos(t * 2.3) * 0.6;
+  const ecx = ecx0 + shx, ecy = ecy0 + shy;
+
+  const level = flinchLast.level, flinch = flinchLast.flinch;
+  const tension = level / 63;
+  // Gaze: map the sensor-space focus (cx,cy) into display space, offset from centre.
+  const focus = mapEvent(flinchLast.cx, flinchLast.cy);   // {row,col} in [0,126)x[0,112)
+  const gx = ecx + (focus.col - ecy0) * 0.5;
+  const gy = ecy + (focus.row - ecx0) * 0.5;
+
+  const eyeR = Math.min(W, H) * 0.46;
+  const irisR = eyeR * 0.5;
+  const pupilR = eyeR * (0.12 + 0.30 * tension);   // pupil dilates with level
+  const fresh = performance.now() - flinchLast.at < 2000;
+
+  for (let row = 0; row < H; row++) {
+    for (let col = 0; col < W; col++) {
+      const dx = col - ecx, dy = row - ecy;
+      const rEye = Math.sqrt(dx * dx + dy * dy);
+      const sclera = Math.max(0, Math.min(1, 1 - (rEye - eyeR) / 3));
+      const rpx = col - gx, rpy = row - gy;
+      const rp = Math.sqrt(rpx * rpx + rpy * rpy);
+      const iris = Math.max(0, Math.min(1, 1 - (rp - irisR) / 4)) * sclera;
+      const pupil = Math.max(0, Math.min(1, 1 - (rp - pupilR) / 2)) * sclera;
+
+      // Dark backdrop -> off-white sclera -> amber/red iris -> black pupil.
+      let r = 0.03, g = 0.03, b = 0.05;
+      r = r * (1 - sclera) + 0.92 * sclera;
+      g = g * (1 - sclera) + 0.90 * sclera;
+      b = b * (1 - sclera) + 0.85 * sclera;
+      const irR = 0.60 + 0.40 * tension, irG = 0.45 * (1 - tension) + 0.10, irB = 0.10;
+      r = r * (1 - iris) + irR * iris;
+      g = g * (1 - iris) + irG * iris;
+      b = b * (1 - iris) + irB * iris;
+      r *= (1 - pupil); g *= (1 - pupil); b *= (1 - pupil);
+
+      // Flinch: the lid slams shut (a horizontal slit) over a red flash.
+      if (fresh && flinch) {
+        const lid = Math.max(0, Math.min(1, 1 - Math.abs(row - ecy) / (H * 0.06)));
+        r = r * lid + 0.25 * (1 - lid);
+        g = g * lid + 0.02 * (1 - lid);
+        b = b * lid + 0.02 * (1 - lid);
+      }
+      appImage.data.set([Math.min(255, r * 255), Math.min(255, g * 255), Math.min(255, b * 255), 255], (row * W + col) * 4);
+    }
+  }
+}
+
 // 8-octant unit vector (x right, y down); N (dy<0) points up. Shared by the
 // stabilize + dir-consensus arrows (matches the mirrors' `dirs` table).
 const OCTANT_VEC: [number, number][] = [[1,0],[1,-1],[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1]];
@@ -864,6 +938,14 @@ const APP_OVERLAYS: Record<string, () => void> = {
     q('#app-status').textContent = (fresh && blackholeLast.flag)
       ? `black hole @(${blackholeLast.xq},${blackholeLast.yq}) depth=${blackholeLast.strength}`
       : (fresh ? `faint collapse @(${blackholeLast.xq},${blackholeLast.yq})` : 'listening…');
+  },
+  dvs_flinch() {
+    // The giant eye IS the render (paintFlinch paints the background); no cell
+    // overlay. Just report the looming state so the status line moves.
+    const fresh = performance.now() - flinchLast.at < 1500;
+    q('#app-status').textContent = (fresh && flinchLast.flinch)
+      ? `FLINCH! looming @(${flinchLast.cx},${flinchLast.cy})`
+      : (fresh ? `tension ${flinchLast.level}/63 @(${flinchLast.cx},${flinchLast.cy})` : 'watching…');
   },
   dvs_oms_dirconsensus() {
     // 8x7 tiles, 16x16-px. Highlight the flagged tile + a global-dir arrow.
@@ -1099,6 +1181,17 @@ const APP_DECODERS: Record<string, (words: Uint32Array) => void> = {
           blackholeRing[yy * BH_W + xx] += Math.exp(-((rr - halo) * (rr - halo)) / (2 * 2 * 2)) * depth;
         }
       }
+    }
+  },
+  // dvs_flinch_view.py unpack_status: flinch=w&1, level=(w>>1)&0x3F, cx=(w>>7)&0x7F,
+  // cy=(w>>14)&0x7F. The eye is drawn by paintFlinch; here we just latch the freshest
+  // state and kick the screen-shake on a flinch pulse. Mirror of unpack_status().
+  dvs_flinch(words) {
+    for (const w of words) {
+      const flinch = w & 1, level = (w >>> 1) & 0x3f;
+      const cx = (w >>> 7) & 0x7f, cy = (w >>> 14) & 0x7f;
+      flinchLast = {flinch, level, cx, cy, at: performance.now()};
+      if (flinch) flinchShake = 5;   // kick the recoil (decays in paintFlinch)
     }
   },
   // dvs_oms_dirconsensus_ref.py: word = (flag<<14)|(zc<<9)|(row<<6)|(col<<3)|gdir.

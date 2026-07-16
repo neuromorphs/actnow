@@ -87,6 +87,10 @@ APP_REGISTRY = {
         "prog": "dvs_blackhole", "label": "Micro Black Holes",
         "blurb": "Micro-Event Black Holes: coarse two-EMA density per region; where motion was busy then abruptly COLLAPSES (an object stops/leaves) it emits a dark imploding well with a gravitational-lensing ring.",
         "params": []},
+    "dvs_flinch": {
+        "prog": "dvs_flinch", "label": "The Flinch",
+        "blurb": "Locust LGMD looming detector: a giant eye that tracks the covered AREA over a coarse cell grid and FLINCHES (blink + screen-shake) when something LUNGES at the camera (area grows), ignoring pans/waves (constant area) and receding objects (area shrinks).",
+        "params": []},
     "dvs_oms_meister": {
         "prog": "dvs_oms_meister", "label": "OMS Meister",
         "blurb": "Object-motion-sensitivity heat over an 8x8 grid.",
