@@ -145,6 +145,18 @@ const WIDDER_HIST = 112;                          // samples kept in the wind ch
 let widderHist: number[] = [];
 let widderLast = {oct: 0, valid: 0, wind: 0, turns: 0, wseq: 0, radq: 0};
 let widderAt = 0;
+// dvs_vital ("The Vitalometer"): each status word carries the latched
+// alive-vs-mechanism state {pbin, spread, total, verdict, wseq} (bit-faithful
+// with dvs_vital_view.py's unpack_status). spread = #IBI half-octave log-bins
+// above the peak>>3 floor in the last completed 1024-event window (metronome
+// -> 1-2 bins, living jitter/drift -> many); total = confirmed inter-burst
+// intervals in that window; verdict 0=DORMANT, 1=MECHANISM, 2=ALIVE,
+// 3=LIMINAL. We keep one history sample per wseq change (i.e. per completed
+// window) for the scrolling spread chart; vitalAt = last-update timestamp.
+const VITAL_HIST = 112;                           // windows kept in the spread chart (one per band column)
+let vitalHist: {spread: number, verdict: number}[] = [];
+let vitalLast = {pbin: 0, spread: 0, total: 0, verdict: 0, wseq: 0};
+let vitalAt = 0;
 
 // Latest tracker status, decoded from the dvs_track result stream. word0 packs
 // (locked<<24)|(cx<<16)|(cy<<8)|count; word1 packs (min_x<<24)|(min_y<<16)|(max_x<<8)|max_y.
@@ -443,6 +455,7 @@ function resetAppState() {
   loomLast = {slit: 3, y: 0, pol: 0, weft: 0, flag: 0};
   entropyHist = []; entropyLast = {fwd: 0, rev: 0, verdict: 0, wseq: 0}; entropyAt = 0;
   widderHist = []; widderLast = {oct: 0, valid: 0, wind: 0, turns: 0, wseq: 0, radq: 0}; widderAt = 0;
+  vitalHist = []; vitalLast = {pbin: 0, spread: 0, total: 0, verdict: 0, wseq: 0}; vitalAt = 0;
   appEnergy.fill(0); pendingApp.length = 0; appTail = [];
 }
 
@@ -579,6 +592,7 @@ function renderApp() {
   else if (loadedApp === 'dvs_loom') paintLoom();
   else if (loadedApp === 'dvs_entropy') paintEntropy();
   else if (loadedApp === 'dvs_widdershins') paintWiddershins();
+  else if (loadedApp === 'dvs_vital') paintVital();
   else paint(appImage, appEnergy, palette);
   appCtx.putImageData(appImage,0,0);
   if (loadedApp === 'dvs_sonar' && appActive) drawSonarRings();
@@ -1001,6 +1015,60 @@ function paintWiddershins() {
   }
 }
 
+// dvs_vital: the app IS a séance gauge, drawn on the 112(w) x 126(h) display
+// buffer: a big verdict lamp (filled disc) at the top coloured by the latched
+// verdict (DORMANT=dim, MECHANISM=steel, ALIVE=green, LIMINAL=gold), a
+// scrolling per-window spread history chart below it (one column per window,
+// newest at the right, bar height = spread 0..32 growing upward, coloured by
+// that window's own verdict, dim guide rows at the SPREAD_MECH and
+// SPREAD_ALIVE thresholds), and a bottom bar meter of the latched confirmed-
+// IBI total (scale 0..255). Counterpart of dvs_vital_view.py's render_vital().
+// Like entropy/widdershins this is an abstract gauge (not spatially
+// registered), so it ignores the orientation selector.
+const VITAL_MECH = 2, VITAL_ALIVE = 5;                 // spread verdict thresholds
+const VITAL_TOTAL_CAP = 255;                           // |total| full-scale
+const VITAL_LAMP_Y = 34, VITAL_LAMP_X = 56, VITAL_LAMP_R = 24;   // lamp centre + radius
+const VITAL_CHART_BASE = 105, VITAL_CHART_ROWS = 32;   // chart baseline row + height (1 row per spread unit)
+const VITAL_COLOURS: [number, number, number][] =      // per-verdict RGB
+  [[85, 85, 102], [138, 148, 166], [95, 212, 138], [232, 184, 75]];
+function paintVital() {
+  for (let i = 0; i < 112 * 126; i++) appImage.data.set([13, 11, 16, 255], i * 4);
+  const px = (row: number, col: number, r: number, g: number, b: number) => {
+    if (row >= 0 && row < 126 && col >= 0 && col < 112)
+      appImage.data.set([r, g, b, 255], (row * 112 + col) * 4);
+  };
+  // Verdict lamp: filled disc + thin rim, coloured by the latched verdict.
+  const [lr, lg, lb] = VITAL_COLOURS[vitalLast.verdict];
+  for (let row = VITAL_LAMP_Y - VITAL_LAMP_R - 1; row <= VITAL_LAMP_Y + VITAL_LAMP_R + 1; row++)
+    for (let col = VITAL_LAMP_X - VITAL_LAMP_R - 1; col <= VITAL_LAMP_X + VITAL_LAMP_R + 1; col++) {
+      const r = Math.hypot(col - VITAL_LAMP_X, row - VITAL_LAMP_Y);
+      if (r < VITAL_LAMP_R - 1) px(row, col, lr >> 1, lg >> 1, lb >> 1);   // dimmed fill
+      else if (r < VITAL_LAMP_R + 0.5) px(row, col, lr, lg, lb);           // bright rim
+    }
+  // Spread history chart: guide rows at the two thresholds, then one column
+  // per completed window (newest at the right), bar height = spread.
+  for (let col = 0; col < 112; col++) {
+    px(VITAL_CHART_BASE, col, 40, 36, 52);                          // baseline
+    px(VITAL_CHART_BASE - VITAL_MECH, col, 60, 64, 74);             // MECHANISM guide
+    px(VITAL_CHART_BASE - VITAL_ALIVE, col, 46, 84, 62);            // ALIVE guide
+  }
+  for (let col = 0; col < 112; col++) {
+    const h = vitalHist.length - 112 + col;
+    if (h < 0) continue;
+    const {spread, verdict} = vitalHist[h];
+    if (spread === 0) continue;
+    const [br, bg, bb] = VITAL_COLOURS[verdict];
+    const len = Math.min(VITAL_CHART_ROWS, spread);
+    for (let k = 1; k <= len; k++) px(VITAL_CHART_BASE - k, col, br, bg, bb);
+  }
+  // Confirmed-IBI total meter (0..255 across the full width).
+  const tLen = Math.round(vitalLast.total * 111 / VITAL_TOTAL_CAP);
+  for (let row = 114; row <= 120; row++) {
+    px(row, 0, 60, 50, 30); px(row, 111, 60, 50, 30);               // track ends
+    for (let col = 0; col <= tLen; col++) px(row, col, 232, 184, 75);
+  }
+}
+
 // 8-octant unit vector (x right, y down); N (dy<0) points up. Shared by the
 // stabilize + dir-consensus arrows (matches the mirrors' `dirs` table).
 const OCTANT_VEC: [number, number][] = [[1,0],[1,-1],[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1]];
@@ -1167,6 +1235,23 @@ const APP_OVERLAYS: Record<string, () => void> = {
       : w <= -8 ? `WIDDERSHINS wind=${sW} (${sT} turns)`
       : widderLast.valid ? `unwound (wind=${sW}, oct ${widderLast.oct})`
       : `unwound (wind=${sW}, still)`;
+  },
+  dvs_vital() {
+    // The lamp + spread chart ARE the render (paintVital paints the background);
+    // no cell overlay. When freshly ALIVE, vector-draw a soft pulsing halo ring
+    // around the lamp so life visibly breathes; then report the verdict.
+    const fresh = performance.now() - vitalAt < 1500;
+    if (fresh && vitalLast.verdict === 2) {
+      const pulse = 3 + 2 * Math.sin(performance.now() / 300);
+      appCtx.strokeStyle = 'rgba(95,212,138,0.6)'; appCtx.lineWidth = 1;
+      appCtx.beginPath();
+      appCtx.arc(VITAL_LAMP_X, VITAL_LAMP_Y, VITAL_LAMP_R + pulse, 0, 2 * Math.PI);
+      appCtx.stroke();
+    }
+    const names = ['DORMANT', 'MECHANISM', 'ALIVE', 'LIMINAL'];
+    q('#app-status').textContent = !fresh ? 'taking the pulse…'
+      : vitalLast.verdict === 0 ? `DORMANT (only ${vitalLast.total} confirmed bursts)`
+      : `${names[vitalLast.verdict]} (spread=${vitalLast.spread} bins, ${vitalLast.total} IBIs, peak bin ${vitalLast.pbin})`;
   },
   dvs_oms_dirconsensus() {
     // 8x7 tiles, 16x16-px. Highlight the flagged tile + a global-dir arrow.
@@ -1477,6 +1562,24 @@ const APP_DECODERS: Record<string, (words: Uint32Array) => void> = {
       }
       widderLast = {oct, valid, wind, turns, wseq, radq};
       widderAt = performance.now();
+    }
+  },
+  // dvs_vital_view.py unpack_status: pbin=w&0x1F, spread=(w>>5)&0x3F,
+  // total=(w>>11)&0xFF, verdict=(w>>19)&3, wseq=(w>>21)&0xF. The latched
+  // window stats are re-emitted every batch; wseq only changes when a new
+  // window latches, so we push one history sample per wseq change (mirror of
+  // render_vital()'s per-window history collection) and always keep the
+  // freshest word for the lamp/status.
+  dvs_vital(words) {
+    for (const w of words) {
+      const pbin = w & 0x1f, spread = (w >>> 5) & 0x3f, total = (w >>> 11) & 0xff;
+      const verdict = (w >>> 19) & 3, wseq = (w >>> 21) & 0xf;
+      if (wseq !== vitalLast.wseq) {
+        vitalHist.push({spread, verdict});
+        if (vitalHist.length > VITAL_HIST) vitalHist.splice(0, vitalHist.length - VITAL_HIST);
+      }
+      vitalLast = {pbin, spread, total, verdict, wseq};
+      vitalAt = performance.now();
     }
   },
   // dvs_oms_dirconsensus_ref.py: word = (flag<<14)|(zc<<9)|(row<<6)|(col<<3)|gdir.

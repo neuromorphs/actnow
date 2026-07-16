@@ -103,6 +103,10 @@ APP_REGISTRY = {
         "prog": "dvs_widdershins", "label": "Widdershins Engine",
         "blurb": "Communal winding-number counter: a median tracker follows the activity locus; its compass octant around frame centre is sampled on an event-count timebase and circular octant differences accumulate into a signed winding register — circle the camera deosil (clockwise) to wind it up, widdershins to unwind it; noise/stillness freeze it via a radius dead-zone.",
         "params": []},
+    "dvs_vital": {
+        "prog": "dvs_vital", "label": "The Vitalometer",
+        "blurb": "Alive-or-mechanism séance gauge from burst TIMING only (position-invariant): confirmed inter-burst intervals fill a 32-bin half-octave log histogram per window; a tight spread reads MECHANISM (metronome), a wide spread reads ALIVE (jitter/drift), too few confirmed bursts reads DORMANT — dense sparkle never pauses long enough to form bursts and singleton noise never confirms one, so noise cannot fake a pulse.",
+        "params": []},
     "dvs_oms_meister": {
         "prog": "dvs_oms_meister", "label": "OMS Meister",
         "blurb": "Object-motion-sensitivity heat over an 8x8 grid.",
