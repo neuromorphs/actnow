@@ -225,15 +225,19 @@ class Dashboard:
         reply = await self.upload_and_reload()
         return {"ok": True, "diagnostics": [], "board": reply}
 
-    async def track(self, radius=None, correlation=None):
+    async def track(self, radius=None, correlation=None, window=None, algo=None):
         # Build+apply the dvs_track firmware. Its result stream carries centroid
         # and bounding-box status words instead of per-event echoes; the browser
         # overlays them on the raw DVS tap in the tracking view.
         flags = []
+        if algo is not None:
+            flags.append(f"-DTRACK_ALGO={1 if int(algo) else 0}")
         if radius is not None:
             flags.append(f"-DGATE_RADIUS={max(4, min(126, int(radius)))}")
         if correlation is not None:
             flags.append(f"-DCORR_MIN={max(0, min(8, int(correlation)))}")
+        if window is not None:
+            flags.append(f"-DTRACK_N={max(16, min(512, int(window)))}")
         cflags = " ".join(flags) or None
         # The .elf depends only on sources, not on CFLAGS, so a changed radius or
         # correlation would otherwise be ignored as "up to date" -- force a fresh
@@ -386,7 +390,9 @@ async def make_app(args):
                 result = await dashboard.control({"command": "reset"})
             elif name == "track":
                 result = await dashboard.track(payload.get("radius"),
-                                               payload.get("correlation"))
+                                               payload.get("correlation"),
+                                               payload.get("window"),
+                                               payload.get("algo"))
             elif name == "reconnect":
                 await dashboard.deploy()
                 result = {"ok": True}

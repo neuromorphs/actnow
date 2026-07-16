@@ -1,108 +1,68 @@
 #include <stdint.h>
 
 /* chips/fpga variant that tracks a single moving object's real position,
-   instead of software/dvs_motion/main.c's coarse 4x4-grid argmax (which
-   can only report "which 32x32 block moved") or software/dvs_timesurface/
-   main.c's per-cell recency map (which reports *when* every cell was last
-   touched, not *where the object is*). Same interrupt/FIFO wiring: fifo_in
-   fires event_id_0 once BATCH words land, isr_handler reads BATCH words --
-   but here every event updates a running centroid estimate and a
-   this-window bounding box, and only a status summary is written out
-   every DUMP_INTERVAL batches, not a per-event echo.
+   instead of software/dvs_motion/main.c's coarse 4x4-grid argmax or
+   software/dvs_timesurface/main.c's per-cell recency map. Same interrupt/FIFO
+   wiring: fifo_in fires event_id_0 once BATCH words land, isr_handler reads
+   BATCH words -- and every DUMP_INTERVAL batches writes a status summary
+   (centre + bounding box), not a per-event echo.
 
-   This core has no multiply/divide (see dvs_rotate/main.c's header), so
-   the centroid can't be a literal sum-of-x / count. Instead it's an
-   exponential moving average (EMA) -- a standard multiply-free "leaky
-   integrator" estimator: each event nudges the running estimate a
-   1/2^EMA_SHIFT fraction of the way toward its own (x,y), via a single
-   subtract-then-shift-then-add:
+   Two tracking algorithms live here, chosen at build time by TRACK_ALGO so the
+   dashboard's algorithm dropdown can switch between them (the output ABI is
+   identical either way):
 
-       ema_x += (x - ema_x) >> EMA_SHIFT
+     TRACK_ALGO=1 (default) -- median + MAD. This core has no hardware multiply,
+       divide, or sqrt (see dvs_rotate/main.c's header), so isr_handler keeps a
+       ring buffer of the last TRACK_N surviving events' (x,y) and, at each dump,
+       reports the *median* x and y as the centre (robust to stray events,
+       computed multiply/divide-free by a counting histogram whose cumulative
+       count crossing fill/2 is the median) and a box = median +/- BOX_K * MAD,
+       where MAD (median absolute deviation, the median of |x-median_x|) is the
+       standard robust, multiply-free stand-in for standard deviation
+       (std ~= 1.4826*MAD). TRACK_N (default 256, -DTRACK_N=N) is the window
+       length; BOX_K=2 ~= 1.35 sigma, a tight box around the object core.
 
-   ema_x/ema_y are kept in FRAC-bit fixed point (values scaled up by
-   1<<FRAC before the shift) so the >>EMA_SHIFT rounding doesn't quantize
-   the estimate to a dead integer step and get stuck a pixel or two off --
-   the fractional remainder that would otherwise be discarded stays live
-   in the low FRAC bits and keeps accumulating. This is the same
-   coordinate-decay idea dvs_motion's grid already uses (halve, then add),
-   just applied to a running position estimate instead of a per-cell
-   activity counter.
+     TRACK_ALGO=0 -- EMA centroid + min/max box. The centre is a multiply-free
+       exponential moving average, ema += (x - ema) >> EMA_SHIFT, kept in
+       FRAC-bit fixed point; the box is the plain min/max x/y of the surviving
+       events this window. Cheaper, but the min/max box is not robust: one stray
+       event stretches it, so on a busy scene it saturates toward the whole frame.
 
-   Alongside the centroid, isr_handler tracks the plain min/max x and y of
-   every event seen since the last dump -- a real bounding box of this
-   window's activity, cheap (comparisons only) and exact (unlike the
-   smoothed centroid). window_count (events since last dump) becomes the
-   "locked" flag: fewer than LOCK_THRESHOLD events in a window means there
-   wasn't enough activity to trust the box/centroid, so a consumer
-   (e.g. a servo loop centering a camera on the tracked object, or a UI
-   drawing a tracking box) knows to ignore a stale/empty reading instead
-   of quietly acting on noise.
-
-   Every DUMP_INTERVAL=64 batches (256 events), isr_handler writes two
-   status words to the output FIFO, both plain byte-packed fields (each
-   coordinate fits under 128, so one byte per field, MSB-first):
+   Every DUMP_INTERVAL=64 batches (256 events) isr_handler writes two byte-packed
+   status words (each coordinate fits under 128, one byte per field, MSB-first):
 
      word 0: (locked<<24) | (cx<<16) | (cy<<8) | count_capped
      word 1: (min_x<<24)  | (min_y<<16) | (max_x<<8) | max_y
 
-   then resets the bounding box and window_count for the next window (the
-   centroid EMA is *not* reset -- it's a continuously-running estimate, not
-   a per-window one).
+   window_count (surviving events since the last dump) drives `locked`
+   (>= LOCK_THRESHOLD) and the `count` byte, so a consumer can ignore a
+   stale/empty reading. For TRACK_ALGO=1 the sliding window is not reset at a
+   dump (it keeps sliding); for TRACK_ALGO=0 the min/max box is reset each dump
+   and the EMA runs continuously.
 
-   Noise filtering (spatio-temporal correlation): a real event-camera sensor
-   produces background-activity noise -- spatially isolated spurious events
-   scattered across the array -- and can have hot pixels that fire at a high
-   rate regardless of the scene. Left unfiltered, that scattered activity
-   blows win_min/max out toward the frame edges every window and drags the EMA
-   centroid around. isr_handler rejects it with a spatio-temporal correlation
-   filter, after jAER's SpatioTemporalCorrelationFilter (Guo & Delbruck,
-   T-PAMI 2022) and this project's own software/dvs_denoise/main.c: a real
-   moving edge lights up a spatial neighbourhood of cells close together in
-   time, while noise fires alone with no correlated neighbour.
+   Noise filtering (spatio-temporal correlation), shared by both algorithms: a
+   real event-camera sensor produces background-activity noise -- spatially
+   isolated spurious events -- and hot pixels. isr_handler rejects them with a
+   spatio-temporal correlation filter after jAER's SpatioTemporalCorrelationFilter
+   (Guo & Delbruck, T-PAMI 2022) and this project's software/dvs_denoise/main.c.
+   Over the same 32x28 4x4-pixel grid (CELL_SHIFT=2, GRID_CELLS=896),
+   last_touched[cell] holds the event index a cell was last touched at. An event
+   survives only if at least CORR_MIN of the eight cells in its 3x3 neighbourhood
+   -- *excluding the cell itself* -- were touched within the last CORR_WINDOW
+   events. Excluding self rejects hot pixels too: a stuck pixel firing into a
+   quiet neighbourhood finds no support and is dropped. last_touched is updated
+   for every event, even dropped ones, which lets a genuine new region bootstrap.
+   "now" is isr_handler's own event counter, not a hardware timestamp (this rig
+   has no per-event wall-clock; see dvs_timesurface's header). CORR_WINDOW=30 and
+   CORR_MIN=2 (jAER's default) are overridable (-DCORR_WINDOW=N / -DCORR_MIN=N);
+   CORR_MIN=0 disables the filter.
 
-   Over the same 32x28 4x4-pixel grid software/dvs_denoise/main.c uses
-   (CELL_SHIFT=2, GRID_CELLS=896), last_touched[cell] holds the event index
-   that cell was last touched at. An event survives only if at least CORR_MIN
-   of the eight cells in its 3x3 grid neighbourhood -- *excluding the cell
-   itself* -- were touched within the last CORR_WINDOW events. Excluding self
-   is what lets this reject hot pixels too, where dvs_denoise (which counts the
-   cell itself) cannot: a stuck pixel re-firing into a quiet neighbourhood
-   finds no support and is dropped, however fast it fires. last_touched is
-   updated for every event, even dropped ones -- that unconditional record is
-   what lets a genuine new region bootstrap, since the first event of a fresh
-   edge seeds its cell for a second, nearby event arriving moments later to
-   correlate against (same reasoning as dvs_denoise's header).
-
-   "now" is isr_handler's own event counter, not a hardware timestamp -- the
-   same event-count-as-time proxy dvs_denoise and dvs_timesurface use (this
-   rig has no per-event wall-clock; see dvs_timesurface's header). CORR_WINDOW
-   =30 events and CORR_MIN=2 correlated neighbours (jAER's own default) are
-   reasonable starting points, both overridable at build time
-   (-DCORR_WINDOW=N / -DCORR_MIN=N) so the dashboard's correlation control can
-   retune the filter without editing this file; CORR_MIN=0 disables it.
-
-   Tracking gate: without it, win_min/max is a literal min/max over every
-   surviving event in the window, and on a real busy scene that saturates
-   to nearly the whole SXxSY frame almost every window -- correct as
-   defined, but useless as "where is the object" (verified against a real
-   173k-event handheld recording: bounding boxes like (30,0)-(125,71) or
-   (4,52)-(125,111), i.e. most of the sensor, every window). isr_handler
-   now only lets an event feed the centroid/bbox/window_count if it's
-   within GATE_RADIUS (Chebyshev distance, multiply-free like dvs_rotate's
-   rotation) of the *current* ema_x/ema_y -- a standard tracking-gate
-   technique: reject measurements far from the predicted state as
-   "probably not the tracked object" rather than folding every scattered
-   event in the frame into one box.
-
-   The gate only activates once a window has actually locked onto
-   something (gate_active is set to the previous window's `locked` value
-   at each dump) -- if it stayed on unconditionally from a cold start, an
-   object that first appears far from the initial center-of-frame seed
-   would have every one of its events rejected as "too far," and the
-   estimate would never move to find it. So the gate opens back up wide
-   (accepts everything) any time the previous window failed to lock,
-   letting the tracker search the whole frame again to reacquire, and
-   narrows back down once it's found something worth trusting. */
+   Tracking gate, shared by both algorithms: once a window has locked
+   (gate_active = the previous window's `locked`), an event is admitted only if
+   it is within GATE_RADIUS (Chebyshev distance, multiply-free) of the current
+   centre -- rejecting measurements far from the predicted state. The gate opens
+   wide again after any window that fails to lock, so the tracker can reacquire an
+   object that appears far from the centre-of-frame seed. -DGATE_RADIUS=N. */
 
 #define ADDR(base, offset) ((volatile uint32_t *)(((uint32_t)(base) << 16) | (uint32_t)(offset)))
 
@@ -119,30 +79,39 @@
 
 /* Input event ABI. The harness packs camera events exactly as evt_pack.v does
    on real hardware -- and as software/application/main.c decodes them:
-   x in bits [30:24], y in bits [23:17], timestamp in [16:1], polarity in [0].
-   Reading x/y from the low bits instead (as an earlier revision did) happens to
-   match the chips/fpga sim's direct fifo_push captures, but on the FPGA it reads
-   the timestamp/polarity bits -- so the centroid and box track noise, not the
-   object. The sim event sources are packed this same way; see the e2e tests. */
+   x in bits [30:24], y in bits [23:17], timestamp in [16:1], polarity in [0]. */
 #define X_SHIFT 24
 #define Y_SHIFT 17
-
-#define FRAC      4   /* fractional bits kept in the EMA's fixed-point accumulator */
-#define EMA_SHIFT 3   /* leaky-integrator rate: each event closes 1/8 of the gap to the centroid */
 
 #define DUMP_INTERVAL  64   /* batches; power of 2 -- batch_count & (DUMP_INTERVAL-1) tests "every 64th" */
 #define LOCK_THRESHOLD 32   /* events needed in a window to report "locked" instead of a stale/empty box */
 
-/* Correlation-filter grid -- same 4x4-pixel cells as software/dvs_denoise/
-   main.c and software/dvs_timesurface/main.c (CELL_SHIFT=2: 126>>2=31,
-   112>>2=27, both within GRID_COLS=32/GRID_ROWS=28). */
+/* Which tracker: 1 = median + MAD (robust, default), 0 = EMA centroid + min/max
+   box (old). Overridable via -DTRACK_ALGO=N from the dashboard's algorithm
+   dropdown. */
+#ifndef TRACK_ALGO
+#define TRACK_ALGO 1
+#endif
+
+#if TRACK_ALGO == 0
+#define FRAC      4   /* fractional bits kept in the EMA's fixed-point accumulator */
+#define EMA_SHIFT 3   /* leaky-integrator rate: each event closes 1/8 of the gap to the centroid */
+#else
+/* Sliding window of the last TRACK_N surviving events for the median/MAD. */
+#ifndef TRACK_N
+#define TRACK_N 256
+#endif
+#define BOX_K 2   /* box half-width = BOX_K * MAD (constant -> compiler strength-reduces the multiply) */
+#endif
+
+/* Correlation-filter grid -- same 4x4-pixel cells as software/dvs_denoise/main.c
+   (CELL_SHIFT=2: 126>>2=31, 112>>2=27, within GRID_COLS=32/GRID_ROWS=28). */
 #define CELL_SHIFT 2
 #define GRID_COLS  32
 #define GRID_ROWS  28
 #define GRID_CELLS (GRID_COLS * GRID_ROWS)   /* = 896 */
 
-/* Spatio-temporal correlation noise filter -- see header. Both overridable at
-   build time so the dashboard's correlation control can retune them live. */
+/* Spatio-temporal correlation noise filter -- see header. Both overridable. */
 #ifndef CORR_WINDOW
 #define CORR_WINDOW 30   /* events; temporal window a neighbour must have fired within to count as recent */
 #endif
@@ -150,32 +119,46 @@
 #define CORR_MIN 2       /* of 8 neighbours that must be recent for an event to survive; 0 disables the filter */
 #endif
 
-/* Chebyshev distance from the current centroid an event must stay within, once
-   locked. Overridable at build time (-DGATE_RADIUS=N), which is how the
-   dashboard's tracking-radius control retunes the gate without editing this file. */
+/* Chebyshev distance from the current centre an event must stay within, once
+   locked. -DGATE_RADIUS=N from the dashboard's tracking-radius control. */
 #ifndef GATE_RADIUS
 #define GATE_RADIUS 50
 #endif
 
-static int32_t ema_x_fp, ema_y_fp;             /* Q(FRAC) fixed-point running centroid */
-static int32_t win_min_x, win_min_y, win_max_x, win_max_y;
-static uint32_t window_count;
+static uint32_t window_count;               /* surviving events since the last dump (drives locked/count) */
 static uint32_t batch_count;
-static uint32_t gate_active;   /* set from the previous window's `locked` -- see header */
+static uint32_t gate_active;                /* set from the previous window's `locked` -- see header */
 
 static uint32_t last_touched[GRID_CELLS];   /* event index each cell was last touched at; 0 = never */
 static uint32_t event_count;                /* "now": total events seen -- the time proxy (see header) */
+
+#if TRACK_ALGO == 0
+static int32_t ema_x_fp, ema_y_fp;          /* Q(FRAC) fixed-point running centroid */
+static int32_t win_min_x, win_min_y, win_max_x, win_max_y;
+#else
+static int32_t med_x, med_y;                /* current median centre (integer sensor coords) */
+static uint8_t ring_x[TRACK_N], ring_y[TRACK_N];   /* sliding window of the last TRACK_N surviving events */
+static uint32_t ring_pos;                   /* next write slot in the ring */
+static uint32_t ring_fill;                  /* events in the ring so far (caps at TRACK_N) */
+static uint16_t hx[SX], hy[SY];             /* counting histograms, reused for value- and deviation-medians */
+#endif
 
 static int is_recent(uint32_t last, uint32_t now) {
     return (last != 0) && ((now - last) <= CORR_WINDOW);
 }
 
-static void reset_window(void) {
-    win_min_x = SX; win_max_x = -1;   /* max_x staying -1 after a dump means "no events this window" */
-    win_min_y = SY; win_max_y = -1;
-    window_count = 0;
-    /* last_touched is a rolling temporal record, not per-window -- not reset here. */
+#if TRACK_ALGO == 1
+/* Median of a counting histogram h[len] holding `fill` samples: the bin at which
+   the cumulative count first passes fill/2. Multiply/divide-free. */
+static int32_t hist_median(uint16_t *h, int32_t len, uint32_t fill) {
+    uint32_t half = fill >> 1, acc = 0;
+    for (int32_t v = 0; v < len; v++) {
+        acc += h[v];
+        if (acc > half) return v;
+    }
+    return 0;
 }
+#endif
 
 /* isr_handler must not call wfi() -- see software/application/main.c's
    isr_handler comment for why. */
@@ -217,8 +200,11 @@ static __attribute__((noinline)) void isr_handler(void) {
         }
 
         if (gate_active) {
-            int32_t cx_now = ema_x_fp >> FRAC;
-            int32_t cy_now = ema_y_fp >> FRAC;
+#if TRACK_ALGO == 0
+            int32_t cx_now = ema_x_fp >> FRAC, cy_now = ema_y_fp >> FRAC;
+#else
+            int32_t cx_now = med_x, cy_now = med_y;
+#endif
             int32_t gdx = x - cx_now; if (gdx < 0) gdx = -gdx;
             int32_t gdy = y - cy_now; if (gdy < 0) gdy = -gdy;
             int32_t gdist = (gdx > gdy) ? gdx : gdy;
@@ -227,44 +213,102 @@ static __attribute__((noinline)) void isr_handler(void) {
             }
         }
 
+#if TRACK_ALGO == 0
         ema_x_fp += ((x << FRAC) - ema_x_fp) >> EMA_SHIFT;
         ema_y_fp += ((y << FRAC) - ema_y_fp) >> EMA_SHIFT;
-
         if (x < win_min_x) win_min_x = x;
         if (x > win_max_x) win_max_x = x;
         if (y < win_min_y) win_min_y = y;
         if (y > win_max_y) win_max_y = y;
+#else
+        /* push into the sliding window of the last TRACK_N surviving events */
+        ring_x[ring_pos] = (uint8_t)x;
+        ring_y[ring_pos] = (uint8_t)y;
+        ring_pos++;
+        if (ring_pos >= TRACK_N) ring_pos = 0;   /* wrap without a modulo */
+        if (ring_fill < TRACK_N) ring_fill++;
+#endif
         window_count++;
     }
 
     batch_count++;
     if ((batch_count & (DUMP_INTERVAL - 1)) == 0) {
-        uint32_t cx = (uint32_t)(ema_x_fp >> FRAC);
-        uint32_t cy = (uint32_t)(ema_y_fp >> FRAC);
+        uint32_t cx, cy;
+        int32_t bx0, by0, bx1, by1;
+
+#if TRACK_ALGO == 0
+        cx = (uint32_t)(ema_x_fp >> FRAC);
+        cy = (uint32_t)(ema_y_fp >> FRAC);
+        int32_t have_box = (win_max_x >= 0);
+        bx0 = have_box ? win_min_x : 0;
+        by0 = have_box ? win_min_y : 0;
+        bx1 = have_box ? win_max_x : 0;
+        by1 = have_box ? win_max_y : 0;
+#else
+        int32_t mad_x = 0, mad_y = 0;
+        if (ring_fill > 0) {
+            for (int32_t b = 0; b < SX; b++) hx[b] = 0;
+            for (uint32_t i = 0; i < ring_fill; i++) hx[ring_x[i]]++;
+            med_x = hist_median(hx, SX, ring_fill);
+            for (int32_t b = 0; b < SX; b++) hx[b] = 0;
+            for (uint32_t i = 0; i < ring_fill; i++) {
+                int32_t d = (int32_t)ring_x[i] - med_x; if (d < 0) d = -d;
+                hx[d]++;
+            }
+            mad_x = hist_median(hx, SX, ring_fill);
+
+            for (int32_t b = 0; b < SY; b++) hy[b] = 0;
+            for (uint32_t i = 0; i < ring_fill; i++) hy[ring_y[i]]++;
+            med_y = hist_median(hy, SY, ring_fill);
+            for (int32_t b = 0; b < SY; b++) hy[b] = 0;
+            for (uint32_t i = 0; i < ring_fill; i++) {
+                int32_t d = (int32_t)ring_y[i] - med_y; if (d < 0) d = -d;
+                hy[d]++;
+            }
+            mad_y = hist_median(hy, SY, ring_fill);
+        }
+        cx = (uint32_t)med_x;
+        cy = (uint32_t)med_y;
+        int32_t hxw = BOX_K * mad_x, hyw = BOX_K * mad_y;
+        bx0 = med_x - hxw; if (bx0 < 0) bx0 = 0;
+        bx1 = med_x + hxw; if (bx1 > SX - 1) bx1 = SX - 1;
+        by0 = med_y - hyw; if (by0 < 0) by0 = 0;
+        by1 = med_y + hyw; if (by1 > SY - 1) by1 = SY - 1;
+#endif
+
         uint32_t count_capped = (window_count > 255) ? 255u : window_count;
         uint32_t locked = (window_count >= LOCK_THRESHOLD) ? 1u : 0u;
 
-        int32_t have_box = (win_max_x >= 0);
-        uint32_t bx0 = have_box ? (uint32_t)win_min_x : 0u;
-        uint32_t by0 = have_box ? (uint32_t)win_min_y : 0u;
-        uint32_t bx1 = have_box ? (uint32_t)win_max_x : 0u;
-        uint32_t by1 = have_box ? (uint32_t)win_max_y : 0u;
-
         *FIFO_OUT = (locked << 24) | (cx << 16) | (cy << 8) | count_capped;
-        *FIFO_OUT = (bx0 << 24) | (by0 << 16) | (bx1 << 8) | by1;
+        *FIFO_OUT = ((uint32_t)bx0 << 24) | ((uint32_t)by0 << 16) |
+                    ((uint32_t)bx1 << 8) | (uint32_t)by1;
 
         gate_active = locked;
-        reset_window();
+#if TRACK_ALGO == 0
+        win_min_x = SX; win_max_x = -1;   /* reset the per-window min/max box */
+        win_min_y = SY; win_max_y = -1;
+#endif
+        window_count = 0;   /* per-window count resets; the median window keeps sliding */
     }
 }
 
 void main(void) {
-    ema_x_fp = (int32_t)((SX / 2) << FRAC);
-    ema_y_fp = (int32_t)((SY / 2) << FRAC);
-    reset_window();
+    window_count = 0;
     batch_count = 0;
     event_count = 0;
     gate_active = 0;   /* wide open on a cold start -- no track yet to gate around */
+
+#if TRACK_ALGO == 0
+    ema_x_fp = (int32_t)((SX / 2) << FRAC);   /* centre-of-frame seed */
+    ema_y_fp = (int32_t)((SY / 2) << FRAC);
+    win_min_x = SX; win_max_x = -1;
+    win_min_y = SY; win_max_y = -1;
+#else
+    med_x = SX / 2;   /* centre-of-frame seed until the first window locks */
+    med_y = SY / 2;
+    ring_pos = 0;
+    ring_fill = 0;
+#endif
 
     for (uint32_t c = 0; c < GRID_CELLS; c++) {
         last_touched[c] = 0;

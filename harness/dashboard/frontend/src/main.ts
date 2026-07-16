@@ -260,7 +260,9 @@ async function firmwareAction(name: string) {
   try {
     const payload = name === 'build' || name === 'apply' ? {source: currentSource()}
       : name === 'track' ? {radius: Number(q<HTMLInputElement>('#radius').value),
-                            correlation: Number(q<HTMLInputElement>('#correlation').value)} : {};
+                            correlation: Number(q<HTMLInputElement>('#correlation').value),
+                            window: Number(q<HTMLInputElement>('#window').value),
+                            algo: Number(q<HTMLSelectElement>('#algo').value)} : {};
     const result = await api(name, payload);
     if (name === 'build' || name === 'apply') { dirty = false; q('#dirty-state').textContent = 'Saved'; showDiagnostics(result.diagnostics || []); }
     // Loading the application firmware turns the result stream back into event
@@ -572,6 +574,8 @@ q('#track-start').onclick = () => firmwareAction('track');
 for (const id of ['decay','fps']) q<HTMLInputElement>(`#${id}`).oninput = e => q(`#${id}-value`).textContent = (e.target as HTMLInputElement).value + (id==='decay'?'%':'');
 q<HTMLInputElement>('#radius').oninput = e => q('#radius-value').textContent = (e.target as HTMLInputElement).value;
 q<HTMLInputElement>('#correlation').oninput = e => q('#correlation-value').textContent = (e.target as HTMLInputElement).value;
+q<HTMLInputElement>('#window').oninput = e => q('#window-value').textContent = (e.target as HTMLInputElement).value;
+q<HTMLSelectElement>('#algo').onchange = e => q<HTMLInputElement>('#window').disabled = (e.target as HTMLSelectElement).value !== '1';   // Window N only applies to the median algo
 q<HTMLInputElement>('#density').oninput = e => q('#density-value').textContent = (e.target as HTMLInputElement).value;
 q<HTMLInputElement>('#denoise').oninput = e => q('#denoise-value').textContent = (e.target as HTMLInputElement).value;
 q<HTMLInputElement>('#spike-sound').onchange = e => enableSpikeAudio((e.target as HTMLInputElement).checked);

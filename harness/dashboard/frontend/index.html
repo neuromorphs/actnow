@@ -21,10 +21,12 @@
         </section>
         <section id="track-controls">
           <div class="section-title">Object tracker</div>
+          <label>Algorithm <select id="algo"><option value="1">Median + MAD box</option><option value="0">EMA + min/max box</option></select></label>
           <label>Gate radius <output id="radius-value">50</output><input id="radius" type="range" min="4" max="126" value="50"></label>
           <label>Correlation <output id="correlation-value">2</output><input id="correlation" type="range" min="0" max="8" value="2"></label>
+          <label>Window N <output id="window-value">256</output><input id="window" type="range" min="16" max="512" step="16" value="256"></label>
           <button id="track-start" class="primary">Load tracker firmware</button>
-          <p class="hint">Runs <code>dvs_track</code> on the core and overlays its bounding box on the raw event tap. <b>Gate radius</b> bounds how far from the centroid an event may be; <b>Correlation</b> is the spatio-temporal noise filter — how many of an event's 8 neighbours must have fired recently for it to survive (0 = off, 2 = jAER default). Both take effect when you load the tracker.</p>
+          <p class="hint">Runs <code>dvs_track</code> on the core and overlays its box on the raw event tap. The centre is the <b>median</b> event location and the box is sized by the spread (median absolute deviation) of the last <b>Window N</b> events around it. <b>Gate radius</b> bounds how far from the centre an event may count; <b>Correlation</b> is the spatio-temporal noise filter (0 = off, 2 = jAER default). All take effect when you load the tracker.</p>
           <label>Min events <output id="min-events-value">18</output><input id="min-events" type="range" min="0" max="200" value="18"></label>
           <p class="hint">Reject a window as noise unless it collected at least this many events — filters flickery low-activity boxes. Applies live; no reload needed.</p>
           <label class="check"><input id="show-track" type="checkbox" checked> Show tracking box</label>

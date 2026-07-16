@@ -109,8 +109,8 @@ defproc e2e_fpga_track_hotpixel_test() {
         c.fifo_push!int(1981939712, WIDTH_DATA); c.fifo_push!int(1818492928, WIDTH_DATA); c.fifo_push!int(1399062528, WIDTH_DATA); c.fifo_push!int(2031878144, WIDTH_DATA);
 
         log("--- dump triggered at batch 64: popping status + bbox words ---");
-        fout.pop?result; assert(result = 21704484, "status word: want 21704484 (locked=1 cx=75 cy=47 count=36 -- all 40 hot-pixel events dropped), got ", result);
-        fout.pop?result; assert(result = 957249113, "bbox word: want 957249113 (min=57,14 max=118,89 -- hot pixel at (10,10) excluded), got ", result);
+        fout.pop?result; assert(result = 22094372, "status word: want 22094372 (locked=1 cx=81 cy=34 count=36 -- median; all 40 hot-pixel events dropped), got ", result);
+        fout.pop?result; assert(result = 923429690, "bbox word: want 923429690 (min=55,10 max=107,58 -- median +/- 2*MAD, hot pixel at (10,10) excluded), got ", result);
 
         log("======== dvs track hot-pixel filter test complete ========")
     }

@@ -18,11 +18,12 @@ import "gen/file_ids.act";
 // main.c's header for the exact packing and the EMA-centroid/window-bbox
 // math. Both are asserted against the same math computed in Python when
 // this file was generated (spatio-temporal correlation filter with
-// CORR_WINDOW=30/CORR_MIN=2, FRAC=4 fixed-point EMA, EMA_SHIFT=3, plain
-// min/max bounding box over the surviving events, LOCK_THRESHOLD=32),
-// proving the ISR's tracker matches the reference model bit-for-bit. The
-// correlation filter drops the scattered events, so count=40 (of 256) and
-// the box is tight around the moving object, not the whole frame.
+// CORR_WINDOW=30/CORR_MIN=2, then over the last TRACK_N=256 surviving events:
+// median x/y for the centre and box = median +/- BOX_K=2 * MAD, where MAD is
+// the median absolute deviation; LOCK_THRESHOLD=32), proving the ISR's tracker
+// matches the reference model bit-for-bit. The correlation filter drops the
+// scattered events, so count=40 (of 256) and the median/MAD box is a robust,
+// tight box around the moving object, not the whole frame.
 defproc e2e_fpga_track_test() {
     core<4> c;
 
@@ -110,8 +111,8 @@ defproc e2e_fpga_track_test() {
         c.fifo_push!int(1614020608, WIDTH_DATA); c.fifo_push!int(1462501376, WIDTH_DATA); c.fifo_push!int(1981153280, WIDTH_DATA); c.fifo_push!int(1868431360, WIDTH_DATA);
 
         log("--- dump triggered at batch 64: popping status + bbox words ---");
-        fout.pop?result; assert(result = 22425896, "status word: want 22425896 (locked=1 cx=86 cy=49 count=40), got ", result);
-        fout.pop?result; assert(result = 957249113, "bbox word: want 957249113 (min=57,14 max=118,89), got ", result);
+        fout.pop?result; assert(result = 22226472, "status word: want 22226472 (locked=1 cx=83 cy=38 count=40 -- cx,cy = median), got ", result);
+        fout.pop?result; assert(result = 990538562, "bbox word: want 990538562 (min=59,10 max=107,66 -- median +/- 2*MAD), got ", result);
 
         log("======== dvs track e2e test complete ========")
     }
