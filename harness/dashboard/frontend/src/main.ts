@@ -263,6 +263,37 @@ const WHIP_HIST = 112;
 let whipHist: {maxspeedbin: number, sonic: number}[] = [];
 let whipLast = {valid: 0, seq: 0, front_col: 0, sonic: 0, maxspeedbin: 0};
 let whipAt = 0;
+// dvs_coin ("Heads or Tails, Mid-Air"): each status word carries the latched
+// coin-toss prediction {prediction, halfturns, glint_count, apex_reached, valid, seq}
+// (bit-faithful with dvs_coin_view.py's unpack_status). prediction: 0=none,
+// 1=HEADS, 2=TAILS; halfturns=predicted remaining half-turns at apex;
+// glint_count=compact windows seen so far. We keep one history sample per seq
+// change (one per completed arc) for the scrolling glint chart; coinAt = last-
+// update timestamp.
+const COIN_HIST = 112;
+let coinHist: {glint_count: number, apex_reached: number, prediction: number}[] = [];
+let coinLast = {prediction: 0, halfturns: 0, glint_count: 0, apex_reached: 0, valid: 0, seq: 0};
+let coinAt = 0;
+// dvs_actuary ("The Actuary of Spinning Tops"): each status word carries the
+// latched spinning-top state {countdown, amplitude, period, valid, seq}
+// (bit-faithful with dvs_actuary_view.py's unpack_status). countdown 0..63
+// (0=no prediction); amplitude 0..255 wobble extent; period 0..127 in batches.
+// We keep one history sample per seq change (one per completed extent window)
+// for the scrolling amplitude chart; actuaryAt = last-update timestamp.
+const ACTUARY_HIST = 112;
+let actuaryHist: {amplitude: number, countdown: number, valid: number}[] = [];
+let actuaryLast = {countdown: 0, amplitude: 0, period: 0, valid: 0, seq: 0};
+let actuaryAt = 0;
+// dvs_necropsy ("Necropsy of a Pop"): each status word carries the latched
+// burst state {seq, burst, peak_speed, extent} (bit-faithful with
+// dvs_necropsy_view.py's unpack_status). seq 0..63 (0=pre-valid); burst=1 after
+// a measurement window completes; peak_speed 0..127 px/bin; extent 0..255 px.
+// We keep one history sample per seq change (one per completed measurement
+// window) for the scrolling speed chart; necropsyAt = last-update timestamp.
+const NECROPSY_HIST = 112;
+let necropsyHist: {peak_speed: number, burst: number}[] = [];
+let necropsyLast = {seq: 0, burst: 0, peak_speed: 0, extent: 0};
+let necropsyAt = 0;
 
 // Latest tracker status, decoded from the dvs_track result stream. word0 packs
 // (locked<<24)|(cx<<16)|(cy<<8)|count; word1 packs (min_x<<24)|(min_y<<16)|(max_x<<8)|max_y.
@@ -571,6 +602,9 @@ function resetAppState() {
   tremorHist = []; tremorLast = {freqbin: 0, ampbin: 0, card: 0, fortune: 0, valid: 0, seq: 0}; tremorAt = 0;
   seanceTrail = []; seanceLast = {px: 0, py: 0, vx_sign: 0, vy_sign: 0, speed: 0, seq: 0}; seanceAt = 0;
   whipHist = []; whipLast = {valid: 0, seq: 0, front_col: 0, sonic: 0, maxspeedbin: 0}; whipAt = 0;
+  coinHist = []; coinLast = {prediction: 0, halfturns: 0, glint_count: 0, apex_reached: 0, valid: 0, seq: 0}; coinAt = 0;
+  actuaryHist = []; actuaryLast = {countdown: 0, amplitude: 0, period: 0, valid: 0, seq: 0}; actuaryAt = 0;
+  necropsyHist = []; necropsyLast = {seq: 0, burst: 0, peak_speed: 0, extent: 0}; necropsyAt = 0;
   appEnergy.fill(0); pendingApp.length = 0; appTail = [];
 }
 
@@ -717,6 +751,9 @@ function renderApp() {
   else if (loadedApp === 'dvs_tremor') paintTremor();
   else if (loadedApp === 'dvs_seance') paintSeance();
   else if (loadedApp === 'dvs_whip') paintWhip();
+  else if (loadedApp === 'dvs_coin') paintCoin();
+  else if (loadedApp === 'dvs_actuary') paintActuary();
+  else if (loadedApp === 'dvs_necropsy') paintNecropsy();
   else paint(appImage, appEnergy, palette);
   appCtx.putImageData(appImage,0,0);
   if (loadedApp === 'dvs_sonar' && appActive) drawSonarRings();
@@ -1789,6 +1826,226 @@ function paintWhip() {
   }
 }
 
+// dvs_coin: the app IS a toss arc + latched HEADS/TAILS stamp, drawn on the
+// 112(w) x 126(h) display buffer. Layout:
+//   rows 0..79  -- glint-count history chart: one column per batch, bar height
+//                  proportional to glint_count (0..63 growing up from row 79);
+//                  gold when apex reached, dim steel otherwise. A gold dot at
+//                  the apex column.
+//   rows 83..125 -- schematic toss arc: a parabola outline + a big HEADS/TAILS
+//                   stamp (or "?" until apex) centred in the lower panel.
+// Like quartz/gravity this is an abstract gauge; ignores orientation selector.
+const COIN_BG: [number, number, number]     = [8, 10, 16];
+const COIN_GOLD: [number, number, number]   = [232, 184, 75];
+const COIN_GREEN: [number, number, number]  = [95, 212, 138];
+const COIN_RED: [number, number, number]    = [212, 74, 74];
+const COIN_SILVER: [number, number, number] = [170, 185, 200];
+const COIN_DIM: [number, number, number]    = [42, 46, 56];
+const COIN_CHART_BASE = 79;
+const COIN_CHART_ROWS = 76;
+const COIN_ARC_TOP = 83;   // top row of the parabola panel
+function paintCoin() {
+  for (let i = 0; i < 112 * 126; i++) appImage.data.set([...COIN_BG, 255], i * 4);
+  const px = (row: number, col: number, r: number, g: number, b: number) => {
+    if (row >= 0 && row < 126 && col >= 0 && col < 112)
+      appImage.data.set([r, g, b, 255], (row * 112 + col) * 4);
+  };
+  // Baseline
+  for (let col = 0; col < 112; col++) px(COIN_CHART_BASE, col, ...COIN_DIM);
+  // Glint-count history: one column per batch (newest at the right)
+  for (let col = 0; col < 112; col++) {
+    const h = coinHist.length - 112 + col;
+    if (h < 0) continue;
+    const {glint_count, apex_reached, prediction} = coinHist[h];
+    const [br, bg2, bb] = apex_reached
+      ? (prediction === 1 ? COIN_GREEN : prediction === 2 ? COIN_RED : COIN_GOLD)
+      : COIN_SILVER;
+    const bar = Math.max(1, Math.min(COIN_CHART_ROWS, Math.round(glint_count * COIN_CHART_ROWS / 63)));
+    for (let k = 1; k <= bar; k++) px(COIN_CHART_BASE - k, col, br, bg2, bb);
+    // Gold dot at apex column
+    if (apex_reached) px(COIN_CHART_BASE - bar - 1, col, ...COIN_GOLD);
+  }
+  // Schematic parabola arc in the lower panel (rows COIN_ARC_TOP..125)
+  const arcH = 126 - COIN_ARC_TOP;   // ~43 rows
+  const arcMid = COIN_ARC_TOP + Math.round(arcH * 0.25);   // apex row
+  for (let col = 2; col < 110; col++) {
+    const t = (col - 56) / 54;   // -1..+1
+    const row = Math.round(arcMid + arcH * 0.7 * t * t);
+    if (row >= COIN_ARC_TOP && row < 126) px(row, col, ...COIN_SILVER);
+  }
+  // APEX dot
+  px(arcMid, 56, ...COIN_GOLD);
+  // Big HEADS/TAILS stamp (or ?) below the arc midpoint
+  const stampRow = arcMid + Math.round(arcH * 0.45);
+  const fresh = performance.now() - coinAt < 2000;
+  const [sr, sg, sb] = !fresh ? COIN_DIM
+    : coinLast.apex_reached && coinLast.prediction === 1 ? COIN_GREEN
+    : coinLast.apex_reached && coinLast.prediction === 2 ? COIN_RED
+    : COIN_DIM;
+  // Draw a 5x3 fat dot as the stamp indicator (we can't render text in ImageData)
+  for (let dr = -3; dr <= 3; dr++) for (let dc = -6; dc <= 6; dc++)
+    px(stampRow + dr, 56 + dc, sr, sg, sb);
+}
+
+// dvs_actuary: the app IS a coroner-report panel drawn on the 112(w) x 126(h)
+// display buffer. Layout:
+//   rows 0..59  -- amplitude history chart: one column per extent window,
+//                  bar height proportional to amplitude (0..255 growing up from
+//                  row 59); amber when valid, steel otherwise. A dim red guide
+//                  row at A_CRIT=80 (topple threshold).
+//   rows 63..95 -- big countdown number rendered as a filled disc (radius
+//                  proportional to countdown/63) coloured red→amber→green;
+//                  dim grey when invalid.
+//   rows 98..125 -- period bar (0..127 across full width), steel.
+// Like quartz/vital this is an abstract gauge; ignores orientation selector.
+const ACTUARY_BG: [number, number, number]    = [11, 13, 18];
+const ACTUARY_RED: [number, number, number]   = [212, 48, 48];
+const ACTUARY_AMBER: [number, number, number] = [232, 168, 58];
+const ACTUARY_GREEN: [number, number, number] = [95, 212, 138];
+const ACTUARY_STEEL: [number, number, number] = [138, 148, 166];
+const ACTUARY_DIM: [number, number, number]   = [42, 46, 56];
+const ACTUARY_CHART_BASE = 59;
+const ACTUARY_CHART_ROWS = 56;
+const ACTUARY_A_CRIT = 80;   // must match firmware A_CRIT
+const ACTUARY_LAMP_CX = 56, ACTUARY_LAMP_CY = 79, ACTUARY_LAMP_R = 16;
+const ACTUARY_PER_BASE = 122;
+const ACTUARY_PER_HEIGHT = 20;
+function paintActuary() {
+  for (let i = 0; i < 112 * 126; i++) appImage.data.set([...ACTUARY_BG, 255], i * 4);
+  const px = (row: number, col: number, r: number, g: number, b: number) => {
+    if (row >= 0 && row < 126 && col >= 0 && col < 112)
+      appImage.data.set([r, g, b, 255], (row * 112 + col) * 4);
+  };
+  // Baseline + A_CRIT guide
+  for (let col = 0; col < 112; col++) px(ACTUARY_CHART_BASE, col, ...ACTUARY_DIM);
+  const critRow = ACTUARY_CHART_BASE - Math.round(ACTUARY_A_CRIT * ACTUARY_CHART_ROWS / 255);
+  for (let col = 0; col < 112; col += 3) px(critRow, col, ...ACTUARY_RED);
+  // Amplitude history: one column per extent window, newest at the right
+  for (let col = 0; col < 112; col++) {
+    const h = actuaryHist.length - 112 + col;
+    if (h < 0) continue;
+    const {amplitude, countdown, valid} = actuaryHist[h];
+    const [br, bg2, bb] = valid ? ACTUARY_AMBER : ACTUARY_STEEL;
+    const bar = Math.max(1, Math.min(ACTUARY_CHART_ROWS, Math.round(amplitude * ACTUARY_CHART_ROWS / 255)));
+    for (let k = 1; k <= bar; k++) px(ACTUARY_CHART_BASE - k, col, br, bg2, bb);
+    // A small countdown pip at the bar top when valid
+    if (valid && countdown > 0) {
+      const pipLen = Math.max(1, Math.round(countdown * 20 / 63));
+      for (let k = 0; k < pipLen; k++) {
+        if (col + k < 112) px(ACTUARY_CHART_BASE - bar - 1, col + k, ...ACTUARY_RED);
+      }
+    }
+  }
+  // Countdown lamp: filled disc, radius proportional to countdown/63
+  const frac = actuaryLast.valid ? actuaryLast.countdown / 63 : 0;
+  const [lr, lg, lb] = !actuaryLast.valid ? ACTUARY_DIM
+    : frac < 0.3 ? ACTUARY_RED
+    : frac < 0.6 ? ACTUARY_AMBER
+    : ACTUARY_GREEN;
+  const lampR = Math.max(3, Math.round(frac * ACTUARY_LAMP_R));
+  for (let dr = -ACTUARY_LAMP_R; dr <= ACTUARY_LAMP_R; dr++)
+    for (let dc = -ACTUARY_LAMP_R; dc <= ACTUARY_LAMP_R; dc++) {
+      const r = Math.hypot(dc, dr);
+      if (r < lampR - 1) px(ACTUARY_LAMP_CY + dr, ACTUARY_LAMP_CX + dc, lr >> 1, lg >> 1, lb >> 1);
+      else if (r < lampR + 0.5) px(ACTUARY_LAMP_CY + dr, ACTUARY_LAMP_CX + dc, lr, lg, lb);
+      else if (r < ACTUARY_LAMP_R + 0.5) px(ACTUARY_LAMP_CY + dr, ACTUARY_LAMP_CX + dc, ...ACTUARY_DIM);
+    }
+  // Period bar (0..127 across full width 0..111)
+  const perLen = Math.round(actuaryLast.period * 111 / 127);
+  for (let col = 0; col < 112; col++) px(ACTUARY_PER_BASE, col, ...ACTUARY_DIM);
+  for (let row = ACTUARY_PER_BASE - ACTUARY_PER_HEIGHT; row < ACTUARY_PER_BASE; row++)
+    for (let col = 0; col <= perLen; col++) px(row, col, ACTUARY_STEEL[0] >> 1, ACTUARY_STEEL[1] >> 1, ACTUARY_STEEL[2] >> 1);
+  if (perLen < 112) for (let row = ACTUARY_PER_BASE - ACTUARY_PER_HEIGHT; row < ACTUARY_PER_BASE; row++)
+    px(row, perLen, ...ACTUARY_STEEL);
+}
+
+// dvs_necropsy: the app IS a dark forensic stage drawn on the 112(w) x 126(h)
+// display buffer. Layout:
+//   rows 0..59  -- peak_speed history chart: one column per measurement window;
+//                  bar height proportional to peak_speed (0..127 growing up from
+//                  row 59); flame-red when burst=1, dim steel otherwise.
+//   rows 63..100 -- extent / rupture display: a glowing horizontal bar centred
+//                   at col=56, half-width proportional to extent/125; bright
+//                   amber endpoints + a "RUPTURE" flash band when burst=1,
+//                   dim circle outline when waiting.
+//   rows 104..122 -- extent bar meter (0..125 across full width), cyan.
+// Like seismo/mirror this is an abstract gauge; ignores orientation selector.
+const NECROPSY_BG: [number, number, number]    = [8, 8, 12];
+const NECROPSY_FLAME: [number, number, number] = [220, 64, 32];
+const NECROPSY_AMBER: [number, number, number] = [232, 160, 32];
+const NECROPSY_CYAN: [number, number, number]  = [79, 196, 196];
+const NECROPSY_DIM: [number, number, number]   = [42, 42, 52];
+const NECROPSY_STEEL: [number, number, number] = [95, 100, 120];
+const NECROPSY_CHART_BASE = 59;
+const NECROPSY_CHART_ROWS = 56;
+const NECROPSY_STAGE_CY = 82;   // centre row of rupture display
+const NECROPSY_EXT_BASE = 120;
+const NECROPSY_EXT_HEIGHT = 16;
+function paintNecropsy() {
+  for (let i = 0; i < 112 * 126; i++) appImage.data.set([...NECROPSY_BG, 255], i * 4);
+  const px = (row: number, col: number, r: number, g: number, b: number) => {
+    if (row >= 0 && row < 126 && col >= 0 && col < 112)
+      appImage.data.set([r, g, b, 255], (row * 112 + col) * 4);
+  };
+  // Baseline
+  for (let col = 0; col < 112; col++) px(NECROPSY_CHART_BASE, col, ...NECROPSY_DIM);
+  // Peak-speed history: one column per window, newest at the right
+  for (let col = 0; col < 112; col++) {
+    const h = necropsyHist.length - 112 + col;
+    if (h < 0) continue;
+    const {peak_speed, burst} = necropsyHist[h];
+    if (peak_speed === 0 && !burst) continue;
+    const [br, bg2, bb] = burst ? NECROPSY_FLAME : NECROPSY_STEEL;
+    const bar = Math.max(1, Math.min(NECROPSY_CHART_ROWS, Math.round(peak_speed * NECROPSY_CHART_ROWS / 127)));
+    for (let k = 1; k <= bar; k++) px(NECROPSY_CHART_BASE - k, col, br, bg2, bb);
+  }
+  // Rupture stage: glowing tear-front or waiting circle
+  const fresh = performance.now() - necropsyAt < 2000;
+  if (fresh && necropsyLast.burst) {
+    // Glowing horizontal rupture bar centred at col=56
+    const halfExt = Math.max(4, Math.round(necropsyLast.extent * 50 / 125));
+    const lo = Math.max(0, 56 - halfExt), hi = Math.min(111, 56 + halfExt);
+    // Glow fill (fading toward edges)
+    for (let row = NECROPSY_STAGE_CY - 5; row <= NECROPSY_STAGE_CY + 5; row++) {
+      const fade = 1 - Math.abs(row - NECROPSY_STAGE_CY) / 6;
+      for (let col = lo; col <= hi; col++) {
+        const edgeFade = 1 - Math.abs(col - 56) / (halfExt + 1);
+        const intensity = fade * edgeFade;
+        px(row, col,
+          Math.min(255, Math.round(NECROPSY_FLAME[0] * intensity + NECROPSY_AMBER[0] * (1 - intensity) * 0.3)),
+          Math.min(255, Math.round(NECROPSY_FLAME[1] * intensity * 0.5)),
+          Math.min(255, Math.round(NECROPSY_FLAME[2] * intensity * 0.2)));
+      }
+    }
+    // Bright endpoints
+    for (let dr = -2; dr <= 2; dr++) {
+      px(NECROPSY_STAGE_CY + dr, lo, ...NECROPSY_AMBER);
+      px(NECROPSY_STAGE_CY + dr, hi, ...NECROPSY_AMBER);
+    }
+    // Speed-coloured rupture band above
+    const speedFrac = necropsyLast.peak_speed / 127;
+    const bandR = Math.min(255, Math.round(120 + 100 * speedFrac));
+    const bandB = Math.min(255, Math.round(80 - 60 * speedFrac));
+    for (let col = lo; col <= hi; col++)
+      px(NECROPSY_STAGE_CY - 8, col, bandR, 90, bandB);
+  } else {
+    // Waiting: dim balloon circle
+    for (let t = 0; t <= 360; t++) {
+      const a = t * Math.PI / 180;
+      const r2 = Math.round(NECROPSY_STAGE_CY - Math.sin(a) * 18);
+      const c = Math.round(56 - Math.cos(a) * 24);
+      px(r2, c, ...NECROPSY_DIM);
+    }
+  }
+  // Extent bar meter (0..125 across full width 0..111)
+  const extLen = Math.round(necropsyLast.extent * 111 / 125);
+  for (let col = 0; col < 112; col++) px(NECROPSY_EXT_BASE, col, ...NECROPSY_DIM);
+  for (let row = NECROPSY_EXT_BASE - NECROPSY_EXT_HEIGHT; row < NECROPSY_EXT_BASE; row++)
+    for (let col = 0; col <= extLen; col++) px(row, col, NECROPSY_CYAN[0] >> 1, NECROPSY_CYAN[1] >> 1, NECROPSY_CYAN[2] >> 1);
+  if (extLen < 112) for (let row = NECROPSY_EXT_BASE - NECROPSY_EXT_HEIGHT; row < NECROPSY_EXT_BASE; row++)
+    px(row, extLen, ...NECROPSY_CYAN);
+}
+
 // 8-octant unit vector (x right, y down); N (dy<0) points up. Shared by the
 // stabilize + dir-consensus arrows (matches the mirrors' `dirs` table).
 const OCTANT_VEC: [number, number][] = [[1,0],[1,-1],[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1]];
@@ -2092,6 +2349,34 @@ const APP_OVERLAYS: Record<string, () => void> = {
       : whipLast.sonic ? `SONIC BOOM! bin=${whipLast.maxspeedbin}`
       : whipLast.valid ? `subsonic bin=${whipLast.maxspeedbin}`
       : 'flick a rope…';
+  },
+  dvs_coin() {
+    // The arc + glint chart ARE the render (paintCoin paints the background);
+    // no cell overlay. Report the coin-toss prediction on the status line.
+    const fresh = performance.now() - coinAt < 1500;
+    const predNames = ['none', 'HEADS', 'TAILS'];
+    q('#app-status').textContent = !fresh ? 'toss a coin…'
+      : coinLast.apex_reached && coinLast.prediction !== 0
+        ? `${predNames[coinLast.prediction]} (halfturns=${coinLast.halfturns} glints=${coinLast.glint_count})`
+        : `toss a coin… (glints=${coinLast.glint_count})`;
+  },
+  dvs_actuary() {
+    // The coroner-report panel IS the render (paintActuary paints the background);
+    // no cell overlay. Report the countdown and wobble state on the status line.
+    const fresh = performance.now() - actuaryAt < 1500;
+    q('#app-status').textContent = !fresh ? 'spin a top…'
+      : actuaryLast.valid
+        ? `topples in ~${actuaryLast.countdown} cycles (A=${actuaryLast.amplitude} P=${actuaryLast.period})`
+        : 'spin a top…';
+  },
+  dvs_necropsy() {
+    // The dark stage + rupture front ARE the render (paintNecropsy paints the
+    // background); no cell overlay. Report the burst verdict on the status line.
+    const fresh = performance.now() - necropsyAt < 1500;
+    q('#app-status').textContent = !fresh ? 'waiting for a pop…'
+      : necropsyLast.burst
+        ? `RUPTURE peak=${necropsyLast.peak_speed} px/bin extent=${necropsyLast.extent}`
+        : 'waiting for a pop…';
   },
   dvs_track() {
     // Reuse the tracker box, drawn on the app canvas (same overlay as track mode).
@@ -2589,6 +2874,69 @@ const APP_DECODERS: Record<string, (words: Uint32Array) => void> = {
       }
       whipLast = {valid, seq, front_col, sonic, maxspeedbin};
       whipAt = performance.now();
+    }
+  },
+  // dvs_coin_view.py unpack_status: prediction=w&0x3, halfturns=(w>>2)&0xFF,
+  // glint_count=(w>>10)&0xFF, apex_reached=(w>>18)&1, valid=(w>>19)&1,
+  // seq=(w>>20)&0xF. The latched prediction is re-emitted every batch; seq
+  // only changes when a new batch latches, so we push one history sample per
+  // seq change (mirror of render_coin()'s per-batch history collection) and
+  // always keep the freshest word for the arc/stamp/status.
+  dvs_coin(words) {
+    for (const w of words) {
+      const prediction   =  w        & 0x3;
+      const halfturns    = (w >>  2) & 0xff;
+      const glint_count  = (w >> 10) & 0xff;
+      const apex_reached = (w >> 18) & 0x1;
+      const valid        = (w >> 19) & 0x1;
+      const seq          = (w >> 20) & 0xf;
+      if (seq !== coinLast.seq) {
+        coinHist.push({glint_count, apex_reached, prediction});
+        if (coinHist.length > COIN_HIST) coinHist.splice(0, coinHist.length - COIN_HIST);
+      }
+      coinLast = {prediction, halfturns, glint_count, apex_reached, valid, seq};
+      coinAt = performance.now();
+    }
+  },
+  // dvs_actuary_view.py unpack_status: countdown=w&0x3F, amplitude=(w>>6)&0xFF,
+  // period=(w>>14)&0x7F, valid=(w>>21)&1, seq=(w>>22)&0xF. The latched extent-
+  // window state is re-emitted every batch; seq only changes when a new batch
+  // latches, so we push one history sample per seq change (mirror of
+  // render_actuary()'s per-window history collection) and always keep the
+  // freshest word for the lamp/status.
+  dvs_actuary(words) {
+    for (const w of words) {
+      const countdown =  w        & 0x3f;
+      const amplitude = (w >>  6) & 0xff;
+      const period    = (w >> 14) & 0x7f;
+      const valid     = (w >> 21) & 0x1;
+      const seq       = (w >> 22) & 0xf;
+      if (seq !== actuaryLast.seq) {
+        actuaryHist.push({amplitude, countdown, valid});
+        if (actuaryHist.length > ACTUARY_HIST) actuaryHist.splice(0, actuaryHist.length - ACTUARY_HIST);
+      }
+      actuaryLast = {countdown, amplitude, period, valid, seq};
+      actuaryAt = performance.now();
+    }
+  },
+  // dvs_necropsy_view.py unpack_status: seq=w&0x3F, burst=(w>>6)&1,
+  // peak_speed=(w>>7)&0x7F, extent=(w>>15)&0xFF. The latched measurement-window
+  // state is re-emitted every batch; seq only changes (increments) when a new
+  // measurement window completes, so we push one history sample per seq change
+  // (mirror of render_necropsy()'s per-window history collection) and always
+  // keep the freshest word for the rupture stage/status. seq=0 = pre-valid.
+  dvs_necropsy(words) {
+    for (const w of words) {
+      const seq        =  w        & 0x3f;
+      const burst      = (w >>  6) & 0x1;
+      const peak_speed = (w >>  7) & 0x7f;
+      const extent     = (w >> 15) & 0xff;
+      if (seq !== necropsyLast.seq && seq !== 0) {
+        necropsyHist.push({peak_speed, burst});
+        if (necropsyHist.length > NECROPSY_HIST) necropsyHist.splice(0, necropsyHist.length - NECROPSY_HIST);
+      }
+      necropsyLast = {seq, burst, peak_speed, extent};
+      necropsyAt = performance.now();
     }
   },
   // dvs_track handled by decodeTrack in track mode; if selected in the app view

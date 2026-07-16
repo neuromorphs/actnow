@@ -151,6 +151,18 @@ APP_REGISTRY = {
         "prog": "dvs_whip", "label": "The Whipcracker",
         "blurb": "Supersonic tip detector: per-column leaky activity counters and epoch-based activation gates track the traveling wave front; a LUT classifies each column hop into one of 16 speed bins; bin 15 (one tick per column) certifies SONIC BOOM.",
         "params": []},
+    "dvs_coin": {
+        "prog": "dvs_coin", "label": "Heads or Tails, Mid-Air",
+        "blurb": "Predicts a coin-toss face at the apex of the trajectory before it lands: tracks vertical centroid over event windows, counts compact glint windows (coin face in view), detects the apex sign-flip, and predicts HEADS/TAILS from parity of total half-turns.",
+        "params": []},
+    "dvs_actuary": {
+        "prog": "dvs_actuary", "label": "The Actuary of Spinning Tops",
+        "blurb": "Watch a spinning top: as its precession wobble grows, extrapolate the moment of death and show a countdown in precession cycles — a coroner-report panel with amplitude and period bars.",
+        "params": []},
+    "dvs_necropsy": {
+        "prog": "dvs_necropsy", "label": "Necropsy of a Pop",
+        "blurb": "Autopsy a balloon burst: a rolling event-rate IIR baseline detects the density spike, then per-bin min/max x-extent tracks the tear-front speed; on burst a glowing expanding rupture front lights up sized by extent with a peak-speed readout.",
+        "params": []},
 }
 
 
