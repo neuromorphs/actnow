@@ -8,3 +8,4 @@ output   ROTATE_CAPTURE_RESULTS chips/fpga/rotate_capture_results.mem
 output   MOTION_CAPTURE_RESULTS chips/fpga/motion_capture_results.mem
 output   TIMESURFACE_CAPTURE_RESULTS chips/fpga/timesurface_capture_results.mem
 output   DENOISE_CAPTURE_RESULTS chips/fpga/denoise_capture_results.mem
+output   TRACK_CAPTURE_RESULTS chips/fpga/track_capture_results.mem

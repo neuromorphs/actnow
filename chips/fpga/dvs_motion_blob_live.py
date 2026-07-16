@@ -29,9 +29,9 @@ smooth that into a continuous shape, an INFERNO colormap turns activity
 into a black-to-white-hot glow, and a Gaussian-blur screen-blend adds bloom
 on top -- regions with no repeated recent activity stay black.
 
-Usage: dvs_motion_blob_live.py [--fps 30] [--scale 8] [--gain 1.6]
-                                [--decay 0.98] [--radius 2] [--add 0.18]
-                                [--cross PREFIX]
+Usage: dvs_motion_blob_live.py [--csv phone.csv] [--fps 30] [--scale 8]
+                                [--gain 1.6] [--decay 0.98] [--radius 2]
+                                [--add 0.18] [--cross PREFIX]
 live keys: q=quit (kills the actsim run if still in progress)
 """
 import argparse
@@ -44,7 +44,7 @@ import time
 import numpy as np
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-CSV_PATH = os.path.join(os.path.dirname(__file__), "dvs_capture_20260714_151049.csv")
+DEFAULT_CSV = "dvs_capture_20260714_151049.csv"
 EVENTS_PATH = os.path.join(os.path.dirname(__file__), "rotate_capture_events.mem")
 RESULTS_PATH = os.path.join(os.path.dirname(__file__), "motion_capture_results.mem")
 
@@ -59,9 +59,19 @@ THRESHOLD = 96
 BATCH = 4
 
 
-def load_events():
+def resolve_csv(name):
+    """A bare filename (e.g. "phone.csv") resolves alongside this script,
+    same directory as the default capture; an absolute or already-valid
+    relative path is used as given."""
+    if os.path.isabs(name) or os.path.exists(name):
+        return name
+    candidate = os.path.join(os.path.dirname(__file__), name)
+    return candidate if os.path.exists(candidate) else name
+
+
+def load_events(csv_path):
     xs, ys, pols, les = [], [], [], []
-    with open(CSV_PATH) as f:
+    with open(csv_path) as f:
         r = csv.reader(f)
         next(r)
         for row in r:
@@ -183,6 +193,9 @@ def render_glow(cv2, sensor_arr, motion, scale, gain):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--csv", default=DEFAULT_CSV,
+                     help="AER capture to replay -- a bare filename (e.g. phone.csv, stabilize.csv) "
+                          "resolves alongside this script; default is the original recording")
     ap.add_argument("--fps", type=float, default=30.0, help="display refresh rate")
     ap.add_argument("--scale", type=int, default=8)
     ap.add_argument("--gain", type=float, default=1.6,
@@ -207,11 +220,12 @@ def main():
         print("cv2 (GUI-enabled opencv-python) is required for the live view:", e)
         sys.exit(1)
 
-    print("loading recorded events for the grid mirror...")
-    xs, ys, pols, les = load_events()
+    csv_path = resolve_csv(args.csv)
+    print(f"loading recorded events for the grid mirror ({csv_path})...")
+    xs, ys, pols, les = load_events(csv_path)
     n_events = (len(xs) // BATCH) * BATCH
     n_batches_total = n_events // BATCH
-    print(f"{n_events} events ({n_batches_total} batches) in {CSV_PATH}")
+    print(f"{n_events} events ({n_batches_total} batches) in {csv_path}")
 
     print(f"writing {EVENTS_PATH} (actsim's input) ...")
     with open(EVENTS_PATH, "w") as f:

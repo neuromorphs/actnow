@@ -22,8 +22,14 @@ render_glow (cubic upsample, merge blur, INFERNO colormap, bloom) fed the
 same exponential-decay-from-elapsed-events transform -- the only difference
 from dvs_timesurface_live.py is which array the firmware dumped.
 
-Usage: dvs_denoise_live.py [--fps 30] [--scale 8] [--gain 1.6] [--tau 150] [--cross PREFIX]
+Usage: dvs_denoise_live.py [--csv phone.csv] [--fps 30] [--scale 8] [--gain 1.6] [--tau 150] [--cross PREFIX]
 live keys: q=quit (kills the actsim run if still in progress)
+
+Note: CORRELATION_WINDOW=25 in software/dvs_denoise/main.c was tuned
+empirically against the default recording specifically -- it's baked into
+the compiled firmware, not adjustable here, so a very differently-paced
+capture (denser or sparser events) may not denoise as cleanly until that
+constant gets retuned against it too.
 """
 import argparse
 import os
@@ -34,8 +40,8 @@ import time
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
-from dvs_motion_blob_live import render_glow  # reused unchanged -- sensor-space-array-in, glow-out
-from dvs_timesurface_live import decay_grid, load_les  # same math, same CSV loader
+from dvs_motion_blob_live import render_glow, resolve_csv  # reused unchanged
+from dvs_timesurface_live import DEFAULT_CSV, decay_grid, load_les  # same math, same CSV loader
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 EVENTS_PATH = os.path.join(os.path.dirname(__file__), "rotate_capture_events.mem")
@@ -52,6 +58,9 @@ DUMP_INTERVAL = 64
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--csv", default=DEFAULT_CSV,
+                     help="AER capture to replay -- a bare filename (e.g. phone.csv, stabilize.csv) "
+                          "resolves alongside this script; default is the original recording")
     ap.add_argument("--fps", type=float, default=30.0, help="display refresh rate")
     ap.add_argument("--scale", type=int, default=8)
     ap.add_argument("--gain", type=float, default=1.6, help="brightness multiplier before the colormap")
@@ -67,8 +76,9 @@ def main():
         print("cv2 (GUI-enabled opencv-python) is required for the live view:", e)
         sys.exit(1)
 
-    print("loading recorded events for actsim's input file...")
-    les = load_les()
+    csv_path = resolve_csv(args.csv)
+    print(f"loading recorded events for actsim's input file ({csv_path})...")
+    les = load_les(csv_path)
     n_events = (len(les) // BATCH) * BATCH
     n_batches_total = n_events // BATCH
     n_dumps_total = n_batches_total // DUMP_INTERVAL
