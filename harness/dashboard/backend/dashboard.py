@@ -31,6 +31,82 @@ STREAM_RESULT = 0
 STREAM_RAW = 1
 
 
+# --- Demo-app registry ------------------------------------------------------
+# Every event-camera demo app that the dashboard can build+load onto the board.
+# id -> {prog, label, blurb, params}. `prog` is the software/<prog> folder built
+# by `make -C software PROG=<prog>`; the per-app result-word layout is decoded in
+# the FRONTEND (each mirror in chips/fpga/ is authoritative -- see main.ts).
+#
+# `params` is a list of build-time knobs surfaced in the UI. Each entry:
+#   {name, label, min, max, default, cflag} where cflag is a printf-style
+#   template (e.g. "-DGATE_RADIUS=%d") clamped to [min, max] and appended to
+#   EXTRA_CFLAGS. Apps whose main.c has `#ifndef CORR_MIN` accept a
+#   -DCORR_MIN=<n> correlation knob; dvs_track additionally takes GATE_RADIUS.
+def _corr_param(default=2):
+    return {"name": "correlation", "label": "Correlation",
+            "min": 0, "max": 8, "default": default, "cflag": "-DCORR_MIN=%d"}
+
+
+APP_REGISTRY = {
+    "dvs_motion": {
+        "prog": "dvs_motion", "label": "Motion (4x4 grid)",
+        "blurb": "Decaying 4x4 activity grid; highlights the hottest cell.",
+        "params": []},
+    "dvs_track": {
+        "prog": "dvs_track", "label": "Object tracker",
+        "blurb": "Centroid + bounding box over the raw event tap.",
+        "params": [
+            {"name": "radius", "label": "Gate radius", "min": 4, "max": 126,
+             "default": 32, "cflag": "-DGATE_RADIUS=%d"},
+            _corr_param(2)]},
+    "dvs_stabilize": {
+        "prog": "dvs_stabilize", "label": "Stabilize (global flow)",
+        "blurb": "Global background-motion vector, drawn as an arrow.",
+        "params": [_corr_param(2)]},
+    "dvs_mayfly": {
+        "prog": "dvs_mayfly", "label": "Computational Mayfly",
+        "blurb": "Event-spawned walkers toggling a 126x112 occupancy world.",
+        "params": [_corr_param(2)]},
+    "dvs_heartbeats": {
+        "prog": "dvs_heartbeats", "label": "Secret Heartbeats",
+        "blurb": "Per-region period/frequency colour grid (8x7 regions).",
+        "params": [_corr_param(2)]},
+    "dvs_oms_meister": {
+        "prog": "dvs_oms_meister", "label": "OMS Meister",
+        "blurb": "Object-motion-sensitivity heat over an 8x8 grid.",
+        "params": []},
+    "dvs_oms_dirconsensus": {
+        "prog": "dvs_oms_dirconsensus", "label": "OMS Dir-consensus",
+        "blurb": "Flags independent-motion tiles + a global-direction arrow.",
+        "params": []},
+}
+
+
+def registry_payload():
+    """The registry as sent to the frontend (cflag templates stay server-side)."""
+    return {aid: {"prog": app["prog"], "label": app["label"],
+                  "blurb": app["blurb"],
+                  "params": [{k: p[k] for k in ("name", "label", "min", "max", "default")}
+                             for p in app["params"]]}
+            for aid, app in APP_REGISTRY.items()}
+
+
+def app_cflags(app, params):
+    """Build the EXTRA_CFLAGS string for `app` from user-supplied `params`,
+    clamping each knob to its [min, max] range (mirrors track()'s old clamping)."""
+    params = params or {}
+    flags = []
+    for spec in app["params"]:
+        value = params.get(spec["name"], spec["default"])
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            value = spec["default"]
+        value = max(spec["min"], min(spec["max"], value))
+        flags.append(spec["cflag"] % value)
+    return " ".join(flags) or None
+
+
 class Dashboard:
     def __init__(self, args):
         self.args = args
@@ -225,25 +301,34 @@ class Dashboard:
         reply = await self.upload_and_reload()
         return {"ok": True, "diagnostics": [], "board": reply}
 
-    async def track(self, radius=None, correlation=None):
-        # Build+apply the dvs_track firmware. Its result stream carries centroid
-        # and bounding-box status words instead of per-event echoes; the browser
-        # overlays them on the raw DVS tap in the tracking view.
-        flags = []
-        if radius is not None:
-            flags.append(f"-DGATE_RADIUS={max(4, min(126, int(radius)))}")
-        if correlation is not None:
-            flags.append(f"-DCORR_MIN={max(0, min(8, int(correlation)))}")
-        cflags = " ".join(flags) or None
-        # The .elf depends only on sources, not on CFLAGS, so a changed radius or
-        # correlation would otherwise be ignored as "up to date" -- force a fresh
-        # compile.
-        await self.run(["rm", "-rf", "software/dvs_track/build"])
-        result = await self.build(prog="dvs_track", extra_cflags=cflags)
+    async def load_app(self, app_id, params=None):
+        # Build+apply one demo app from APP_REGISTRY. Its result stream carries
+        # that app's status words instead of per-event echoes; the browser
+        # decodes+overlays them (see the per-app decoders in main.ts).
+        app = APP_REGISTRY.get(app_id)
+        if app is None:
+            raise RuntimeError(f"unknown app '{app_id}'")
+        prog = app["prog"]
+        cflags = app_cflags(app, params)
+        # The .elf depends only on sources, not on CFLAGS, so changed knobs would
+        # otherwise be ignored as "up to date" -- force a fresh compile.
+        await self.run(["rm", "-rf", f"software/{prog}/build"])
+        result = await self.build(prog=prog, extra_cflags=cflags)
         if not result["ok"]:
             return result
         reply = await self.upload_and_reload()
-        return {"ok": True, "diagnostics": result["diagnostics"], "board": reply}
+        return {"ok": True, "app": app_id, "diagnostics": result["diagnostics"],
+                "board": reply}
+
+    async def track(self, radius=None, correlation=None):
+        # Back-compat shim: the tracker is now one registry entry. Keep the old
+        # signature so the existing "Load tracker firmware" action still works.
+        params = {}
+        if radius is not None:
+            params["radius"] = radius
+        if correlation is not None:
+            params["correlation"] = correlation
+        return await self.load_app("dvs_track", params)
 
     async def broadcast_state(self):
         asyncio.create_task(self.broadcast_json(
@@ -339,7 +424,8 @@ async def make_app(args):
         await ws.prepare(request)
         dashboard.websockets.add(ws)
         await ws.send_json({"type": "init", "board": dashboard.board,
-                            "stream": dashboard.stats, "logs": dashboard.log_lines})
+                            "stream": dashboard.stats, "logs": dashboard.log_lines,
+                            "apps": registry_payload()})
         async for message in ws:
             if message.type == WSMsgType.TEXT:
                 try:
@@ -387,6 +473,11 @@ async def make_app(args):
             elif name == "track":
                 result = await dashboard.track(payload.get("radius"),
                                                payload.get("correlation"))
+            elif name == "load_app":
+                result = await dashboard.load_app(payload["app"],
+                                                  payload.get("params"))
+            elif name == "list_apps":
+                result = {"ok": True, "apps": registry_payload()}
             elif name == "reconnect":
                 await dashboard.deploy()
                 result = {"ok": True}

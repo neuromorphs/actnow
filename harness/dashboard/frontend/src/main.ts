@@ -17,6 +17,12 @@ const trackCanvas = q<HTMLCanvasElement>('#track');
 const trackCtx = trackCanvas.getContext('2d')!;
 const trackImage = trackCtx.createImageData(112, 126);
 const rawEnergy = new Float32Array(112 * 126 * 2);
+// App view: raw DVS tap as background (same 112x126 store) with the selected
+// demo app's decoded result overlaid on top.
+const appCanvas = q<HTMLCanvasElement>('#app');
+const appCtx = appCanvas.getContext('2d')!;
+const appImage = appCtx.createImageData(112, 126);
+const appEnergy = new Float32Array(112 * 126 * 2);
 let paused = false;
 let dirty = false;
 let transformAtBlockSync = '';
@@ -26,11 +32,32 @@ let rawStream = {words: 0, packets: 0};
 let board: any = {connected: false, counters: {}};
 let pending: Uint32Array[] = [];
 let pendingRaw: Uint32Array[] = [];
+let pendingApp: Uint32Array[] = [];   // raw-tap background words for the app view
+let appTail: number[] = [];           // carry-over result words awaiting decode
 
 // Binary websocket frames carry a leading 32-bit stream tag (see dashboard.py).
 const STREAM_RESULT = 0, STREAM_RAW = 1;
-type Mode = 'live' | 'track';
+type Mode = 'live' | 'track' | 'app';
 let mode: Mode = 'live';
+
+// --- Demo-app registry (sent by the backend in the init message) ------------
+type AppParam = {name: string; label: string; min: number; max: number; default: number};
+type AppInfo = {prog: string; label: string; blurb: string; params: AppParam[]};
+let apps: Record<string, AppInfo> = {};
+let currentApp = '';            // id of the app selected in the dropdown
+let loadedApp = '';             // id of the app whose firmware is actually on the board
+// The result stream only carries the loaded app's status words once its firmware
+// is running; before that it echoes per-event words. appActive gates decoding so
+// stale event echoes are never mistaken for app records (mirrors trackerActive).
+let appActive = false;
+// Per-app decoded state, rendered by the app renderers below.
+const mayflyWorld = new Uint8Array(126 * 112);   // occupancy world [cy*126 + cx]
+let motionCell = {row: 0, col: 0, val: 0, motion: 0, at: 0};
+let omsCell = {row: 0, col: 0, val: 0, oms: 0, at: 0};
+let stabVec = {dx: 0, dy: 0, oct: 0, mag: 0, at: 0};
+type HeartCell = {bin: number; conf: number};
+const heartGrid: (HeartCell | null)[] = new Array(8 * 7).fill(null);
+let dirCons = {flag: 0, z: 0, row: 0, col: 0, gdir: 0, at: 0};
 
 // Latest tracker status, decoded from the dvs_track result stream. word0 packs
 // (locked<<24)|(cx<<16)|(cy<<8)|count; word1 packs (min_x<<24)|(min_y<<16)|(max_x<<8)|max_y.
@@ -266,6 +293,87 @@ async function firmwareAction(name: string) {
   } catch (error) { appendLog(String(error), 'error'); }
   finally { document.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.disabled = false); }
 }
+// --- Demo-app selector ------------------------------------------------------
+function populateApps(registry: Record<string, AppInfo>) {
+  apps = registry;
+  const select = q<HTMLSelectElement>('#app-select');
+  select.innerHTML = '';
+  for (const [id, info] of Object.entries(registry)) {
+    const opt = document.createElement('option');
+    opt.value = id; opt.textContent = info.label;
+    select.appendChild(opt);
+  }
+  const ids = Object.keys(registry);
+  if (ids.length && !currentApp) currentApp = ids[0];
+  if (currentApp) select.value = currentApp;
+  renderAppControls();
+}
+
+// Build the per-app parameter sliders (radius/correlation/...) from the registry.
+function renderAppControls() {
+  const info = apps[currentApp];
+  q('#app-blurb').textContent = info ? info.blurb : '';
+  const host = q<HTMLElement>('#app-params');
+  host.innerHTML = '';
+  if (!info) return;
+  for (const p of info.params) {
+    const label = document.createElement('label');
+    const out = document.createElement('output');
+    out.textContent = String(p.default);
+    const input = document.createElement('input');
+    input.type = 'range'; input.min = String(p.min); input.max = String(p.max);
+    input.value = String(p.default); input.dataset.param = p.name;
+    input.oninput = () => { out.textContent = input.value; };
+    label.append(`${p.label} `, out, input);
+    host.appendChild(label);
+  }
+}
+
+function currentAppParams(): Record<string, number> {
+  const params: Record<string, number> = {};
+  q<HTMLElement>('#app-params').querySelectorAll<HTMLInputElement>('input[data-param]')
+    .forEach(input => { params[input.dataset.param!] = Number(input.value); });
+  return params;
+}
+
+// Clear all per-app decoded state (called on load / app switch) so the overlay
+// starts from a clean slate and no stale record is drawn.
+function resetAppState() {
+  mayflyWorld.fill(0);
+  motionCell = {row: 0, col: 0, val: 0, motion: 0, at: 0};
+  omsCell = {row: 0, col: 0, val: 0, oms: 0, at: 0};
+  stabVec = {dx: 0, dy: 0, oct: 0, mag: 0, at: 0};
+  heartGrid.fill(null);
+  dirCons = {flag: 0, z: 0, row: 0, col: 0, gdir: 0, at: 0};
+  appEnergy.fill(0); pendingApp.length = 0; appTail = [];
+}
+
+async function loadApp() {
+  document.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.disabled = true);
+  try {
+    const info = apps[currentApp];
+    q('#app-status').textContent = `building ${info?.label || currentApp}…`;
+    const result = await api('load_app', {app: currentApp, params: currentAppParams()});
+    showDiagnostics(result.diagnostics || []);
+    // Firmware is now running: switch decoding to this app from a clean buffer.
+    loadedApp = currentApp; appActive = true; trackerActive = false;
+    resetAppState();
+    q('#app-loaded').textContent = info?.label || currentApp;
+    q('#app-status').textContent = 'running';
+  } catch (error) {
+    appActive = false;
+    q('#app-status').textContent = 'load failed';
+    appendLog(String(error), 'error');
+  } finally {
+    document.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.disabled = false);
+  }
+}
+q<HTMLSelectElement>('#app-select').onchange = e => {
+  currentApp = (e.target as HTMLSelectElement).value;
+  renderAppControls();
+};
+q('#app-load').onclick = () => loadApp();
+
 q('#build').onclick = () => firmwareAction('build');
 q('#build-apply').onclick = () => firmwareAction('apply');
 q('#reset').onclick = () => firmwareAction('reset');
@@ -354,6 +462,153 @@ function renderTrack() {
   drawTrackOverlay();
 }
 
+// --- App view rendering -----------------------------------------------------
+// Raw event tap as background (like the track view), then the loaded app's
+// decoded overlay. Mayfly replaces the background with its own occupancy world.
+function renderApp() {
+  const decay = Number(q<HTMLInputElement>('#decay').value) / 100;
+  const palette = q<HTMLSelectElement>('#palette').value;
+  if (!paused) {
+    for (let i=0; i<appEnergy.length; i++) appEnergy[i] *= decay;
+    for (const words of pendingApp.splice(0)) stampInto(appEnergy, words);
+  }
+  if (loadedApp === 'dvs_mayfly') paintMayfly(); else paint(appImage, appEnergy, palette);
+  appCtx.putImageData(appImage,0,0);
+  const overlay = APP_OVERLAYS[loadedApp];
+  if (appActive && overlay) overlay();
+}
+
+// dvs_mayfly: the app IS the world bitmap, so paint occupancy directly instead
+// of the event background (126x112 world -> canvas via mapEvent).
+function paintMayfly() {
+  for (let i=0; i<112*126; i++) appImage.data.set([9,17,21,255], i*4);
+  for (let cx=0; cx<126; cx++) for (let cy=0; cy<112; cy++) {
+    if (!mayflyWorld[cy*126 + cx]) continue;
+    const {row, col} = mapEvent(cx, cy);
+    if (row < 0 || row >= 126 || col < 0 || col >= 112) continue;
+    appImage.data.set([255,205,120,255], (row*112 + col)*4);
+  }
+}
+
+// 8-octant unit vector (x right, y down); N (dy<0) points up. Shared by the
+// stabilize + dir-consensus arrows (matches the mirrors' `dirs` table).
+const OCTANT_VEC: [number, number][] = [[1,0],[1,-1],[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1]];
+
+// Turn a sensor-space direction (dx,dy) into a canvas-space direction, honouring
+// the current orientation so the arrow points the way the scene actually moves.
+function canvasDir(dx: number, dy: number) {
+  const a = mapEvent(0, 0), b = mapEvent(dx, dy);
+  return {cdx: b.col - a.col, cdy: b.row - a.row};
+}
+
+function drawArrow(cx: number, cy: number, cdx: number, cdy: number, len: number, colour: string) {
+  const mag = Math.hypot(cdx, cdy) || 1;
+  const ux = cdx/mag, uy = cdy/mag;
+  const ex = cx + ux*len, ey = cy + uy*len;
+  appCtx.strokeStyle = colour; appCtx.fillStyle = colour; appCtx.lineWidth = 1;
+  appCtx.beginPath(); appCtx.moveTo(cx, cy); appCtx.lineTo(ex, ey); appCtx.stroke();
+  const head = 3, ang = Math.atan2(uy, ux);
+  appCtx.beginPath();
+  appCtx.moveTo(ex, ey);
+  appCtx.lineTo(ex - head*Math.cos(ang - 0.5), ey - head*Math.sin(ang - 0.5));
+  appCtx.lineTo(ex - head*Math.cos(ang + 0.5), ey - head*Math.sin(ang + 0.5));
+  appCtx.closePath(); appCtx.fill();
+}
+
+// Highlight a grid cell (sensor-space cell of `cellPx` px) on the app canvas,
+// mapping its two opposite corners through mapEvent so it stays aligned.
+function drawCellHighlight(col: number, row: number, cellPx: number, stroke: string, fill?: string) {
+  const a = mapEvent(row*cellPx, col*cellPx);
+  const b = mapEvent(row*cellPx + cellPx - 1, col*cellPx + cellPx - 1);
+  const left = Math.min(a.col, b.col), right = Math.max(a.col, b.col);
+  const top = Math.min(a.row, b.row), bottom = Math.max(a.row, b.row);
+  if (fill) { appCtx.fillStyle = fill; appCtx.fillRect(left, top, right-left+1, bottom-top+1); }
+  appCtx.lineWidth = 1; appCtx.strokeStyle = stroke;
+  appCtx.strokeRect(left + 0.5, top + 0.5, (right-left)+1, (bottom-top)+1);
+}
+
+const CENTER = () => mapEvent(63, 56);   // sensor centre -> canvas, for global arrows
+
+const APP_OVERLAYS: Record<string, () => void> = {
+  dvs_motion() {
+    // 4x4 grid, 32x32-px cells (CELL_SHIFT=5). col=x>>5, row=y>>5.
+    const stale = performance.now() - motionCell.at > 1500;
+    if (stale && motionCell.at === 0) return;
+    const colour = motionCell.motion ? '#ffd23c' : '#5cc7ff';
+    drawCellHighlight(motionCell.col, motionCell.row, 32, stale ? '#5f6b73' : colour,
+      motionCell.motion && !stale ? 'rgba(255,210,60,0.20)' : undefined);
+    q('#app-status').textContent = motionCell.motion ? `motion cell val=${motionCell.val}` : `hot cell val=${motionCell.val}`;
+  },
+  dvs_oms_meister() {
+    // 8x8 grid, 16x16-px cells (best_row/col already >>1 into 0..7).
+    const stale = performance.now() - omsCell.at > 1500;
+    if (stale && omsCell.at === 0) return;
+    const heat = Math.min(1, omsCell.val/255);
+    const colour = omsCell.oms ? '#ff6b57' : '#5cc7ff';
+    drawCellHighlight(omsCell.col, omsCell.row, 16, stale ? '#5f6b73' : colour,
+      omsCell.oms && !stale ? `rgba(255,107,87,${0.15 + 0.4*heat})` : undefined);
+    q('#app-status').textContent = omsCell.oms ? `OMS fire val=${omsCell.val}` : `activity val=${omsCell.val}`;
+  },
+  dvs_stabilize() {
+    const c = CENTER();
+    const still = stabVec.oct === 7 && stabVec.mag === 0;
+    if (still) { q('#app-status').textContent = 'still'; return; }
+    const [ux, uy] = OCTANT_VEC[stabVec.oct];
+    const {cdx, cdy} = canvasDir(ux, uy);
+    drawArrow(c.col, c.row, cdx, cdy, 6*(stabVec.mag+1), '#ffd23c');
+    const names = ['E','NE','N','NW','W','SW','S','SE'];
+    q('#app-status').textContent = `flow ${names[stabVec.oct]} m=${stabVec.mag} (dx=${stabVec.dx}, dy=${stabVec.dy})`;
+  },
+  dvs_heartbeats() {
+    // 8x7 regions, 16x16-px. turbo-ish colour by period_bin, alpha by conf.
+    let painted = 0;
+    for (let region=0; region<8*7; region++) {
+      const cell = heartGrid[region];
+      if (!cell) continue;
+      painted++;
+      const col = region % 8, row = Math.floor(region / 8);
+      const hue = 240 - (cell.bin/7)*240;           // fast=blue-ish -> slow=red
+      const alpha = 0.2 + 0.8*(cell.conf/8);
+      drawCellHighlight(col, row, 16, `hsla(${hue},70%,60%,${alpha})`,
+        `hsla(${hue},70%,50%,${alpha*0.5})`);
+    }
+    q('#app-status').textContent = painted ? `${painted} region(s) reporting` : 'listening…';
+  },
+  dvs_oms_dirconsensus() {
+    // 8x7 tiles, 16x16-px. Highlight the flagged tile + a global-dir arrow.
+    const stale = performance.now() - dirCons.at > 1500;
+    if (!(stale && dirCons.at === 0)) {
+      if (dirCons.flag) {
+        const heat = Math.min(1, dirCons.z/31);
+        drawCellHighlight(dirCons.col, dirCons.row, 16, stale ? '#5f6b73' : '#ff6b57',
+          stale ? undefined : `rgba(255,107,87,${0.15 + 0.5*heat})`);
+      }
+      const c = CENTER();
+      const [ux, uy] = OCTANT_VEC[dirCons.gdir];
+      const {cdx, cdy} = canvasDir(ux, uy);
+      drawArrow(c.col, c.row, cdx, cdy, 14, stale ? '#5f6b73' : '#8fd0ff');
+    }
+    const names = ['E','NE','N','NW','W','SW','S','SE'];
+    q('#app-status').textContent = dirCons.flag
+      ? `independent-motion tile z=${dirCons.z}, global ${names[dirCons.gdir]}`
+      : `global ${names[dirCons.gdir]}`;
+  },
+  dvs_track() {
+    // Reuse the tracker box, drawn on the app canvas (same overlay as track mode).
+    if (trackRejected()) { q('#app-status').textContent = 'searching…'; return; }
+    const stale = performance.now() - trackBox.at > 1500;
+    const a = mapEvent(trackBox.x0, trackBox.y0), b = mapEvent(trackBox.x1, trackBox.y1);
+    const left = Math.min(a.col, b.col), right = Math.max(a.col, b.col);
+    const top = Math.min(a.row, b.row), bottom = Math.max(a.row, b.row);
+    appCtx.lineWidth = 1; appCtx.strokeStyle = stale ? '#5f6b73' : '#c15cff';
+    appCtx.strokeRect(left + 0.5, top + 0.5, (right-left)+1, (bottom-top)+1);
+    const c = mapEvent(trackBox.cx, trackBox.cy);
+    appCtx.fillStyle = stale ? '#5f6b73' : (trackBox.locked ? '#ffffff' : '#aeb9c1');
+    appCtx.fillRect(c.col - 1, c.row - 1, 3, 3);
+    q('#app-status').textContent = trackBox.locked ? 'locked' : 'tracking';
+  },
+};
+
 // A window with fewer than this many surviving events is treated as noise and
 // its box/centroid rejected. Read live from the slider so no reload is needed.
 const minEvents = () => Number(q<HTMLInputElement>('#min-events').value);
@@ -378,17 +633,23 @@ function drawTrackOverlay() {
 }
 
 function render() {
-  if (mode === 'track') renderTrack(); else renderLive();
+  if (mode === 'track') renderTrack();
+  else if (mode === 'app') renderApp();
+  else renderLive();
   const fps = Number(q<HTMLInputElement>('#fps').value);
   setTimeout(() => requestAnimationFrame(render), 1000/fps);
 }
 
 q('#pause').onclick = () => { paused=!paused; q('#pause').textContent=paused?'Resume':'Pause'; q('#paused-badge').style.display=paused?'block':'none'; };
-q('#clear').onclick = () => { energy.fill(0); rawEnergy.fill(0); };
+q('#clear').onclick = () => { energy.fill(0); rawEnergy.fill(0); appEnergy.fill(0); mayflyWorld.fill(0); };
 
 // Decode dvs_track status words (paired word0/word1) and update the overlay.
 function decodeTrack(words: Uint32Array) {
   if (!trackerActive) return;
+  decodeTrackWords(words);
+}
+
+function decodeTrackWords(words: Uint32Array) {
   for (const w of words) trackTail.push(w >>> 0);
   while (trackTail.length >= 2) {
     // Re-sync pair alignment before consuming. A status word (word0) always has
@@ -407,6 +668,75 @@ function decodeTrack(words: Uint32Array) {
   }
   updateTrackReadout();
 }
+
+// --- Per-app result decoders ------------------------------------------------
+// Each decoder matches its app's host mirror in chips/fpga/ bit-for-bit. Called
+// only when the app view is active AND the loaded firmware is that app, so the
+// selected app's layout is applied (mirrors trackerActive gating decodeTrack).
+function decodeApp(words: Uint32Array) {
+  if (!appActive) return;
+  const decoder = APP_DECODERS[loadedApp];
+  if (decoder) decoder(words);
+}
+
+const APP_DECODERS: Record<string, (words: Uint32Array) => void> = {
+  // dvs_motion_view.py unpack_status: motion=(w>>14)&1, val=(w>>6)&0xFF,
+  // row=(w>>3)&0x7, col=w&0x7 (4x4 grid).
+  dvs_motion(words) {
+    for (const w of words) {
+      motionCell = {motion: (w >>> 14) & 1, val: (w >>> 6) & 0xff,
+                    row: (w >>> 3) & 0x7, col: w & 0x7, at: performance.now()};
+    }
+  },
+  // oms_meister_ref.py: word = (oms<<14)|(val<<6)|(row<<3)|col (8x8 grid; the
+  // firmware already packs best_row>>1 / best_col>>1 into 0..7).
+  dvs_oms_meister(words) {
+    for (const w of words) {
+      omsCell = {oms: (w >>> 14) & 1, val: (w >>> 6) & 0xff,
+                 row: (w >>> 3) & 0x7, col: w & 0x7, at: performance.now()};
+    }
+  },
+  // dvs_stabilize_view.py unpack_status: sx=(w>>15)&1, mx=(w>>11)&0xF,
+  // sy=(w>>10)&1, my=(w>>6)&0xF, oct=(w>>3)&0x7, mag=w&0x7.
+  dvs_stabilize(words) {
+    for (const w of words) {
+      const sx = (w >>> 15) & 1, mx = (w >>> 11) & 0xf;
+      const sy = (w >>> 10) & 1, my = (w >>> 6) & 0xf;
+      stabVec = {dx: sx ? -mx : mx, dy: sy ? -my : my,
+                 oct: (w >>> 3) & 0x7, mag: w & 0x7, at: performance.now()};
+    }
+  },
+  // dvs_mayfly_view.py unpack_step: cx=w&0x7F, cy=(w>>7)&0x7F,
+  // new_state=(w>>14)&1, step0=(w>>15)&1. Accumulate toggles into the world.
+  dvs_mayfly(words) {
+    for (const w of words) {
+      const cx = w & 0x7f, cy = (w >>> 7) & 0x7f, newState = (w >>> 14) & 1;
+      if (cx < 126 && cy < 112) mayflyWorld[cy * 126 + cx] = newState;
+    }
+  },
+  // dvs_heartbeats_view.py unpack_status: region=w&0x3F, period_bin=(w>>6)&0xF,
+  // conf=(w>>10). col=region%8, row=region//8 (8 cols x 7 rows).
+  dvs_heartbeats(words) {
+    for (const w of words) {
+      const region = w & 0x3f;
+      if (region >= 8 * 7) continue;
+      heartGrid[region] = {bin: (w >>> 6) & 0xf, conf: (w >>> 10) & 0xf};
+    }
+  },
+  // dvs_oms_dirconsensus_ref.py: word = (flag<<14)|(zc<<9)|(row<<6)|(col<<3)|gdir.
+  // flag=(w>>14)&1, z=(w>>9)&0x1F, row=(w>>6)&0x7, col=(w>>3)&0x7, gdir=w&0x7.
+  dvs_oms_dirconsensus(words) {
+    for (const w of words) {
+      dirCons = {flag: (w >>> 14) & 1, z: (w >>> 9) & 0x1f,
+                 row: (w >>> 6) & 0x7, col: (w >>> 3) & 0x7,
+                 gdir: w & 0x7, at: performance.now()};
+    }
+  },
+  // dvs_track handled by decodeTrack in track mode; if selected in the app view
+  // its centroid/box words are two-word pairs -- reuse the track decoder so the
+  // app view shows the same overlay.
+  dvs_track(words) { decodeTrackWords(words); },
+};
 
 function updateTrackReadout() {
   const fresh = performance.now() - trackBox.at < 1500;
@@ -427,21 +757,32 @@ function setMode(next: Mode) {
   mode = next;
   q('#mode-live').classList.toggle('active', next === 'live');
   q('#mode-track').classList.toggle('active', next === 'track');
+  q('#mode-app').classList.toggle('active', next === 'app');
   q('#dvs').classList.toggle('hidden', next !== 'live');
   q('#track').classList.toggle('hidden', next !== 'track');
+  q('#app').classList.toggle('hidden', next !== 'app');
   q('#system-controls').classList.toggle('hidden', next !== 'live');
   q('#track-controls').classList.toggle('hidden', next !== 'track');
-  // Tracking is a view-only mode -- hide the code/blocks/log workbench and let
-  // the stage fill the width.
-  dashboardMain.classList.toggle('stage-only', next === 'track');
-  q('#stage-label').textContent = next === 'track' ? 'RAW TAP + TRACKER' : 'FPGA / CORE OUTPUT';
+  q('#app-controls').classList.toggle('hidden', next !== 'app');
+  // Tracking + apps are view-only modes -- hide the code/blocks/log workbench and
+  // let the stage fill the width.
+  dashboardMain.classList.toggle('stage-only', next !== 'live');
+  q('#stage-label').textContent = next === 'track' ? 'RAW TAP + TRACKER'
+    : next === 'app' ? 'RAW TAP + APP' : 'FPGA / CORE OUTPUT';
   if (next === 'track') { rawEnergy.fill(0); pendingRaw.length = 0; trackTail = []; updateTrackReadout(); }
-  const src = next === 'track' ? rawStream : stream;
+  if (next === 'app') { appEnergy.fill(0); pendingApp.length = 0; appTail = []; }
+  // The app + track views both need the raw DVS tap for their background, so the
+  // backend enables the raw stream whenever we're not in the plain live view.
+  const src = next === 'live' ? stream : rawStream;
   lastWords = src.words; lastPackets = src.packets; lastRateTime = performance.now();
-  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'mode', mode: next}));
+  // The backend only forwards the raw tap to clients whose mode != live; send
+  // 'track' for the app view too so the tap is enabled.
+  const wire = next === 'app' ? 'track' : next;
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'mode', mode: wire}));
 }
 q('#mode-live').onclick = () => setMode('live');
 q('#mode-track').onclick = () => setMode('track');
+q('#mode-app').onclick = () => setMode('app');
 q('#track-start').onclick = () => firmwareAction('track');
 for (const id of ['decay','fps']) q<HTMLInputElement>(`#${id}`).oninput = e => q(`#${id}-value`).textContent = (e.target as HTMLInputElement).value + (id==='decay'?'%':'');
 q<HTMLInputElement>('#radius').oninput = e => q('#radius-value').textContent = (e.target as HTMLInputElement).value;
@@ -455,10 +796,13 @@ ws.onmessage = event => {
     const frame = new Uint32Array(event.data);
     const body = frame.subarray(1);
     if (frame[0] === STREAM_RAW) {
-      pendingRaw.push(body);
+      // Raw DVS tap feeds the track view (pendingRaw) or the app view (pendingApp).
+      if (mode === 'app') pendingApp.push(body); else pendingRaw.push(body);
       rawStream.words += body.length; rawStream.packets += 1;
     } else if (mode === 'track') {
       decodeTrack(body);
+    } else if (mode === 'app') {
+      decodeApp(body);
     } else {
       pending.push(body);
       stream.words += body.length; stream.packets += 1;
@@ -466,7 +810,7 @@ ws.onmessage = event => {
     return;
   }
   const message = JSON.parse(event.data);
-  if (message.type === 'init') { board=message.board; stream=message.stream; for(const l of message.logs) appendLog(l.message,l.level); updateState(); }
+  if (message.type === 'init') { board=message.board; stream=message.stream; for(const l of message.logs) appendLog(l.message,l.level); if (message.apps) populateApps(message.apps); updateState(); }
   if (message.type === 'state') { board=message.board; stream={...stream,...message.stream}; updateState(); }
   if (message.type === 'log') appendLog(message.message,message.level);
   if (message.type === 'build') showDiagnostics(message.diagnostics || []);
@@ -475,7 +819,7 @@ ws.onclose = () => { board.connected=false; updateState(); appendLog('Dashboard 
 
 setInterval(() => {
   const now=performance.now(), dt=(now-lastRateTime)/1000;
-  const src = mode === 'track' ? rawStream : stream;
+  const src = mode === 'live' ? stream : rawStream;
   q('#event-rate').textContent=`${Math.round((src.words-lastWords)/dt).toLocaleString()}/s`;
   q('#packet-rate').textContent=`${Math.round((src.packets-lastPackets)/dt).toLocaleString()}/s`;
   lastWords=src.words; lastPackets=src.packets; lastRateTime=now;
