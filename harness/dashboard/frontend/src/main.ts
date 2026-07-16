@@ -84,6 +84,19 @@ const causticON = new Float32Array(CAUSTIC_W * CAUSTIC_H);   // [y*W + x]
 const causticOFF = new Float32Array(CAUSTIC_W * CAUSTIC_H);
 let causticAt = 0;
 let causticLast = {xr: 0, yr: 0, pol: 0, strength: 0, flag: 0};
+// dvs_blackhole ("Micro-Event Black Holes"): each status word reports the strongest
+// COLLAPSING coarse region {xq, yq, strength, flag} -- where motion was busy then
+// abruptly went quiet. We accumulate the REAL (flag=1) collapse cells into two
+// decaying float fields over the 126x112 sensor frame: a DARK `well` field (an
+// imploding gravity well -- carves darkness) and a bright `ring` field (a
+// gravitational-lensing halo). Per frame both fade so wells implode/vanish. Mirror
+// of dvs_blackhole_view.py's accumulate_wells / blackhole_rgb. 8-px regions ->
+// pixel centre via BH_CELL_PX. blackholeAt = last-update timestamp for the status.
+const BH_W = 126, BH_H = 112, BH_CELL_PX = 8;   // BH_CELL_PX = 1<<XQ_SHIFT (8-px regions)
+const blackholeWell = new Float32Array(BH_W * BH_H);   // [y*W + x] dark imploding core
+const blackholeRing = new Float32Array(BH_W * BH_H);   // [y*W + x] bright lensing halo
+let blackholeAt = 0;
+let blackholeLast = {xq: 0, yq: 0, strength: 0, flag: 0};
 
 // Latest tracker status, decoded from the dvs_track result stream. word0 packs
 // (locked<<24)|(cx<<16)|(cy<<8)|count; word1 packs (min_x<<24)|(min_y<<16)|(max_x<<8)|max_y.
@@ -375,6 +388,8 @@ function resetAppState() {
   sonarRings = []; sonarLast = {octant: 0, radius: 0, pol: 0, strength: 0, flag: 0, at: 0};
   causticON.fill(0); causticOFF.fill(0); causticAt = 0;
   causticLast = {xr: 0, yr: 0, pol: 0, strength: 0, flag: 0};
+  blackholeWell.fill(0); blackholeRing.fill(0); blackholeAt = 0;
+  blackholeLast = {xq: 0, yq: 0, strength: 0, flag: 0};
   appEnergy.fill(0); pendingApp.length = 0; appTail = [];
 }
 
@@ -506,6 +521,7 @@ function renderApp() {
   else if (loadedApp === 'dvs_apophenia') paintApophenia();
   else if (loadedApp === 'dvs_sonar') paintSonar();
   else if (loadedApp === 'dvs_caustics') paintCaustics(!paused);
+  else if (loadedApp === 'dvs_blackhole') paintBlackhole(!paused);
   else paint(appImage, appEnergy, palette);
   appCtx.putImageData(appImage,0,0);
   if (loadedApp === 'dvs_sonar' && appActive) drawSonarRings();
@@ -694,6 +710,43 @@ function paintCaustics(advance: boolean) {
   }
 }
 
+// dvs_blackhole: the app IS a field of imploding gravity wells. The decoder deepens
+// a dark `well` and a bright lensing `ring` at each real collapse cell; here we apply
+// a per-frame multiplicative fade (so wells implode/vanish between hits) and paint
+// them over a dim deep-space backdrop -- wells SUBTRACT light (carve darkness), rings
+// ADD a cool blue-white shimmer. Bit-faithful counterpart of dvs_blackhole_view.py's
+// blackhole_rgb(). Replaces the event background (like mayfly/caustics) so the wells
+// fill the stage. `advance` gates the fade so a paused view holds still.
+const BH_FRAME_DECAY = 0.94;   // per-frame field fade (wells implode between collapses)
+function paintBlackhole(advance: boolean) {
+  if (advance) {
+    for (let i = 0; i < blackholeWell.length; i++) { blackholeWell[i] *= BH_FRAME_DECAY; blackholeRing[i] *= BH_FRAME_DECAY; }
+  }
+  // Peak-normalise each field so wells/rings stay legible regardless of stream rate.
+  let wpeak = 0, rpeak = 0;
+  for (let i = 0; i < blackholeWell.length; i++) {
+    if (blackholeWell[i] > wpeak) wpeak = blackholeWell[i];
+    if (blackholeRing[i] > rpeak) rpeak = blackholeRing[i];
+  }
+  const winv = wpeak > 0 ? 1 / wpeak : 0, rinv = rpeak > 0 ? 1 / rpeak : 0;
+  for (let sy = 0; sy < BH_H; sy++) {
+    for (let sx = 0; sx < BH_W; sx++) {
+      const idx = sy * BH_W + sx;
+      const wn = Math.min(1, blackholeWell[idx] * winv);
+      const rn = Math.min(1, blackholeRing[idx] * rinv);
+      // Dim deep-space backdrop; wells multiply it down toward black (implosion),
+      // then the cool blue-white lensing ring is added on top.
+      const dark = 1 - 0.95 * wn;
+      let r = 0.04 * dark + 0.55 * rn;
+      let g = 0.05 * dark + 0.75 * rn;
+      let b = 0.09 * dark + 1.00 * rn;
+      const {row, col} = mapEvent(sx, sy);
+      if (row < 0 || row >= 126 || col < 0 || col >= 112) continue;
+      appImage.data.set([Math.min(255, r * 255), Math.min(255, g * 255), Math.min(255, b * 255), 255], (row * 112 + col) * 4);
+    }
+  }
+}
+
 // 8-octant unit vector (x right, y down); N (dy<0) points up. Shared by the
 // stabilize + dir-consensus arrows (matches the mirrors' `dirs` table).
 const OCTANT_VEC: [number, number][] = [[1,0],[1,-1],[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1]];
@@ -803,6 +856,14 @@ const APP_OVERLAYS: Record<string, () => void> = {
     q('#app-status').textContent = (fresh && causticLast.flag)
       ? `caustic (${causticLast.xr},${causticLast.yr}) str=${causticLast.strength} ${causticLast.pol ? 'ON' : 'OFF'}`
       : (fresh ? `faint (${causticLast.xr},${causticLast.yr})` : 'listening…');
+  },
+  dvs_blackhole() {
+    // The imploding wells ARE the render (paintBlackhole paints the background); no
+    // cell overlay. Just report the latest collapse so the status line moves.
+    const fresh = performance.now() - blackholeAt < 1500;
+    q('#app-status').textContent = (fresh && blackholeLast.flag)
+      ? `black hole @(${blackholeLast.xq},${blackholeLast.yq}) depth=${blackholeLast.strength}`
+      : (fresh ? `faint collapse @(${blackholeLast.xq},${blackholeLast.yq})` : 'listening…');
   },
   dvs_oms_dirconsensus() {
     // 8x7 tiles, 16x16-px. Highlight the flagged tile + a global-dir arrow.
@@ -1006,6 +1067,38 @@ const APP_DECODERS: Record<string, (words: Uint32Array) => void> = {
       }
       causticLast = {xr, yr, pol, strength, flag};
       causticAt = performance.now();
+    }
+  },
+  // dvs_blackhole_view.py unpack_status: xq=w&0xF, yq=(w>>4)&0xF, strength=(w>>8)&0x1F,
+  // flag=(w>>13)&1. Each REAL (flag=1) word carves a dark imploding WELL (negative
+  // gaussian) at the region centre plus a bright gravitational-lensing RING shell just
+  // outside it; paintBlackhole fades + paints them. Mirror of accumulate_wells().
+  dvs_blackhole(words) {
+    for (const w of words) {
+      const xq = w & 0xf, yq = (w >>> 4) & 0xf, strength = (w >>> 8) & 0x1f, flag = (w >>> 13) & 1;
+      if (xq >= 16 || yq >= 14) continue;
+      blackholeLast = {xq, yq, strength, flag};
+      blackholeAt = performance.now();
+      if (!flag) continue;   // only real black holes carve a well
+      const cx = xq * BH_CELL_PX + BH_CELL_PX / 2;
+      const cy = yq * BH_CELL_PX + BH_CELL_PX / 2;
+      const depth = 0.25 + 0.75 * (strength / 31);
+      const core = 5.0, halo = 8.0;   // dark-core sigma / lensing-ring radius (px)
+      // Splat over a window big enough to hold the lensing ring (radius ~halo).
+      for (let dy = -12; dy <= 12; dy++) {
+        const yy = Math.round(cy) + dy;
+        if (yy < 0 || yy >= BH_H) continue;
+        for (let dx = -12; dx <= 12; dx++) {
+          const xx = Math.round(cx) + dx;
+          if (xx < 0 || xx >= BH_W) continue;
+          const r2 = (xx - cx) * (xx - cx) + (yy - cy) * (yy - cy);
+          // Dark imploding core (negative gaussian) into the well field.
+          blackholeWell[yy * BH_W + xx] += Math.exp(-r2 / (2 * core * core)) * depth;
+          // Bright lensing ring: a thin gaussian shell at radius `halo`.
+          const rr = Math.sqrt(r2);
+          blackholeRing[yy * BH_W + xx] += Math.exp(-((rr - halo) * (rr - halo)) / (2 * 2 * 2)) * depth;
+        }
+      }
     }
   },
   // dvs_oms_dirconsensus_ref.py: word = (flag<<14)|(zc<<9)|(row<<6)|(col<<3)|gdir.

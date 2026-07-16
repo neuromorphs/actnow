@@ -83,6 +83,10 @@ APP_REGISTRY = {
         "prog": "dvs_caustics", "label": "Caustic Refractor",
         "blurb": "Event-Caustic Refractor: events warped through a wavy sine-LUT water surface into a shimmering, decaying underwater light-caustic field.",
         "params": []},
+    "dvs_blackhole": {
+        "prog": "dvs_blackhole", "label": "Micro Black Holes",
+        "blurb": "Micro-Event Black Holes: coarse two-EMA density per region; where motion was busy then abruptly COLLAPSES (an object stops/leaves) it emits a dark imploding well with a gravitational-lensing ring.",
+        "params": []},
     "dvs_oms_meister": {
         "prog": "dvs_oms_meister", "label": "OMS Meister",
         "blurb": "Object-motion-sensitivity heat over an 8x8 grid.",
