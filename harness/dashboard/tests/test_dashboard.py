@@ -58,13 +58,17 @@ class Overlay:
     def __init__(self):
         self.bram_ctrl = Bram()
         self.gpio_ctrl = types.SimpleNamespace(channel1=Channel())
-        for index in range(5):
+        for index in range(6):
             setattr(self, f"gpio_s{index}",
                     types.SimpleNamespace(channel1=Channel(), channel2=Channel()))
         recv = types.SimpleNamespace(stop=mock.Mock(), start=mock.Mock(), running=True)
         recv.stop.side_effect = lambda: setattr(recv, "running", False)
         recv.start.side_effect = lambda: setattr(recv, "running", True)
         self.dma_res = types.SimpleNamespace(recvchannel=recv)
+        raw_recv = types.SimpleNamespace(stop=mock.Mock(), start=mock.Mock(), running=True)
+        raw_recv.stop.side_effect = lambda: setattr(raw_recv, "running", False)
+        raw_recv.start.side_effect = lambda: setattr(raw_recv, "running", True)
+        self.dma_raw = types.SimpleNamespace(recvchannel=raw_recv)
 
 
 class DashboardTests(unittest.TestCase):
@@ -100,12 +104,50 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(reply["words"], 1)
         overlay.dma_res.recvchannel.stop.assert_not_called()
         overlay.dma_res.recvchannel.start.assert_not_called()
+        overlay.dma_raw.recvchannel.stop.assert_not_called()
+        overlay.dma_raw.recvchannel.start.assert_not_called()
         self.assertEqual(overlay.gpio_ctrl.channel1.value, 0)
 
     def test_unknown_control_command_is_rejected(self):
         server = load_server()
         with self.assertRaisesRegex(ValueError, "unknown command"):
             server.Runtime(Overlay(), "old.mem").command({"command": "erase"})
+
+    def test_shutdown_stops_both_dma_channels(self):
+        server = load_server()
+        overlay = Overlay()
+        reply = server.Runtime(overlay, "old.mem").command({"command": "shutdown"})
+        self.assertTrue(reply["ok"])
+        overlay.dma_res.recvchannel.stop.assert_called_once()
+        overlay.dma_raw.recvchannel.stop.assert_called_once()
+
+    def test_raw_dma_uses_independent_udp_destination(self):
+        server = load_server()
+        overlay = Overlay()
+        runtime = types.SimpleNamespace(overlay=overlay, running=True)
+        channel = overlay.dma_raw.recvchannel
+        channel.transferred = 8
+        channel.transfer = mock.Mock()
+        channel.wait = mock.Mock(side_effect=lambda: setattr(runtime, "running", False))
+
+        class Buffer(list):
+            def freebuffer(self):
+                self.freed = True
+
+        buf = Buffer([0x12345678, 0xABCDEF01] + [0] * 254)
+        sock = mock.Mock()
+        with mock.patch.object(server, "allocate", return_value=buf), \
+             mock.patch.object(server.socket, "socket", return_value=sock):
+            server.dma_to_udp(runtime, "dma_raw", "raw", "192.0.2.1", 3336)
+
+        channel.transfer.assert_called_once_with(buf)
+        packet, destination = sock.sendto.call_args.args
+        self.assertEqual(destination, ("192.0.2.1", 3336))
+        self.assertEqual(server.HDR.unpack_from(packet), (server.MAGIC, 0, 2))
+        self.assertEqual(packet[server.HDR.size:],
+                         server.struct.pack("<2I", 0x12345678, 0xABCDEF01))
+        self.assertTrue(buf.freed)
+        sock.close.assert_called_once()
 
 
 class UdpTests(unittest.IsolatedAsyncioTestCase):

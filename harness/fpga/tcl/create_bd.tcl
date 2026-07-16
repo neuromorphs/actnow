@@ -1,6 +1,6 @@
 # Requirements-only KR260 block design:
-#   PS AXI-Lite -> firmware BRAM + control/status GPIO + result DMA registers
-#   core result AXI-Stream -> one S2MM AXI-DMA -> PS DDR
+#   PS AXI-Lite -> firmware BRAM + control/status GPIO + two DMA register banks
+#   core result and raw camera AXI-Streams -> independent S2MM DMAs -> PS DDR
 
 set design_name "actnow_kr260"
 
@@ -34,7 +34,9 @@ set_property -dict [list \
     CONFIG.PSU__USE__M_AXI_GP1 {0} \
     CONFIG.PSU__USE__M_AXI_GP2 {1} \
     CONFIG.PSU__USE__S_AXI_GP2 {1} \
+    CONFIG.PSU__USE__S_AXI_GP3 {1} \
     CONFIG.PSU__SAXIGP2__DATA_WIDTH {64} \
+    CONFIG.PSU__SAXIGP3__DATA_WIDTH {64} \
     CONFIG.PSU__USE__IRQ0 {1} \
     CONFIG.PSU__FPGA_PL0_ENABLE {1} \
     CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ {100} \
@@ -74,6 +76,19 @@ set_property -dict [list \
     CONFIG.c_addr_width {32} \
 ] [get_bd_cells dma_res]
 
+create_bd_cell -type ip -vlnv xilinx.com:ip:axi_dma dma_raw
+set_property -dict [list \
+    CONFIG.c_include_sg {0} \
+    CONFIG.c_sg_include_stscntrl_strm {0} \
+    CONFIG.c_include_mm2s {0} \
+    CONFIG.c_include_s2mm {1} \
+    CONFIG.c_include_s2mm_dre {0} \
+    CONFIG.c_s2mm_burst_size {16} \
+    CONFIG.c_m_axi_s2mm_data_width {64} \
+    CONFIG.c_s_axis_s2mm_tdata_width {32} \
+    CONFIG.c_addr_width {32} \
+] [get_bd_cells dma_raw]
+
 # ---- firmware BRAM: PS writes port A, PL core reads exported port B ----
 create_bd_cell -type ip -vlnv xilinx.com:ip:axi_bram_ctrl bram_ctrl
 set_property -dict [list \
@@ -101,14 +116,14 @@ set_property -dict [list \
 ] $bram_gen
 make_bd_intf_pins_external -name BRAM_PORTB [get_bd_intf_pins $bram_gen/BRAM_PORTB]
 
-# ---- GPIO: one control register, ten status counters in five dual GPIOs ----
+# ---- GPIO: one control register, twelve status counters in six dual GPIOs ----
 create_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio gpio_ctrl
 set_property -dict [list \
     CONFIG.C_ALL_OUTPUTS {1} \
     CONFIG.C_GPIO_WIDTH {32} \
 ] [get_bd_cells gpio_ctrl]
 
-foreach g {gpio_s0 gpio_s1 gpio_s2 gpio_s3 gpio_s4} {
+foreach g {gpio_s0 gpio_s1 gpio_s2 gpio_s3 gpio_s4 gpio_s5} {
     create_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio $g
     set_property -dict [list \
         CONFIG.C_IS_DUAL {1} \
@@ -120,16 +135,20 @@ foreach g {gpio_s0 gpio_s1 gpio_s2 gpio_s3 gpio_s4} {
 }
 
 # ---- AXI-Lite control path ----
-foreach s {dma_res/S_AXI_LITE bram_ctrl/S_AXI gpio_ctrl/S_AXI \
-           gpio_s0/S_AXI gpio_s1/S_AXI gpio_s2/S_AXI gpio_s3/S_AXI gpio_s4/S_AXI} {
+foreach s {dma_res/S_AXI_LITE dma_raw/S_AXI_LITE bram_ctrl/S_AXI gpio_ctrl/S_AXI \
+           gpio_s0/S_AXI gpio_s1/S_AXI gpio_s2/S_AXI gpio_s3/S_AXI gpio_s4/S_AXI \
+           gpio_s5/S_AXI} {
     apply_bd_automation -rule xilinx.com:bd_rule:axi4 \
         -config [list Master {/ps/M_AXI_HPM0_LPD} Clk {Auto}] [get_bd_intf_pins $s]
 }
 
 # ---- DMA data path into PS DDR ----
 connect_bd_intf_net [get_bd_intf_pins dma_res/M_AXI_S2MM] [get_bd_intf_pins ps/S_AXI_HP0_FPD]
+connect_bd_intf_net [get_bd_intf_pins dma_raw/M_AXI_S2MM] [get_bd_intf_pins ps/S_AXI_HP1_FPD]
 catch { connect_bd_net [get_bd_pins ps/pl_clk0] [get_bd_pins ps/saxihp0_fpd_aclk] }
+catch { connect_bd_net [get_bd_pins ps/pl_clk0] [get_bd_pins ps/saxihp1_fpd_aclk] }
 catch { connect_bd_net [get_bd_pins ps/pl_clk0] [get_bd_pins dma_res/m_axi_s2mm_aclk] }
+catch { connect_bd_net [get_bd_pins ps/pl_clk0] [get_bd_pins dma_raw/m_axi_s2mm_aclk] }
 
 # ---- result stream in from fpga_top/actnow_pl ----
 make_bd_intf_pins_external -name s_axis_res [get_bd_intf_pins dma_res/S_AXIS_S2MM]
@@ -137,14 +156,24 @@ set_property -dict [list CONFIG.FREQ_HZ $pl_freq] [get_bd_intf_ports s_axis_res]
 set_property -dict [list CONFIG.FREQ_HZ $pl_freq CONFIG.ASSOCIATED_BUSIF {s_axis_res}] \
     [get_bd_ports pl_clk0_out]
 
-# ---- interrupt for PYNQ DMA completion ----
-connect_bd_net [get_bd_pins dma_res/s2mm_introut] [get_bd_pins ps/pl_ps_irq0]
+# ---- raw camera stream in from fpga_top/actnow_pl ----
+make_bd_intf_pins_external -name s_axis_raw [get_bd_intf_pins dma_raw/S_AXIS_S2MM]
+set_property -dict [list CONFIG.FREQ_HZ $pl_freq] [get_bd_intf_ports s_axis_raw]
+set_property -dict [list CONFIG.ASSOCIATED_BUSIF {s_axis_res:s_axis_raw}] \
+    [get_bd_ports pl_clk0_out]
+
+# ---- interrupts for PYNQ DMA completion ----
+create_bd_cell -type ip -vlnv xilinx.com:ip:xlconcat irq_concat
+set_property CONFIG.NUM_PORTS {2} [get_bd_cells irq_concat]
+connect_bd_net [get_bd_pins dma_res/s2mm_introut] [get_bd_pins irq_concat/In0]
+connect_bd_net [get_bd_pins dma_raw/s2mm_introut] [get_bd_pins irq_concat/In1]
+connect_bd_net [get_bd_pins irq_concat/dout] [get_bd_pins ps/pl_ps_irq0]
 
 # ---- exported GPIO vectors ----
 create_bd_port -dir O -from 31 -to 0 gpio_ctrl_out
 connect_bd_net [get_bd_ports gpio_ctrl_out] [get_bd_pins gpio_ctrl/gpio_io_o]
 
-for {set i 0} {$i < 10} {incr i} {
+for {set i 0} {$i < 12} {incr i} {
     create_bd_port -dir I -from 31 -to 0 gpio_stat${i}_in
 }
 
@@ -158,6 +187,8 @@ connect_bd_net [get_bd_ports gpio_stat6_in] [get_bd_pins gpio_s3/gpio_io_i]
 connect_bd_net [get_bd_ports gpio_stat7_in] [get_bd_pins gpio_s3/gpio2_io_i]
 connect_bd_net [get_bd_ports gpio_stat8_in] [get_bd_pins gpio_s4/gpio_io_i]
 connect_bd_net [get_bd_ports gpio_stat9_in] [get_bd_pins gpio_s4/gpio2_io_i]
+connect_bd_net [get_bd_ports gpio_stat10_in] [get_bd_pins gpio_s5/gpio_io_i]
+connect_bd_net [get_bd_ports gpio_stat11_in] [get_bd_pins gpio_s5/gpio2_io_i]
 
 assign_bd_address
 assign_bd_address -offset 0x82000000 -range 0x00008000 \

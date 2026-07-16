@@ -122,6 +122,7 @@ class Dashboard:
             f"cd {remote_dir} && sudo bash -lc "
             f"'source /etc/profile.d/pynq_venv.sh && python3 actnow_fpga_server.py "
             f"--host {self.args.listen_host} --port {self.args.udp_port} "
+            f"--raw-port {self.args.raw_udp_port} "
             f"--control-port {self.args.remote_control_port} "
             f"--xsa {Path(self.args.xsa).name} --firmware {FIRMWARE.name}'")
         self.ssh = await asyncio.create_subprocess_exec(
@@ -350,6 +351,7 @@ def main():
     parser.add_argument("--user", default="ubuntu")
     parser.add_argument("--listen-host", required=True)
     parser.add_argument("--udp-port", type=int, default=3334)
+    parser.add_argument("--raw-udp-port", type=int, default=3336)
     parser.add_argument("--control-port", type=int, default=3335)
     parser.add_argument("--remote-control-port", type=int, default=3335)
     parser.add_argument("--http-port", type=int, default=8088)

@@ -76,6 +76,7 @@ KRIA      ?= kria.local
 KRIA_USER ?= ubuntu
 HOST_IP   ?= 192.168.10.1
 UDP_PORT  ?= 3334
+RAW_UDP_PORT ?= 3336
 HTTP_PORT ?= 8088
 XSA       ?= harness/fpga/vivado/actnow.xsa
 FW_MEM    ?= software/build/rom.mem
@@ -94,7 +95,7 @@ SW_TESTS   := $(filter-out $(MEXT_TESTS),$(basename $(notdir $(wildcard \
                   software/tests/*.S software/tests/*.c \
                   software/tests/unit/*.S software/tests/unit/*.c))))
 
-.PHONY: all test list clean help file-registry software-tests force dashboard kria-headless dashboard-deps dashboard-test e2e_fifo_test e2e_fifo_stress_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test $(TESTS)
+.PHONY: all test list clean help file-registry software-tests force dashboard kria-headless raw-viewer dashboard-deps dashboard-test e2e_fifo_test e2e_fifo_stress_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test $(TESTS)
 
 all: test
 
@@ -124,6 +125,7 @@ help:
 	@echo "  make file-registry           (re)generate gen/file_ids.act + gen/file_registry.conf"
 	@echo "  make kria-headless       run the original terminal/diagnostic viewer"
 	@echo "  make dashboard               build/deploy and open the live coding dashboard"
+	@echo "  make raw-viewer              open the independent raw DVS UDP viewer"
 	@echo "  make dashboard-test          type-check/build the UI and run dashboard tests"
 	@echo "  make clean                   remove local simulator artifacts (gen/, history)"
 	@echo "  make help                    show this message"
@@ -136,6 +138,7 @@ help:
 	@echo "  SW_TESTS=\"...\"    subset of programs for software-tests (default: all non-M-ext)"
 	@echo "  KRIA=<host>       KR260 SSH host for dashboard (default: $(KRIA))"
 	@echo "  HOST_IP=<ip>      host UDP address passed to the KR260 (default: $(HOST_IP))"
+	@echo "  RAW_UDP_PORT=<n>  independent raw-event UDP port (default: $(RAW_UDP_PORT))"
 	@echo ""
 	@echo "Must be run from this directory (actnow/) -- see the top of this Makefile and"
 	@echo "the README's Toolchain section for why."
@@ -180,6 +183,7 @@ dashboard: dashboard-deps
 		--user $(KRIA_USER) \
 		--listen-host $(HOST_IP) \
 		--udp-port $(UDP_PORT) \
+		--raw-udp-port $(RAW_UDP_PORT) \
 		--http-port $(HTTP_PORT) \
 		--xsa $(XSA) \
 		--static $(DASHBOARD)/frontend/dist
@@ -191,9 +195,13 @@ kria-headless:
 		--user $(KRIA_USER) \
 		--listen-host $(HOST_IP) \
 		--port $(UDP_PORT) \
+		--raw-port $(RAW_UDP_PORT) \
 		--xsa $(XSA) \
 		--firmware $(FW_MEM) \
 		--headless
+
+raw-viewer:
+	python3 harness/host/actnow_raw_viewer.py --port $(RAW_UDP_PORT)
 
 # Built once, not force-rebuilt per test like $(ROM_IMAGE) above -- these two
 # are permanent fixtures for e2e_reset_reload_test, not swapped out per run.

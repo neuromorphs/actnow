@@ -53,7 +53,7 @@ def append_limited(chunks, total_words, words, limit):
     return chunks, total_words
 
 
-def draw_words(acc, np, words):
+def draw_words(acc, np, words, flip_up_down=False, colourblind=False):
     if words.size == 0:
         return
 
@@ -63,9 +63,12 @@ def draw_words(acc, np, words):
     if not np.any(valid):
         return
 
-    rows = SX - 1 - x[valid]
+    rows = x[valid] if flip_up_down else SX - 1 - x[valid]
     cols = y[valid]
-    chans = np.where((words[valid] & 1) != 0, 1, 2)
+    if colourblind:
+        chans = np.where((words[valid] & 1) != 0, 2, 0)
+    else:
+        chans = np.where((words[valid] & 1) != 0, 1, 2)
     acc[rows, cols, chans] = 1.0
 
 
@@ -82,6 +85,7 @@ def deploy_and_start(args):
         f"cd {remote_dir} && sudo bash -lc "
         f"'source /etc/profile.d/pynq_venv.sh && python3 actnow_fpga_server.py "
         f"--host {args.listen_host} --port {args.port} "
+        f"--raw-port {args.raw_port} "
         f"--xsa {Path(args.xsa).name} --firmware {Path(args.firmware).name}'"
     )
     return subprocess.Popen(["ssh", remote, cmd])
@@ -100,8 +104,9 @@ def render(args):
             import cv2 as _cv2
             import numpy as _np
             cv2, np = _cv2, _np
-            cv2.namedWindow("ActNow result stream", cv2.WINDOW_NORMAL)
-            cv2.resizeWindow("ActNow result stream", SY * args.scale, SX * args.scale)
+            title = getattr(args, "title", "ActNow result stream")
+            cv2.namedWindow(title, cv2.WINDOW_NORMAL)
+            cv2.resizeWindow(title, SY * args.scale, SX * args.scale)
             acc = np.zeros((SX, SY, 3), np.float32)
         except Exception as exc:
             print(f"viewer unavailable, falling back to headless: {exc}", flush=True)
@@ -159,12 +164,14 @@ def render(args):
 
             if pending_chunks:
                 words = pending_chunks[0] if len(pending_chunks) == 1 else np.concatenate(pending_chunks)
-                draw_words(acc, np, words)
+                draw_words(acc, np, words,
+                           getattr(args, "flip_up_down", False),
+                           getattr(args, "colourblind", False))
                 pending_chunks = []
                 pending_words = 0
 
             img = (np.clip(acc, 0, 1) * 255).astype(np.uint8)
-            cv2.imshow("ActNow result stream", img)
+            cv2.imshow(title, img)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
 
@@ -196,6 +203,8 @@ def main():
     ap.add_argument("--remote-dir", default="/tmp/actnow_harness")
     ap.add_argument("--listen-host", required=True, help="host/IP the KR260 should send UDP to")
     ap.add_argument("--port", type=int, default=3334)
+    ap.add_argument("--raw-port", type=int, default=3336,
+                    help="raw-event UDP destination passed to the KR260 server")
     ap.add_argument("--xsa", required=True)
     ap.add_argument("--firmware", required=True)
     ap.add_argument("--no-start", action="store_true", help="only listen/render; do not SSH to the KR260")

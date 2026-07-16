@@ -1,10 +1,12 @@
 `timescale 1ns/1ps
 
-// Everything in the PL except the block design: AER receive, one elastic FIFO
-// into the generated core, and one packetized result stream out.
+// Everything in the PL except the block design: AER receive, independent
+// elastic FIFOs into the generated core and raw DMA, and the processed result
+// stream out.
 //
-//   AER bus -> aer_rx -> evt_pack -> evt_stream -> core.fifo_push
-//                                      core.io_* -> m_axis_res -> DMA -> UDP
+//   AER bus -> aer_rx -> evt_pack +-> evt_stream -> core.fifo_push
+//                                  +-> evt_stream -> raw DMA
+//                                      core.io_* -> result DMA
 //
 // The event stream drops when full rather than backpressuring the AER receiver,
 // so the camera is never stalled by core or PS latency.
@@ -22,6 +24,12 @@ module actnow_pl (
     input  wire        m_axis_res_tready,
     output wire [31:0] m_axis_res_tdata,
     output wire        m_axis_res_tlast,
+
+    // packed camera events -> independent raw AXI-DMA
+    output wire        m_axis_raw_tvalid,
+    input  wire        m_axis_raw_tready,
+    output wire [31:0] m_axis_raw_tdata,
+    output wire        m_axis_raw_tlast,
 
     // firmware BRAM, port B (port A = the PS's AXI-BRAM-Ctrl)
     output wire        bram_clk,
@@ -44,7 +52,9 @@ module actnow_pl (
     output wire [31:0] fetch_count,     // core ROM fetches (proves it is booting)
     output wire [31:0] result_count,    // words the core wrote to base 6
     output wire [31:0] rd_err_count,    // illegal base-6 reads (firmware bug)
-    output wire [31:0] reset_count      // warm resets delivered to the core
+    output wire [31:0] reset_count,     // warm resets delivered to the core
+    output wire [31:0] raw_drop_count,  // raw events dropped: raw DMA FIFO full
+    output wire [31:0] raw_push_count   // raw events accepted by its DMA FIFO
 );
     wire rst = ~resetn;                 // the core and adapters use active-high
 
@@ -77,6 +87,23 @@ module actnow_pl (
         .evt_data  (evt_data),
         .out_valid (pkt_valid),
         .out_data  (pkt_data)
+    );
+
+    // ---- independent raw camera stream ----
+    // This branch never backpressures evt_pack or the AER receiver. It remains
+    // active while core ingress is paused for firmware reloads.
+    evt_stream #(.DEPTH_LOG2(10), .HOLD_CYCLES(5000)) raw_i (
+        .clk            (clk),
+        .rst            (rst),
+        .decim          (16'd0),
+        .in_valid       (pkt_valid),
+        .in_data        (pkt_data),
+        .m_axis_tvalid  (m_axis_raw_tvalid),
+        .m_axis_tready  (m_axis_raw_tready),
+        .m_axis_tdata   (m_axis_raw_tdata),
+        .m_axis_tlast   (m_axis_raw_tlast),
+        .accepted_count (raw_push_count),
+        .drop_count     (raw_drop_count)
     );
 
     // ---- events into the core ----

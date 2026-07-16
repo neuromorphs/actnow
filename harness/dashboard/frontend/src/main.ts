@@ -294,7 +294,7 @@ function render() {
     const off=energy[i*2], on=energy[i*2+1], j=i*4;
     if (palette === 'mono') image.data.set([255*Math.max(on,off),255*Math.max(on,off),255*Math.max(on,off),255],j);
     else if (palette === 'heat') image.data.set([255*Math.min(1,on+off),150*on,35*off,255],j);
-    else image.data.set([230*off,235*on,70*on,255],j);
+    else image.data.set([235*on,45*Math.max(on,off),235*off,255],j);
   }
   ctx.putImageData(image,0,0);
   const fps = Number(q<HTMLInputElement>('#fps').value);

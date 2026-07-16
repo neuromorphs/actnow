@@ -21,6 +21,9 @@ module tb_pl_stress;
     wire        res_tvalid, res_tlast;
     wire [31:0] res_tdata;
     reg         res_tready = 1'b1;
+    wire        raw_tvalid, raw_tlast;
+    wire [31:0] raw_tdata;
+    reg         raw_tready = 1'b1;
 
     wire        bram_clk, bram_en;
     wire [3:0]  bram_we;
@@ -36,6 +39,7 @@ module tb_pl_stress;
     wire [31:0] req_count, word_count, evt_count, last_event;
     wire [31:0] core_drop_count, core_push_count;
     wire [31:0] fetch_count, result_count, rd_err_count, reset_count;
+    wire [31:0] raw_drop_count, raw_push_count;
 
     actnow_pl dut (
         .clk               (clk),
@@ -47,6 +51,10 @@ module tb_pl_stress;
         .m_axis_res_tready (res_tready),
         .m_axis_res_tdata  (res_tdata),
         .m_axis_res_tlast  (res_tlast),
+        .m_axis_raw_tvalid (raw_tvalid),
+        .m_axis_raw_tready (raw_tready),
+        .m_axis_raw_tdata  (raw_tdata),
+        .m_axis_raw_tlast  (raw_tlast),
         .bram_clk          (bram_clk),
         .bram_en           (bram_en),
         .bram_we           (bram_we),
@@ -63,7 +71,9 @@ module tb_pl_stress;
         .fetch_count       (fetch_count),
         .result_count      (result_count),
         .rd_err_count      (rd_err_count),
-        .reset_count       (reset_count)
+        .reset_count       (reset_count),
+        .raw_drop_count    (raw_drop_count),
+        .raw_push_count    (raw_push_count)
     );
 
     localparam integer MAXN = 256;
@@ -71,24 +81,16 @@ module tb_pl_stress;
     integer ncore = 0;
     integer nres = 0;
     integer nres_pkt = 0;
+    integer nraw = 0;
+    integer nraw_pkt = 0;
     integer errors = 0;
 
-    function [31:0] rotate_req_word(input [31:0] word);
-        integer x, y, tx, ty, rx, ry, nx, ny;
+    function [31:0] transform_req_word(input [31:0] word);
+        integer y;
         begin
-            x = word[30:24];
             y = word[23:17];
-            tx = x - 63;
-            ty = y - 56;
-            rx = (tx - ty) >>> 1;
-            ry = (tx + ty) >>> 1;
-            nx = rx + 63;
-            ny = ry + 56;
-            if (nx < 0) nx = 0;
-            if (nx > 125) nx = 125;
-            if (ny < 0) ny = 0;
-            if (ny > 111) ny = 111;
-            rotate_req_word = (word & 32'h80_01_FF_FF) | (nx[6:0] << 24) | (ny[6:0] << 17);
+            transform_req_word = (word & 32'hFF_01_FF_FF) |
+                                 ((7'd111 - y[6:0]) << 17);
         end
     endfunction
 
@@ -101,13 +103,23 @@ module tb_pl_stress;
         if (nres >= ncore) begin
             $display("FAIL: result #%0d arrived before matching core input was recorded", nres);
             errors <= errors + 1;
-        end else if (res_tdata !== rotate_req_word(core_seen[nres])) begin
+        end else if (res_tdata !== transform_req_word(core_seen[nres])) begin
             $display("FAIL: result #%0d want 0x%08h got 0x%08h",
-                     nres, rotate_req_word(core_seen[nres]), res_tdata);
+                     nres, transform_req_word(core_seen[nres]), res_tdata);
             errors <= errors + 1;
         end
         if (res_tlast) nres_pkt <= nres_pkt + 1;
         nres <= nres + 1;
+    end
+
+    always @(posedge clk) if (resetn && raw_tvalid && raw_tready) begin
+        if (raw_tdata[31] !== 1'b0 || raw_tdata[30:24] !== (nraw % 126) ||
+            raw_tdata[23:17] !== ((nraw / 2) % 112) || raw_tdata[0] !== nraw[0]) begin
+            $display("FAIL: raw word #%0d has bad ABI: 0x%08h", nraw, raw_tdata);
+            errors <= errors + 1;
+        end
+        if (raw_tlast) nraw_pkt <= nraw_pkt + 1;
+        nraw <= nraw + 1;
     end
 
     task aer_word(input [8:0] w);
@@ -176,6 +188,10 @@ module tb_pl_stress;
         if (evt_count != NEV)       begin $display("FAIL: evt_count=%0d want %0d", evt_count, NEV); errors = errors + 1; end
         if (core_push_count != NEV) begin $display("FAIL: core_push_count=%0d want %0d", core_push_count, NEV); errors = errors + 1; end
         if (core_drop_count != 0)   begin $display("FAIL: core_drop_count=%0d want 0", core_drop_count); errors = errors + 1; end
+        if (raw_push_count != NEV)  begin $display("FAIL: raw_push_count=%0d want %0d", raw_push_count, NEV); errors = errors + 1; end
+        if (raw_drop_count != 0)    begin $display("FAIL: raw_drop_count=%0d want 0", raw_drop_count); errors = errors + 1; end
+        if (nraw != NEV)            begin $display("FAIL: nraw=%0d want %0d", nraw, NEV); errors = errors + 1; end
+        if (nraw_pkt == 0)          begin $display("FAIL: raw stream never asserted tlast"); errors = errors + 1; end
         if (rd_err_count != 0)      begin $display("FAIL: rd_err_count=%0d want 0", rd_err_count); errors = errors + 1; end
         if (nres != ncore)          begin $display("FAIL: nres=%0d want ncore=%0d", nres, ncore); errors = errors + 1; end
         if (nres_pkt == 0)          begin $display("FAIL: result stream never asserted tlast"); errors = errors + 1; end

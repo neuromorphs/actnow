@@ -17,7 +17,8 @@
 // requirements-only build.
 module evt_stream #(
     parameter integer DEPTH_LOG2 = 10,   // 1024 events
-    parameter integer PKT_WORDS  = 256   // max events per AXI-Stream packet
+    parameter integer PKT_WORDS  = 256,  // max events per AXI-Stream packet
+    parameter integer HOLD_CYCLES = 0    // optional DMA collection window
 )(
     input  wire        clk,
     input  wire        rst,            // active-high, synchronous
@@ -57,7 +58,11 @@ module evt_stream #(
     wire push  = offer &&  fifo_ready;
     wire drop  = offer && !fifo_ready;
 
-    axis_pack_fifo #(.DEPTH_LOG2(DEPTH_LOG2), .PKT_WORDS(PKT_WORDS)) fifo_i (
+    axis_pack_fifo #(
+        .DEPTH_LOG2 (DEPTH_LOG2),
+        .PKT_WORDS  (PKT_WORDS),
+        .HOLD_CYCLES(HOLD_CYCLES)
+    ) fifo_i (
         .clk           (clk),
         .rst           (rst),
         .s_valid       (push),

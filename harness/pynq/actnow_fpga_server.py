@@ -2,7 +2,7 @@
 """KR260/PYNQ side of the requirements-only ActNow harness.
 
 Loads the overlay, writes firmware into the ROM BRAM, pulses reset_ext, drains
-the result DMA, and forwards completed packets to a host over UDP.
+the processed and raw DMAs, and forwards them on independent UDP ports.
 """
 
 import argparse
@@ -89,6 +89,8 @@ def counters(overlay):
         "results": overlay.gpio_s3.channel2.read(),
         "rd_err": overlay.gpio_s4.channel1.read(),
         "resets": overlay.gpio_s4.channel2.read(),
+        "raw_drop": overlay.gpio_s5.channel1.read(),
+        "raw_push": overlay.gpio_s5.channel2.read(),
     }
 
 
@@ -99,10 +101,11 @@ class Runtime:
         self.running = True
 
     def stop_dma(self):
-        try:
-            self.overlay.dma_res.recvchannel.stop()
-        except Exception:
-            pass
+        for name in ("dma_res", "dma_raw"):
+            try:
+                getattr(self.overlay, name).recvchannel.stop()
+            except Exception:
+                pass
 
     def command(self, request):
         command = request.get("command")
@@ -166,8 +169,9 @@ def control_server(runtime, port):
         listener.close()
 
 
-def dma_to_udp(runtime, host, port, stats_s):
+def dma_to_udp(runtime, dma_name, stream_name, host, port, stats_s=0):
     overlay = runtime.overlay
+    channel = getattr(overlay, dma_name).recvchannel
     dst = (host, port)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     buf = allocate(shape=(PKT_WORDS,), dtype="u4")
@@ -176,35 +180,38 @@ def dma_to_udp(runtime, host, port, stats_s):
     try:
         while runtime.running:
             try:
-                overlay.dma_res.recvchannel.transfer(buf)
-                overlay.dma_res.recvchannel.wait()
+                channel.transfer(buf)
+                channel.wait()
             except Exception as exc:
                 if runtime.running:
-                    print(f"DMA transfer failed, recovering: {exc}", flush=True)
-                    if not overlay.dma_res.recvchannel.running:
-                        overlay.dma_res.recvchannel.start()
+                    print(f"{stream_name} DMA transfer failed, recovering: {exc}", flush=True)
+                    if not channel.running:
+                        channel.start()
                     time.sleep(0.1)
                 continue
-            n_bytes = getattr(overlay.dma_res.recvchannel, "transferred", 0)
+            n_bytes = getattr(channel, "transferred", 0)
             n_words = n_bytes // 4 if n_bytes else PKT_WORDS
             body = struct.pack("<%dI" % n_words, *[int(w) for w in buf[:n_words]])
             sock.sendto(HDR.pack(MAGIC, seq, n_words) + body, dst)
             seq = (seq + 1) & 0xFFFFFFFF
 
             now = time.time()
-            if now - t_stat >= stats_s:
+            if stats_s and now - t_stat >= stats_s:
                 t_stat = now
                 c = counters(overlay)
                 print("evt={evt} push={push} results={results} drop={drop} "
-                      "fetch={fetch} rd_err={rd_err}".format(**c), flush=True)
+                      "raw_push={raw_push} raw_drop={raw_drop} fetch={fetch} "
+                      "rd_err={rd_err}".format(**c), flush=True)
     finally:
         buf.freebuffer()
+        sock.close()
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", required=True)
     ap.add_argument("--port", type=int, default=3334)
+    ap.add_argument("--raw-port", type=int, default=3336)
     ap.add_argument("--xsa", default="actnow.xsa")
     ap.add_argument("--firmware", default="rom.mem")
     ap.add_argument("--stats-s", type=float, default=2.0)
@@ -229,8 +236,19 @@ def main():
     control = threading.Thread(target=control_server,
                                args=(runtime, args.control_port), daemon=True)
     control.start()
+    raw_worker = threading.Thread(
+        target=dma_to_udp,
+        args=(runtime, "dma_raw", "raw", args.host, args.raw_port),
+        daemon=True)
+    raw_worker.start()
     print(f"streaming result words to {args.host}:{args.port}", flush=True)
-    dma_to_udp(runtime, args.host, args.port, args.stats_s)
+    print(f"streaming raw words to {args.host}:{args.raw_port}", flush=True)
+    try:
+        dma_to_udp(runtime, "dma_res", "result", args.host, args.port, args.stats_s)
+    finally:
+        runtime.running = False
+        runtime.stop_dma()
+        raw_worker.join(timeout=1.0)
 
 
 if __name__ == "__main__":

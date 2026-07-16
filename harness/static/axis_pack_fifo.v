@@ -14,7 +14,8 @@
 // becomes promptly delivered, variable-length packets.
 module axis_pack_fifo #(
     parameter integer DEPTH_LOG2 = 10,   // 1024 words
-    parameter integer PKT_WORDS  = 256   // max words per packet
+    parameter integer PKT_WORDS  = 256,  // max words per packet
+    parameter integer HOLD_CYCLES = 0    // batch until full or this collection window
 )(
     input  wire        clk,
     input  wire        rst,             // active-high, synchronous
@@ -56,7 +57,37 @@ module axis_pack_fifo #(
         else if (pop) rptr <= rptr + 1'b1;
     end
 
-    assign m_axis_tvalid = !empty;
+    // The raw stream uses a short collection window to avoid one DMA completion per
+    // naturally spaced AER event. Existing users keep HOLD_CYCLES=0 and retain
+    // immediate delivery. Once released, a packet drains normally to tlast.
+    reg packet_active;
+    reg [31:0] hold_count;
+    wire [DEPTH_LOG2:0] fill_count = wptr - rptr;
+    wire hold_enabled = (HOLD_CYCLES != 0);
+
+    always @(posedge clk) begin
+        if (rst) begin
+            packet_active <= 1'b0;
+            hold_count    <= 32'd0;
+        end else if (!hold_enabled) begin
+            packet_active <= 1'b1;
+            hold_count    <= 32'd0;
+        end else if (packet_active) begin
+            if (pop && m_axis_tlast) packet_active <= 1'b0;
+        end else if (fill_count >= PKT_WORDS) begin
+            packet_active <= 1'b1;
+            hold_count    <= 32'd0;
+        end else if (empty) begin
+            hold_count <= 32'd0;
+        end else if (hold_count >= HOLD_CYCLES - 1) begin
+            packet_active <= 1'b1;
+            hold_count    <= 32'd0;
+        end else begin
+            hold_count <= hold_count + 1'b1;
+        end
+    end
+
+    assign m_axis_tvalid = !empty && (!hold_enabled || packet_active);
     assign m_axis_tdata  = mem[rptr[DEPTH_LOG2-1:0]];
 
     // ---- packet boundaries ----

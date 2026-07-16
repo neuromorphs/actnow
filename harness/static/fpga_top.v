@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 
-// Synthesizable top for the KR260 build: the block design (PS, one AXI-DMA,
+// Synthesizable top for the KR260 build: the block design (PS, two AXI-DMAs,
 // AXI-BRAM-Ctrl + firmware BRAM, AXI-GPIO) wrapped around actnow_pl.
 module fpga_top (
     input  wire [8:0] aer_data_i,
@@ -14,6 +14,9 @@ module fpga_top (
     wire        m_axis_res_tvalid, m_axis_res_tready, m_axis_res_tlast;
     wire [31:0] m_axis_res_tdata;
 
+    wire        m_axis_raw_tvalid, m_axis_raw_tready, m_axis_raw_tlast;
+    wire [31:0] m_axis_raw_tdata;
+
     wire        bram_clk, bram_en;
     wire [3:0]  bram_we;
     wire [31:0] bram_addr, bram_wrdata, bram_rddata;
@@ -22,6 +25,7 @@ module fpga_top (
     wire [31:0] req_count, word_count, evt_count, last_event;
     wire [31:0] core_drop_count, core_push_count;
     wire [31:0] fetch_count, result_count, rd_err_count, reset_count;
+    wire [31:0] raw_drop_count, raw_push_count;
 
     actnow_kr260_wrapper bd_i (
         .pl_clk0_out       (clk),
@@ -32,6 +36,12 @@ module fpga_top (
         .s_axis_res_tdata  (m_axis_res_tdata),
         .s_axis_res_tkeep  (4'hF),
         .s_axis_res_tlast  (m_axis_res_tlast),
+
+        .s_axis_raw_tvalid (m_axis_raw_tvalid),
+        .s_axis_raw_tready (m_axis_raw_tready),
+        .s_axis_raw_tdata  (m_axis_raw_tdata),
+        .s_axis_raw_tkeep  (4'hF),
+        .s_axis_raw_tlast  (m_axis_raw_tlast),
 
         .BRAM_PORTB_clk    (bram_clk),
         .BRAM_PORTB_en     (bram_en),
@@ -51,7 +61,9 @@ module fpga_top (
         .gpio_stat6_in     (fetch_count),
         .gpio_stat7_in     (result_count),
         .gpio_stat8_in     (rd_err_count),
-        .gpio_stat9_in     (reset_count)
+        .gpio_stat9_in     (reset_count),
+        .gpio_stat10_in    (raw_drop_count),
+        .gpio_stat11_in    (raw_push_count)
     );
 
     actnow_pl pl_i (
@@ -64,6 +76,10 @@ module fpga_top (
         .m_axis_res_tready (m_axis_res_tready),
         .m_axis_res_tdata  (m_axis_res_tdata),
         .m_axis_res_tlast  (m_axis_res_tlast),
+        .m_axis_raw_tvalid (m_axis_raw_tvalid),
+        .m_axis_raw_tready (m_axis_raw_tready),
+        .m_axis_raw_tdata  (m_axis_raw_tdata),
+        .m_axis_raw_tlast  (m_axis_raw_tlast),
         .bram_clk          (bram_clk),
         .bram_en           (bram_en),
         .bram_we           (bram_we),
@@ -80,7 +96,9 @@ module fpga_top (
         .fetch_count       (fetch_count),
         .result_count      (result_count),
         .rd_err_count      (rd_err_count),
-        .reset_count       (reset_count)
+        .reset_count       (reset_count),
+        .raw_drop_count    (raw_drop_count),
+        .raw_push_count    (raw_push_count)
     );
 
 endmodule
