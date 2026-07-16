@@ -1,0 +1,50 @@
+# actnow event-camera demo firmware suite
+
+Host-output DVS demos for the async **RV32I** actnow core (no multiply/divide, 32 KB SRAM,
+event-driven wake-on-interrupt). Each app pops a batch of events in its ISR, does multiply-free
+integer work, and writes status word(s) to the output FIFO for a host to render.
+
+## Event ABI (current hardware — `harness/static/evt_pack.v`)
+```
+[31] pad   [30:24] x[6:0]   [23:17] y[6:0]   [16:1] timestep[15:0]   [0] polarity
+=> x=(w>>24)&0x7F, y=(w>>17)&0x7F, ts=(w>>1)&0xFFFF, pol=w&1   (X_SHIFT=24, Y_SHIFT=17)
+```
+Timestamps are live/monotonic on hardware. NOTE: several upstream apps (dvs_motion, dvs_rotate,
+dvs_denoise, dvs_timesurface) still use the stale low-bit layout; this suite matches `evt_pack.v`
++ `dvs_track`. The recorded `chips/fpga/*.csv` captures carry a *wrapped coarse counter*, not
+real µs ts, so timing-based apps validate on synthetic / oms-meister timestamped data.
+
+The SciDVS is 126×112 and very noisy: apps that need it apply a multiply-free 3×3
+spatio-temporal correlation gate (keep an event only if >= CORR_MIN of its 8 neighbours fired
+within CORR_WINDOW events — rejects hot pixels + isolated background activity), à la `dvs_track`.
+
+## Apps
+| app | what it does | output word | host viewer | state | validated |
+|-----|--------------|-------------|-------------|-------|-----------|
+| **dvs_stabilize** | global background-motion direction (scene stabilization) via time-surface normal-flow voting + halve-decay; CORR noise gate | `{sign\|dx, sign\|dy, octant, magnitude}`/batch | `chips/fpga/dvs_stabilize_view.py` | ~18 KB | synthetic pans (R→E,L→W,U→N,D→S) |
+| **dvs_mayfly** | each event spawns a short-lived "creature" (xorshift-hash walk) in a 126×112 bit-world; timestamp-independent | `{cx,cy,new_state,step0}`/step | `chips/fpga/dvs_mayfly_view.py` | 1.8 KB | bounded ≤44% on real capture |
+| **dvs_heartbeats** | per-region dominant flicker/vibration **period** (pow-2 Δt bins, leaky) — host sonifies as heartbeats | `{conf<<10\|bin<<6\|region}`/batch | `chips/fpga/dvs_heartbeats_view.py` | ~2 KB | synthetic 5/13/50 Hz |
+| **dvs_oms_meister** | canonical Meister rate-based OMS (LNLN: DoE EMA bandpass, rectify-before-pool, SAT center/annulus, reciprocal-LUT divisive inhibition, adaptive threshold, LIF) | `{oms<<14\|val<<6\|row<<3\|col}`/batch | `chips/fpga/oms_meister_ref.py` | 6.6 KB | silent on global/coherent, fires on independent (1.4–1.8×) |
+| **dvs_oms_dirconsensus** | best-from-benchmark OMS: per-tile 8-bin motion-**direction** histograms, flag events disagreeing with the tile's background consensus; also emits the global background direction | `{flag<<14\|z<<9\|row<<6\|col<<3\|gdir}`/batch | `chips/fpga/dvs_oms_dirconsensus_ref.py` | 9 KB | oms-meister ts recordings (bg~1%, obj~6×) |
+
+All firmware: `-march=rv32i`, **zero mul/div** (verified in the linked image), fit 32 KB.
+
+## Build & run
+Firmware (on a host with the `riscv32-unknown-elf-` toolchain):
+```
+make -C software PROG=<app>          # -> software/build/rom.mem
+```
+Local compile-check (this repo uses clang here; no gcc):
+```
+clang --target=riscv32-unknown-elf -march=rv32i -mabi=ilp32 -O3 -ffreestanding -nostdlib \
+  -fno-builtin -fuse-ld=lld -Wl,--gc-sections -T software/common/application.lds \
+  -o /tmp/<app>.elf software/common/crt0.S software/<app>/main.c
+```
+Deploy + view via the actnow PC tool:
+```
+python3 harness/host/actnow_client.py --listen-host <ip> --xsa <x.xsa> --firmware software/build/rom.mem
+```
+Or self-test a viewer offline: `python3 chips/fpga/<app>_view.py --validate` /
+`--from-actsim <results.mem>` / `<capture.csv>`.
+
+See also: `demo_ideas.md`, `weird_demo_ideas.md`, `dangelo_attention_feasibility.md`.
