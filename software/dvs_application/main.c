@@ -1,20 +1,16 @@
 #include <stdint.h>
 
-/* dvs equivalent of software/application/main.c: interrupt-driven, running
-   from SRAM after the bootloader copies it there. main() registers
-   isr_handler as event_id_0's ISR (already hardwired to the AER input's
-   own event_out in chips/dvs/core.act -- no separate wiring needed, unlike
-   chips/bench where the testbench wires fifo_event itself), sets the AER
-   input's trigger level to BATCH, enables event_id_0, then returns --
-   crt0.S executes WFI right after, putting the core to sleep.
+/* Interrupt-driven AER application: runs from SRAM after the bootloader
+   copies it there. main() registers isr_handler on event_id_0 (already
+   wired to the AER input's own event_out in chips/dvs/core.act), sets the
+   AER input's trigger level to BATCH, then enables event_id_0 and returns
+   -- crt0.S puts the core to sleep with WFI until the AER input fires the
+   interrupt.
 
-   The AER input (core/peripherals/fifo_in.act instantiated with a 20-bit
-   element width) fires event_id_0 itself once BATCH pixel-events have
-   landed, exactly like chips/bench's fifo_in. Each firing jumps straight
-   to isr_handler, which reads BATCH values from the AER input, adds 1 to
-   each, and pushes the results out over SPI via spi_prog's two-register
-   interface (core/peripherals/spi_prog.act): stage an address, then
-   write the data register to trigger the actual SPI transaction. */
+   isr_handler reads BATCH values from the AER input, adds 1 to each, and
+   pushes the results out over SPI via spi_prog's two-register interface:
+   stage an address, then write the data register to trigger the actual
+   SPI transaction. */
 
 #define ADDR(base, offset) ((volatile uint32_t *)(((uint32_t)(base) << 16) | (uint32_t)(offset)))
 
@@ -26,13 +22,8 @@
 
 #define BATCH 3
 
-/* Must NOT call wfi() itself: soc.act's WFI-decode never returns control to
-   the instruction after it, so a wfi() call inside an ISR permanently skips
-   that ISR's own epilogue (the stack pointer's restore), leaking 16 bytes of
-   stack every interrupt until it eventually collides with this program's own
-   code (see software/application/main.c's isr_handler comment for the full
-   explanation). Just returning is correct: this function's own `ret` lands
-   on the same cached wfi() site main()'s return already relies on. */
+/* isr_handler must not call wfi() -- see software/application/main.c's
+   isr_handler comment for why. */
 static __attribute__((noinline)) void isr_handler(void) {
     uint32_t v[BATCH];
     for (uint32_t i = 0; i < BATCH; i++) {

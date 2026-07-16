@@ -19,20 +19,9 @@ import "core/globals.act";
 // spi_boot is the SPI *master*: it drives cs/sclk/mosi and only listens on
 // miso, exactly like a real MCU reading its own boot flash. A real SPI
 // slave never hands anything back except on miso -- there's no handshake
-// to pace sclk against, so each edge has to be self-timed instead of paced
-// by rendezvous with the external device. Timed here by a plain busy-wait
-// loop (SPI_CLOCK_DELAY_N, core/globals.act) between edges -- an earlier
-// version paced this through a shared real delay-line clock process
-// (req/ack rendezvous with a spi_clock sibling, so spi_boot and spi_prog
-// could each stay a plain chp process without also exposing a variable
-// wired to prs circuitry, which used to crash actsim). That bought
-// physical realism at a real cost: two independent delay-line instances
-// corrupted each other's timing when both spi_boot and spi_prog were
-// simultaneously wired to live external devices, and even a single shared
-// instance still needed the two peripherals to prime it without racing
-// each other. A busy-wait loop has no electrical behavior to corrupt or
-// race in the first place -- it's just an ordinary local variable, so this
-// sidesteps that entire class of bug rather than continuing to patch it.
+// to pace sclk against, so each edge is self-timed via a plain busy-wait
+// loop (SPI_CLOCK_DELAY_N, core/globals.act) rather than paced by
+// rendezvous with the external device.
 //
 // Protocol: one transmission per CPU read, MSB-first -- 1 R/W bit (always
 // 0, read; spi_boot never writes to the flash), 20 address bits (the CPU's

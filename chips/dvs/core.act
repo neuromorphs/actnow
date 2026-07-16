@@ -3,28 +3,22 @@ import "core/soc.act";
 import "chips/dvs/harness.act";
 
 // dvs's whole chip: soc + its off-chip periphery (chips/dvs/harness.act)
-// wired together. Only 3 of soc's 16 event lines are used (robustness.md
-// Stage 2.1's dvs event topology):
+// wired together. Only 3 of soc's 16 event lines are used:
 //   - event_id_0 is hardwired directly to the AER input's own event_out --
-//     unlike chips/bench/core.act's fifo_event (left as an independent,
-//     optionally-connected port), dvs has no equivalent of
-//     e2e_multi_event_test.act's need to fire that line manually instead,
-//     so there's no reason to expose the choice.
+//     nothing ever needs to fire that line manually, so there's no reason
+//     to expose the wiring as a choice (contrast chips/bench/core.act's
+//     fifo_event, left as an independent, optionally-connected port).
 //   - event_id_1/event_id_2 carry dvs's two GPIO input pins (gpio_in_0/
-//     gpio_in_1), pure wiring straight onto those two event lines exactly
-//     like chips/bench/core.act's gpio_in_0/gpio_in_1 -> event_id_14/
-//     event_id_15 -- a physical pin jumps to a program-associated pc
-//     through the existing interrupt-controller vector table, same as any
-//     other event line (Stage 2.2).
+//     gpio_in_1): a physical pin jumps to a program-associated pc through
+//     the interrupt-controller vector table, same as any other event line.
 // event_id_3..15 are simply never connected -- dvs has no use for them.
 //
-// swd_0/swd_1 are stub input pins reserved for future SWD debug support,
-// same as chips/bench/core.act's -- declared for interface completeness,
-// genuinely unconnected to any soc functionality today. gpio_out_0..3 pass
-// straight through to harness.act's gpio peripheral pins; software drives
-// them with an MMIO write to base=ADDR_GPIO. Both SPI peripherals'
-// external pins (Stage 2.3/2.4) are exposed here since they're real
-// chip-package pins, same reasoning as aer_in.
+// swd_0/swd_1 are stub input pins reserved for future SWD debug support --
+// declared for interface completeness, genuinely unconnected to any soc
+// functionality today. gpio_out_0..3 pass straight through to harness.act's
+// gpio peripheral pins; software drives them with an MMIO write to
+// base=ADDR_GPIO. Both SPI peripherals' external pins are exposed here
+// since they're real chip-package pins.
 template<pint AER_DEPTH>
 defproc core(
     chan?(bool) gpio_in_0; chan?(bool) gpio_in_1;

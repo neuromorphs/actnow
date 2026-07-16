@@ -1,0 +1,84 @@
+import "chips/fpga/core.act";
+import "core/peripherals/mem.act";
+import "core/peripherals/fifo_out.act";
+import "gen/file_ids.act";
+import sim;
+
+// Not a pass/fail test -- a capture generator for chips/fpga/dvs_track_live.py,
+// mirroring e2e_fpga_denoise_capture.act's structure exactly (same
+// DUMP_INTERVAL=64 cadence, same "only pop when a dump is due" shape), just
+// against software/dvs_track/main.c's ISR instead. See that capture file's
+// header for why this testbench mirrors the firmware's own dump cadence
+// rather than popping unconditionally every batch: software/dvs_track/
+// main.c only ever writes to the output FIFO once every DUMP_INTERVAL
+// batches (two words: centroid/lock status, then bounding box), so popping
+// on every batch here would block forever on the batches that produce no
+// output.
+//
+// Every dump's 2 words (status, then bbox -- see software/dvs_track/main.c's
+// header for the exact bit layout of each) are appended to
+// track_capture_results.mem, one value per line, so line pair (2*i, 2*i+1)
+// is dump i's real chip output.
+defproc e2e_fpga_track_capture() {
+    core<4> c;
+
+    mem<true, ROM_IMAGE> rom;
+    rom.addr = c.rom_addr;
+    rom.mode = c.rom_mode;
+    rom.rdata = c.rom_rdata;
+
+    fifo_out<4> fout;
+    fout.addr = c.io_addr;
+    fout.mode = c.io_mode;
+    fout.wdata = c.io_wdata;
+    fout.rdata = c.io_rdata;
+
+    pint DUMP_INTERVAL = 64;
+    pint DUMP_WORDS = 2;   // status word, then bbox word
+
+    int<WIDTH_DATA> result;
+    int<64> ev;
+    int<32> reader_id, writer_id;
+    int<32> batch_count, dump_i;
+    int<7> dump_ctr;
+    bool ok;
+
+    chp {
+        log("======== dvs track capture start (fpga) ========");
+        c.reset_ext!true;
+
+        reader_id := sim::file::openr(ROTATE_CAPTURE_EVENTS);
+        assert(reader_id != 0, "capture: failed to open event capture file");
+        writer_id := sim::file::openw(TRACK_CAPTURE_RESULTS);
+        assert(writer_id != 0, "capture: failed to open result capture file");
+
+        batch_count := 0; dump_ctr := 0;
+
+        *[ ~sim::file::eof(reader_id) ->
+            ev := sim::file::read(reader_id); c.fifo_push!int(ev, WIDTH_DATA);
+            ev := sim::file::read(reader_id); c.fifo_push!int(ev, WIDTH_DATA);
+            ev := sim::file::read(reader_id); c.fifo_push!int(ev, WIDTH_DATA);
+            ev := sim::file::read(reader_id); c.fifo_push!int(ev, WIDTH_DATA);
+
+            batch_count := batch_count + 1;
+            dump_ctr := dump_ctr + 1;
+
+            [ dump_ctr = DUMP_INTERVAL ->
+                dump_ctr := 0;
+                dump_i := 0;
+                *[ dump_i < DUMP_WORDS ->
+                    fout.pop?result; ok := sim::file::write(writer_id, int(result, 64));
+                    dump_i := dump_i + 1
+                ]
+              [] else -> skip
+            ]
+        ];
+
+        ok := sim::file::closer(reader_id);
+        ok := sim::file::closew(writer_id);
+
+        log("======== dvs track capture complete ========")
+    }
+}
+
+e2e_fpga_track_capture e2e;

@@ -1,0 +1,134 @@
+import "chips/dvs/core.act";
+import "chips/dvs/tests/e2e/spi_flash_stub.act";
+import "gen/file_ids.act";
+
+// Decodes spi_prog's raw SPI wires (bit-banged protocol, same shift loop as
+// e2e_aer_test.act's spi_sink) and logs every transaction -- reads and
+// writes alike, address and data -- instead of asserting anything. This is
+// the only way to observe SPI traffic in this ACT dialect: cs/sclk/mosi/
+// miso are plain level signals, not channels, so there's no "receive event"
+// to log except by bit-banging the same protocol a real device would.
+defproc spi_prog_probe(
+    bool? cs; bool? sclk; bool? mosi;
+    bool! miso
+) {
+    int<WIDTH_DATA> addr_shift, data_shift;
+    int i;
+    bool bit, rw;
+
+    chp {
+        miso := false;
+        *[
+            [cs];
+            [sclk]; rw := mosi; [~sclk];
+
+            addr_shift := 0; i := 0;
+            *[ i < WIDTH_ADDR ->
+                [sclk]; bit := mosi;
+                addr_shift := (addr_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+                [~sclk];
+                i := i + 1
+            ];
+
+            [ rw ->
+                data_shift := 0; i := 0;
+                *[ i < WIDTH_DATA ->
+                    [sclk]; bit := mosi;
+                    data_shift := (data_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+                    [~sclk];
+                    i := i + 1
+                ];
+                log("probe: spi_prog WRITE addr=", addr_shift, " data=", data_shift)
+              [] else ->
+                // Read: the probe doesn't care about correctness, just observing
+                // traffic, so it always answers 0 -- shifted out MSB-first same
+                // as a real device would, so the CPU's read still completes.
+                data_shift := 0; i := 0;
+                *[ i < WIDTH_DATA ->
+                    miso := (data_shift{31} = 1); data_shift := data_shift << 1;
+                    [sclk]; [~sclk];
+                    i := i + 1
+                ];
+                log("probe: spi_prog READ addr=", addr_shift, " (answered 0)")
+            ];
+
+            [~cs]
+        ]
+    }
+}
+
+// Log-only receiver for the 4 GPIO output pins -- a safety net (dvs_application,
+// the program this harness boots, never writes GPIO) rather than something
+// expected to actually fire here, but wired up so the harness is ready to
+// probe a different program's GPIO activity by just swapping ROM_TEST.
+defproc gpio_out_probe(
+    chan?(bool) pin_0; chan?(bool) pin_1; chan?(bool) pin_2; chan?(bool) pin_3
+) {
+    bool b;
+    chp {
+        *[
+            [| #pin_0 -> pin_0?b; log("probe: gpio_out_0 = ", b)
+            [] #pin_1 -> pin_1?b; log("probe: gpio_out_1 = ", b)
+            [] #pin_2 -> pin_2?b; log("probe: gpio_out_2 = ", b)
+            [] #pin_3 -> pin_3?b; log("probe: gpio_out_3 = ", b)
+            |]
+        ]
+    }
+}
+
+// REALLY simple probe harness, not a pass/fail test: wires up every one of
+// chips/dvs/core.act's event/data ports and logs every value that crosses
+// each one via plain log() lines -- redirect actsim's own output to a file
+// to keep the trace (each log() line is already simulated-time-stamped).
+// Raw material for building an interactive simulation from later, not a
+// correctness check -- nothing here asserts anything.
+//
+// Boots software/dvs_application/main.c (AER read -> +1 -> spi_prog write)
+// genuinely XIP via spi_flash_stub, same as every other dvs e2e test, then
+// pushes a few AER batches and lets spi_prog_probe/gpio_out_probe log
+// whatever the ISR does in response.
+//
+// gpio_in_0/1 and swd_0/1 are left unconnected: dvs_application never
+// enables those interrupt lines, so nothing would ever receive on them --
+// driving them here would just deadlock waiting for a receiver that never
+// arrives (core/interrupt.act only services an event line once software's
+// own enable bit for it is set).
+defproc e2e_dvs_probe_all() {
+    core<8> c;
+    spi_flash_stub<ROM_IMAGE> flash;
+    spi_prog_probe prog_probe;
+    gpio_out_probe gpio_probe;
+
+    bool spi_boot_cs, spi_boot_sclk, spi_boot_mosi, spi_boot_miso;
+    c.spi_boot_cs = spi_boot_cs; c.spi_boot_sclk = spi_boot_sclk;
+    c.spi_boot_mosi = spi_boot_mosi; c.spi_boot_miso = spi_boot_miso;
+    flash.cs = spi_boot_cs; flash.sclk = spi_boot_sclk;
+    flash.mosi = spi_boot_mosi; flash.miso = spi_boot_miso;
+
+    bool spi_prog_cs, spi_prog_sclk, spi_prog_mosi, spi_prog_miso;
+    c.spi_prog_cs = spi_prog_cs; c.spi_prog_sclk = spi_prog_sclk;
+    c.spi_prog_mosi = spi_prog_mosi; c.spi_prog_miso = spi_prog_miso;
+    prog_probe.cs = spi_prog_cs; prog_probe.sclk = spi_prog_sclk;
+    prog_probe.mosi = spi_prog_mosi; prog_probe.miso = spi_prog_miso;
+
+    gpio_probe.pin_0 = c.gpio_out_0; gpio_probe.pin_1 = c.gpio_out_1;
+    gpio_probe.pin_2 = c.gpio_out_2; gpio_probe.pin_3 = c.gpio_out_3;
+
+    int<32> i;
+
+    chp {
+        log("======== dvs probe start ========");
+        c.reset_ext!true;
+
+        i := 0;
+        *[ i < 12 ->
+            c.aer_in!int(100 + i, WIDTH_AER);
+            log("probe: pushed aer_in = ", 100 + i);
+            i := i + 1
+        ];
+
+        log("======== dvs probe: all pushes sent (spi_prog_probe/gpio_out_probe keep logging as the ISR's own responses arrive) ========")
+    }
+}
+
+e2e_dvs_probe_all probe;

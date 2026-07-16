@@ -23,7 +23,7 @@ defproc e2e_gpio_test() {
     chp {
         log("======== gpio e2e test start ========");
 
-        // soc no longer boots itself -- assert reset_ext once to kick it off.
+        // soc boots from a cold reset -- assert reset_ext once to kick it off.
         c.reset_ext!true;
 
         // --- gpio_in_0 -> isr_gpio_in_0 writes 0b0101 ---

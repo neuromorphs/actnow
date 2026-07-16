@@ -38,7 +38,7 @@ defproc e2e_fpga_reset_test() {
     chp {
         log("======== reset e2e test start (fpga) ========");
 
-        // soc no longer boots itself -- assert reset_ext once to boot it. Distinct
+        // soc boots from a cold reset -- assert reset_ext once to boot it. Distinct
         // from the mid-test reset_ext below, which is the reboot this test proves.
         c.reset_ext!true;
 

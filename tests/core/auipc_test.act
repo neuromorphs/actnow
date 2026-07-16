@@ -10,7 +10,7 @@ defproc auipc_test() {
     int<32> insn;
 
     chp {
-        // soc no longer boots itself -- assert reset_ext once to kick it off.
+        // soc boots from a cold reset -- assert reset_ext once to kick it off.
         s.reset_ext!true;
 
         // AUIPC x3, 0x1  -->  rd := pc + (1 << 12) = ADDR_RESET + 4096

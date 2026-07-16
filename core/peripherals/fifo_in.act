@@ -49,14 +49,14 @@ defproc fifo_in(
     // cleared on fire and re-set only after the ISR has read a whole
     // trigger_level worth of entries (tracked by `reads_since_fire`).
     //
-    // Re-arming on the *reads* rather than on count dropping below the level is
-    // what makes it robust to a continuous producer: with a live stream, pushes
-    // interleave 1:1 with the ISR's reads, so count can hover at DEPTH and never
-    // dip below trigger_level -- yet the ISR still removes trigger_level entries
-    // per interrupt, so counting those reads re-arms reliably. Firing on the
-    // exact count==trigger_level push (the original) is lost the moment the FIFO
-    // saturates, deadlocking the whole path after one batch (seen on the KR260
-    // DVS stream; reproduced in chips/fpga/tests/e2e/e2e_fpga_fifo_stress.act).
+    // Re-arming on the *reads* rather than on count dropping below the level
+    // is what makes it robust to a continuous producer: pushes interleave
+    // 1:1 with the ISR's reads, so count can hover at DEPTH and never dip
+    // below trigger_level -- yet the ISR still removes trigger_level entries
+    // per interrupt, so counting those reads re-arms reliably. Firing only
+    // on the exact count==trigger_level push would miss that case once the
+    // FIFO saturates, deadlocking the whole path after one batch -- see
+    // chips/fpga/tests/e2e/e2e_fpga_fifo_stress.act.
     bool armed;
     int<WIDTH_DATA> reads_since_fire;
 

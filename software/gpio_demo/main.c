@@ -16,13 +16,8 @@
 #define INT_CTRL_ENABLE    ADDR(1, 64)
 #define GPIO               ADDR(7, 0)
 
-/* Must NOT call wfi() itself: soc.act's WFI-decode never returns control to
-   the instruction after it, so a wfi() call inside an ISR permanently skips
-   that ISR's own epilogue (the stack pointer's restore), leaking 16 bytes of
-   stack every interrupt until it eventually collides with this program's own
-   code (see software/application/main.c's isr_handler comment for the full
-   explanation). Just returning is correct: this function's own `ret` lands
-   on the same cached wfi() site main()'s return already relies on. */
+/* Each ISR must not call wfi() -- see software/application/main.c's
+   isr_handler comment for why. */
 
 /* gpio_in_0 (event_id_14) -> drive 0b0101 */
 static __attribute__((noinline)) void isr_gpio_in_0(void) {

@@ -1,0 +1,85 @@
+import "chips/fpga/core.act";
+import "core/peripherals/mem.act";
+import "core/peripherals/fifo_out.act";
+import "gen/file_ids.act";
+import sim;
+
+// Not a pass/fail test -- a capture generator for a live timesurface
+// viewer, mirroring e2e_fpga_motion_capture.act's structure. Streams
+// chips/fpga/rotate_capture_events.mem (the full real recording) through
+// the real simulated core running software/dvs_timesurface/main.c's
+// actual ISR, using actsim's runtime file I/O (sim::file::*).
+//
+// Unlike e2e_fpga_motion_capture.act (one status word per batch,
+// unconditionally), software/dvs_timesurface/main.c's isr_handler only
+// ever writes to the output FIFO on the DUMP_INTERVAL=64th batch -- see
+// its header. This testbench mirrors that same power-of-2 cadence on its
+// own batch counter (dump_ctr, reset every 64 batches) so it knows exactly
+// when to pop: 0 words on an ordinary batch, DUMP_WORDS=897 (now +
+// GRID_CELLS=896 cells) on a dump batch. Every dump's 897 words are
+// appended to timesurface_capture_results.mem, one value per line -- so a
+// full dump is 897 consecutive lines, and consecutive dumps are
+// DUMP_INTERVAL*BATCH=256 events apart.
+defproc e2e_fpga_timesurface_capture() {
+    core<4> c;
+
+    mem<true, ROM_IMAGE> rom;
+    rom.addr = c.rom_addr;
+    rom.mode = c.rom_mode;
+    rom.rdata = c.rom_rdata;
+
+    fifo_out<4> fout;
+    fout.addr = c.io_addr;
+    fout.mode = c.io_mode;
+    fout.wdata = c.io_wdata;
+    fout.rdata = c.io_rdata;
+
+    pint DUMP_INTERVAL = 64;
+    pint DUMP_WORDS = 897;   // 1 ("now") + GRID_CELLS=896
+
+    int<WIDTH_DATA> result;
+    int<64> ev;
+    int<32> reader_id, writer_id;
+    int<32> batch_count, dump_i;
+    int<7> dump_ctr;
+    bool ok;
+
+    chp {
+        log("======== dvs timesurface capture start (fpga) ========");
+        c.reset_ext!true;
+
+        reader_id := sim::file::openr(ROTATE_CAPTURE_EVENTS);
+        assert(reader_id != 0, "capture: failed to open event capture file");
+        writer_id := sim::file::openw(TIMESURFACE_CAPTURE_RESULTS);
+        assert(writer_id != 0, "capture: failed to open result capture file");
+
+        batch_count := 0; dump_ctr := 0;
+
+        *[ ~sim::file::eof(reader_id) ->
+            ev := sim::file::read(reader_id); c.fifo_push!int(ev, WIDTH_DATA);
+            ev := sim::file::read(reader_id); c.fifo_push!int(ev, WIDTH_DATA);
+            ev := sim::file::read(reader_id); c.fifo_push!int(ev, WIDTH_DATA);
+            ev := sim::file::read(reader_id); c.fifo_push!int(ev, WIDTH_DATA);
+
+            batch_count := batch_count + 1;
+            dump_ctr := dump_ctr + 1;
+
+            [ dump_ctr = DUMP_INTERVAL ->
+                dump_ctr := 0;
+                dump_i := 0;
+                *[ dump_i < DUMP_WORDS ->
+                    fout.pop?result; ok := sim::file::write(writer_id, int(result, 64));
+                    dump_i := dump_i + 1
+                ]
+              [] else -> skip
+            ]
+        ];
+
+        ok := sim::file::closer(reader_id);
+        ok := sim::file::closew(writer_id);
+
+        log("======== dvs timesurface capture complete ========")
+    }
+}
+
+e2e_fpga_timesurface_capture e2e;

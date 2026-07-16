@@ -20,12 +20,12 @@ ROM_TEST ?= simple
 
 ROM_IMAGE := software/tests/build/rom_image.mem
 
-.PHONY: test e2e_fpga_boot_test e2e_fpga_fifo_test e2e_fpga_fifo_stress e2e_fpga_reset_test e2e_fpga_reset_reload_test e2e_fpga_rotate_test
+.PHONY: test e2e_fpga_boot_test e2e_fpga_fifo_test e2e_fpga_fifo_stress e2e_fpga_reset_test e2e_fpga_reset_reload_test e2e_fpga_rotate_test e2e_fpga_track_test e2e_fpga_track_hotpixel_test
 
 # Run every fpga e2e test. multi_event / gpio scenarios from chips/bench are
 # deliberately absent: this variant wires only a single interrupt (event_id_0)
 # and has no GPIO peripheral, so neither is applicable here.
-test: e2e_fpga_boot_test e2e_fpga_fifo_test e2e_fpga_fifo_stress e2e_fpga_reset_test e2e_fpga_reset_reload_test e2e_fpga_rotate_test
+test: e2e_fpga_boot_test e2e_fpga_fifo_test e2e_fpga_fifo_stress e2e_fpga_reset_test e2e_fpga_reset_reload_test e2e_fpga_rotate_test e2e_fpga_track_test e2e_fpga_track_hotpixel_test
 	@echo "=== all fpga e2e tests passed ==="
 
 # Boot software/boot_only/main.c XIP from the raw ROM route and confirm it
@@ -170,4 +170,58 @@ e2e_fpga_rotate_test:
 		echo "e2e_fpga_rotate_test: FAIL (no completion)"; exit 1; \
 	else \
 		echo "e2e_fpga_rotate_test: PASS"; \
+	fi
+
+# Replays the same 256 recorded events (64 batches, one DUMP_INTERVAL) as
+# e2e_fpga_denoise_test.act through software/dvs_track/main.c's ISR and
+# asserts the resulting EMA-centroid/bounding-box/lock status word and bbox
+# word against the reference values computed in Python when this file was
+# generated -- see e2e_fpga_track_test.act's header for the exact math and
+# packing. Same ROM-pinning rationale as the other e2e_* targets: force a
+# fresh dvs_track image, restore the default ROM afterward.
+e2e_fpga_track_test:
+	@echo "--- e2e_fpga_track_test ---"
+	@rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem
+	@$(MAKE) -s -C $(ROOT) ROM_TEST=dvs_track CROSS=$(CROSS) file-registry
+	@cd $(ROOT) && $(AFLAT) chips/fpga/tests/e2e/e2e_fpga_track_test.act
+	@out=$$(cd $(ROOT) && printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf chips/fpga/tests/e2e/e2e_fpga_track_test.act e2e_fpga_track_test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem; \
+	$(MAKE) -s -C $(ROOT) ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
+	if [ $$status -ne 0 ]; then \
+		echo "e2e_fpga_track_test: FAIL"; exit $$status; \
+	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+		echo "e2e_fpga_track_test: FAIL"; exit 1; \
+	elif ! echo "$$out" | grep -qi "test complete"; then \
+		echo "e2e_fpga_track_test: FAIL (no completion)"; exit 1; \
+	else \
+		echo "e2e_fpga_track_test: PASS"; \
+	fi
+
+# Same 256-event/one-DUMP_INTERVAL shape as e2e_fpga_track_test, but the
+# first 40 events are 40 copies of one synthetic stuck-pixel word -- proves
+# software/dvs_track/main.c's hot-pixel filter (see that file's header)
+# actually drops a sustained repeat-firing pixel's events (21 of the 40, in
+# this fixture) instead of letting them corrupt the reported centroid/bbox,
+# while leaving the following 216 real events untouched. Same ROM-pinning
+# rationale as the other e2e_* targets.
+e2e_fpga_track_hotpixel_test:
+	@echo "--- e2e_fpga_track_hotpixel_test ---"
+	@rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem
+	@$(MAKE) -s -C $(ROOT) ROM_TEST=dvs_track CROSS=$(CROSS) file-registry
+	@cd $(ROOT) && $(AFLAT) chips/fpga/tests/e2e/e2e_fpga_track_hotpixel_test.act
+	@out=$$(cd $(ROOT) && printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf chips/fpga/tests/e2e/e2e_fpga_track_hotpixel_test.act e2e_fpga_track_hotpixel_test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem; \
+	$(MAKE) -s -C $(ROOT) ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
+	if [ $$status -ne 0 ]; then \
+		echo "e2e_fpga_track_hotpixel_test: FAIL"; exit $$status; \
+	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+		echo "e2e_fpga_track_hotpixel_test: FAIL"; exit 1; \
+	elif ! echo "$$out" | grep -qi "test complete"; then \
+		echo "e2e_fpga_track_hotpixel_test: FAIL (no completion)"; exit 1; \
+	else \
+		echo "e2e_fpga_track_hotpixel_test: PASS"; \
 	fi

@@ -20,9 +20,10 @@ import "gen/file_ids.act";
 //
 // Same reason as chips/bench's own e2e_boot_test: nothing else here to
 // synchronize against, so the only thing this chp body does is assert
-// reset_ext once to actually boot soc (see core/soc.act's header comment --
-// it no longer boots itself). chips/dvs/Makefile's rule checks soc's own
-// "decoded wfi" log line directly instead of a "test complete" line.
+// reset_ext once to actually boot soc (soc.act blocks until reset_ext is
+// asserted -- see its header comment). chips/dvs/Makefile's rule checks
+// soc's own "decoded wfi" log line directly instead of a "test complete"
+// line.
 defproc e2e_boot_test() {
     core<8> c;
     spi_flash_stub<ROM_IMAGE> flash;

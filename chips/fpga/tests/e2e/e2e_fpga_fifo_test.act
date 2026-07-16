@@ -39,7 +39,7 @@ defproc e2e_fpga_fifo_test() {
     chp {
         log("======== end-to-end interrupt/FIFO test start (fpga) ========");
 
-        // soc no longer boots itself -- assert reset_ext once to kick it off.
+        // soc boots from a cold reset -- assert reset_ext once to kick it off.
         c.reset_ext!true;
 
         // Each push just blocks until the program has configured its vector

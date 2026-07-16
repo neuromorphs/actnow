@@ -1,19 +1,15 @@
 #include <stdint.h>
 
 /* Full pipeline e2e test, combining every dvs mechanism in one program:
-     1. Boot genuinely XIP out of spi_boot (this program itself, and the
-        bootloader that loads it, both run straight out of spi_boot --
-        nothing special to do here, it's just how the chip boots).
-     2. Load a data blob into memory via spi_prog's *read* direction --
-        NOT XIP: each word is its own explicit SPI transaction, triggered
-        one at a time by reading spi_prog's data register, unlike
-        spi_boot's continuous fetch-as-you-go.
-     3. Configure the AER input's trigger level and register an ISR, same
-        as software/dvs_application/main.c.
-     4. On the AER interrupt, read BATCH pixel-events and write each one
-        back out over SPI via spi_prog's *write* direction -- combined
-        with the value loaded in step 2, so a wrong load would show up as
-        a wrong output, not just a silently-ignored one. */
+     1. Boots XIP out of spi_boot, same as the bootloader that loads it.
+     2. Loads LOAD_WORDS words via spi_prog's read direction: each word is
+        its own explicit SPI transaction, triggered by reading spi_prog's
+        data register.
+     3. Configures the AER input's trigger level and registers an ISR.
+     4. On the AER interrupt, reads BATCH pixel-events and writes each one
+        back out over SPI via spi_prog's write direction, combined with
+        the value loaded in step 2 so a wrong load shows up in the
+        output. */
 
 #define ADDR(base, offset) ((volatile uint32_t *)(((uint32_t)(base) << 16) | (uint32_t)(offset)))
 
@@ -29,13 +25,8 @@
 
 static uint32_t loaded[LOAD_WORDS];
 
-/* Must NOT call wfi() itself: soc.act's WFI-decode never returns control to
-   the instruction after it, so a wfi() call inside an ISR permanently skips
-   that ISR's own epilogue (the stack pointer's restore), leaking 16 bytes of
-   stack every interrupt until it eventually collides with this program's own
-   code (see software/application/main.c's isr_handler comment for the full
-   explanation). Just returning is correct: this function's own `ret` lands
-   on the same cached wfi() site main()'s return already relies on. */
+/* isr_handler must not call wfi() -- see software/application/main.c's
+   isr_handler comment for why. */
 static __attribute__((noinline)) void isr_handler(void) {
     uint32_t v[BATCH];
     for (uint32_t i = 0; i < BATCH; i++) {

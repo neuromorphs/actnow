@@ -1,37 +1,27 @@
 #include <stdint.h>
 
-/* chips/fpga variant that reports a coarse moving-object location instead of
-   dvs_rotate's per-event geometric transform. Same interrupt/FIFO wiring as
-   software/application and software/dvs_rotate (fifo_in fires event_id_0
-   once BATCH words land; isr_handler reads them, does its work, and
-   returns), but the "work" here is a decaying activity grid rather than a
-   per-event transform, and the output is one status word per BATCH-sized
-   batch of events (not one per event) -- the interesting signal is the
-   aggregate hottest cell after a batch, not any single event.
+/* chips/fpga variant that reports a coarse moving-object location instead
+   of a per-event transform. Same interrupt/FIFO wiring as
+   software/application and software/dvs_rotate, but isr_handler maintains
+   a decaying activity grid and emits one status word per batch (not one
+   per event) -- the signal of interest is the hottest grid cell after a
+   batch, not any single event.
 
-   The sensor frame (SX x SY, matching chips/fpga/dvs_replay.py) is divided
-   into GRID_COLS x GRID_ROWS cells of CELL_SIZE=1<<CELL_SHIFT pixels. This
-   core is plain RV32I (no multiply/divide -- see software/common/
-   program.mk's -march=rv32i), so the cell size is deliberately a power of 2:
-   col = x >> CELL_SHIFT, row = y >> CELL_SHIFT, cell = (row << 2) | col
-   (row*GRID_COLS via shift since GRID_COLS==4==1<<2) -- no divide routine
-   needed anywhere. CELL_SHIFT must be picked so GRID_COLS/GRID_ROWS cells of
-   that size actually cover the whole SXxSY frame (here, 4 cells of 32px
-   cover up to 128px, matching SX=126/SY=112) -- changing the grid
-   dimensions without also changing CELL_SHIFT (or vice versa) leaves col/row
-   able to exceed the grid and index off the end of grid[] below.
+   The sensor frame (SX x SY) is divided into GRID_COLS x GRID_ROWS cells
+   of CELL_SIZE=1<<CELL_SHIFT pixels. This core has no multiply/divide, so
+   the cell size is a power of 2: col = x >> CELL_SHIFT, row = y >>
+   CELL_SHIFT, cell = (row << 2) | col (row*GRID_COLS via shift since
+   GRID_COLS==4==1<<2). CELL_SHIFT and the grid dimensions must be picked
+   together so the cells cover the whole SXxSY frame -- otherwise col/row
+   can exceed the grid and index off the end of grid[] below.
 
    Each cell is an 8-bit saturating counter. Every batch: halve every cell
-   (exponential decay, so activity fades out over a few batches instead of
-   latching forever), then add STEP to whichever cell(s) this batch's events
-   land in, capped at CAP. After that, argmax over the grid gives the
-   hottest cell; if its value clears THRESHOLD, the motion flag is set.
-   Output word: bit14=motion, bits[13:6]=hottest value, bits[5:3]=row,
-   bits[2:0]=col.
-
-   chips/fpga/tests/e2e/e2e_fpga_motion_test.act drives this with real
-   recorded events and asserts every result against the same grid math
-   computed in Python. */
+   (exponential decay, so activity fades over a few batches instead of
+   latching forever), then add STEP to whichever cell(s) this batch's
+   events land in, capped at CAP. Argmax over the grid gives the hottest
+   cell; if its value clears THRESHOLD, the motion flag is set. Output
+   word: bit14=motion, bits[13:6]=hottest value, bits[5:3]=row,
+   bits[2:0]=col. */
 
 #define ADDR(base, offset) ((volatile uint32_t *)(((uint32_t)(base) << 16) | (uint32_t)(offset)))
 
@@ -46,13 +36,8 @@
 #define SX 126
 #define SY 112
 
-#define CELL_SHIFT 5                          /* 32x32-pixel cells -- must match GRID_COLS/ROWS=4:
-                                                   126>>5 = 3 and 112>>5 = 3, so col/row land in
-                                                   0..3 exactly. With the old CELL_SHIFT=4 (16px
-                                                   cells), a 4-wide grid only covered a 64x64
-                                                   sub-region -- anything past x/y=64 produced
-                                                   col/row up to 7, indexing straight past the end
-                                                   of grid[16] below. */
+#define CELL_SHIFT 5                          /* 32x32-pixel cells: 126>>5=3 and 112>>5=3, so
+                                                   col/row land in 0..3, matching GRID_COLS/ROWS=4 */
 #define GRID_COLS  4
 #define GRID_ROWS  4
 #define GRID_CELLS (GRID_COLS * GRID_ROWS)     /* = 16 */
@@ -63,13 +48,8 @@
 
 static uint8_t grid[GRID_CELLS];
 
-/* Must NOT call wfi() itself: soc.act's WFI-decode never returns control to
-   the instruction after it, so a wfi() call inside an ISR permanently skips
-   that ISR's own epilogue (the stack pointer's restore), leaking 16 bytes of
-   stack every interrupt until it eventually collides with this program's own
-   code (see software/application/main.c's isr_handler comment for the full
-   explanation). Just returning is correct: this function's own `ret` lands
-   on the same cached wfi() site main()'s return already relies on. */
+/* isr_handler must not call wfi() -- see software/application/main.c's
+   isr_handler comment for why. */
 static __attribute__((noinline)) void isr_handler(void) {
     uint32_t v[BATCH];
     for (uint32_t i = 0; i < BATCH; i++) {
@@ -104,9 +84,8 @@ static __attribute__((noinline)) void isr_handler(void) {
     uint32_t best_row = best_cell >> 2;
     uint32_t motion = (best_val >= THRESHOLD) ? 1u : 0u;
 
-    /* Output word's row/col fields stay 3 bits wide (bits[5:3]/[2:0]) even
-       though only 2 bits are ever nonzero now -- keeps the word layout, and
-       every decoder of it (dvs_motion_view.py's unpack_status), unchanged. */
+    /* row/col fields are 3 bits wide (bits[5:3]/[2:0]) to match
+       dvs_motion_view.py's unpack_status. */
     *FIFO_OUT = (motion << 14) | (best_val << 6) | (best_row << 3) | best_col;
 }
 

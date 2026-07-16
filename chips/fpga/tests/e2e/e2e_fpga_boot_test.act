@@ -11,11 +11,12 @@ import "gen/file_ids.act";
 //
 // boot_only never touches a peripheral this test could otherwise block on, so
 // the only thing this chp body does is the one thing nothing else can do for it:
-// assert reset_ext once, so soc actually boots (soc.act no longer boots itself --
-// see core/soc.act's header). Once released, actsim's `cycle` doesn't return
-// until the whole simulation quiesces, so soc's own "decoded wfi" log line is
-// guaranteed to appear by completion. The Makefile rule checks the log for that
-// line directly, same as chips/bench's e2e_boot_test.
+// assert reset_ext once, so soc actually boots (soc.act blocks until
+// reset_ext is asserted -- see core/soc.act's header). Once released,
+// actsim's `cycle` doesn't return until the whole simulation quiesces, so
+// soc's own "decoded wfi" log line is guaranteed to appear by completion.
+// The Makefile rule checks the log for that line directly, same as
+// chips/bench's e2e_boot_test.
 //
 // Beyond reset_ext, only the ROM route is wired: boot_only touches no input FIFO
 // (base 5) and no raw IO (base 6), so core's fifo_push / io_* are intentionally

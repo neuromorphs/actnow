@@ -1,0 +1,53 @@
+import "chips/bench/core.act";
+import "gen/file_ids.act";
+
+// REALLY simple probe harness, not a pass/fail test: boots a real compiled
+// program (software/application/main.c) and drives it through its one real
+// event line -- event_id_0, fired by fifo_in's own auto-fire once a batch
+// lands (`c.event_id_0 = c.fifo_event`, same wiring as e2e_fifo_test.act),
+// not manually like e2e_multi_event_test.act's all-16-lines version. No
+// asserts: the recording is done entirely by actsim's own commands, not by
+// this file:
+//
+//   watch c.push c.pop c.fifo_event c.s.pc c.s.instr \
+//         c.s.mmu.addr_instr c.s.mmu.rdata_instr \
+//         c.s.mmu.addr_data c.s.mmu.wdata_data c.s.mmu.rdata_data
+//   vcd_start probe.vcd
+//   cycle
+//   quit
+//
+// c.push/c.pop are the "data" ports at the chip boundary; c.fifo_event is
+// the event-out trigger; c.s.pc/c.s.instr are soc.act's own program
+// counter and fetched-instruction register (soc's chp body, instance
+// path c.<core>.s.<soc>); c.s.mmu.* are the CPU-facing instruction-fetch
+// and load/store channels between soc and core/mmu.act, each watchable
+// the same way (confirmed live via `get` before writing this file).
+defproc e2e_bench_probe_all() {
+    core<ROM_IMAGE> c;
+    c.event_id_0 = c.fifo_event;
+
+    int<WIDTH_DATA> result;
+    int<32> i;
+
+    chp {
+        log("======== bench probe start ========");
+        c.reset_ext!true;
+
+        log("--- pushing one BATCH=4 batch into the input FIFO ---");
+        c.push!int(41, WIDTH_DATA);
+        c.push!int(42, WIDTH_DATA);
+        c.push!int(43, WIDTH_DATA);
+        c.push!int(44, WIDTH_DATA);
+
+        i := 0;
+        *[ i < 4 ->
+            c.pop?result;
+            log("probe: result ", i, " = ", result);
+            i := i + 1
+        ];
+
+        log("======== bench probe complete ========")
+    }
+}
+
+e2e_bench_probe_all probe;

@@ -9,23 +9,9 @@ import sim;
 // per line) through the real simulated core running software/dvs_rotate/
 // main.c's actual ISR, using actsim's runtime file I/O (sim::file::*, the
 // same mechanism core/peripherals/mem.act uses to preload ROM images) rather
-// than unrolling one CHP statement per event: an earlier attempt at 30,000+
-// unrolled push/log statements made aflat/actsim segfault outright above
-// ~10k events. This loop body is a fixed handful of statements regardless of
-// event count.
-//
-// EARLIER FINDING (fixed): pushing the full 61752-event recording through
-// this loop used to hang deterministically after ~2000-2040 interrupts,
-// completely independent of firmware, event data, memory implementation, and
-// simulation timing (confirmed via randomized-timing runs). Root cause:
-// software/dvs_rotate/main.c's isr_handler() called wfi() itself instead of
-// just returning -- soc.act's WFI-decode never returns control to the next
-// instruction, so isr_handler's own epilogue (restoring the stack pointer)
-// never ran, leaking 16 bytes of stack every interrupt until it drained the
-// full 32 KiB stack (32768/16 = exactly 2048) and collided with the
-// program's own code, corrupting fetches. Fixed by removing that wfi() call;
-// isr_handler's own `ret` now lands on the same cached wfi() site main()'s
-// return already relies on, only after its epilogue actually runs.
+// than unrolling one CHP statement per event -- this loop body is a fixed
+// handful of statements regardless of event count, so it scales to the full
+// 61752-event recording without generating a huge program.
 //
 // Each BATCH-sized (4) group is read from the input file, pushed, and the
 // ISR's real rotated results are popped and written one-per-line to
