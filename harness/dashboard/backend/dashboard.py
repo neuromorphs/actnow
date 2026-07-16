@@ -163,6 +163,10 @@ APP_REGISTRY = {
         "prog": "dvs_necropsy", "label": "Necropsy of a Pop",
         "blurb": "Autopsy a balloon burst: a rolling event-rate IIR baseline detects the density spike, then per-bin min/max x-extent tracks the tear-front speed; on burst a glowing expanding rupture front lights up sized by extent with a peak-speed readout.",
         "params": []},
+    "dvs_sommelier": {
+        "prog": "dvs_sommelier", "label": "Sommelier of Motion",
+        "blurb": "Substance classifier from 8 multiply-free motion features via nearest-centroid: holds up cloth, water, a fan, wiggling fingers, or a flame and the chip names what kind of thing is moving; UNKNOWN guards reject ambiguous or noisy scenes.",
+        "params": []},
 }
 
 

@@ -295,6 +295,31 @@ let necropsyHist: {peak_speed: number, burst: number}[] = [];
 let necropsyLast = {seq: 0, burst: 0, peak_speed: 0, extent: 0};
 let necropsyAt = 0;
 
+// dvs_sommelier ("The Sommelier of Motion"): each status word carries the latched
+// substance classification {class, margin, valid, wseq, f_rate, f_spread}
+// (bit-faithful with dvs_sommelier_view.py's unpack_status()).
+// class: 0=UNKNOWN, 1=RIGID-ROTOR, 2=LIQUID, 3=CLOTH, 4=FINGERS, 5=FLAME;
+// margin: 0..255 Manhattan gap to 2nd-nearest centroid (0 when UNKNOWN);
+// valid: 1 once first window completes; wseq: mod-16 window counter;
+// f_rate (F0): log2 event-rate 0..255; f_spread (F2): occupied 8x8 cells 0..255.
+// The latched result is re-emitted every batch; wseq only changes when a new
+// window latches, so we push one history sample per wseq change and always
+// keep the freshest word for the tasting card / status.
+const SOMMELIER_HIST = 112;                          // windows kept in the margin chart
+const SOMMELIER_CLASS_NAMES = ['UNKNOWN', 'RIGID-ROTOR', 'LIQUID', 'CLOTH', 'FINGERS', 'FLAME'];
+// Per-class accent colours (RGB tuples for the tasting card)
+const SOMMELIER_CLASS_COLORS: [number, number, number][] = [
+  [90,  90,  90],   // 0 UNKNOWN   -- dim grey
+  [60, 160, 220],   // 1 RIGID-ROTOR -- electric blue (fast fan/motor)
+  [70, 180, 200],   // 2 LIQUID    -- teal (water)
+  [180, 130, 80],   // 3 CLOTH     -- warm tan (fabric)
+  [220, 100, 180],  // 4 FINGERS   -- pink-magenta (skin)
+  [240, 140,  48],  // 5 FLAME     -- amber-orange (fire)
+];
+let sommelierHist: {margin: number, cls: number}[] = [];
+let sommelierLast = {cls: 0, margin: 0, valid: 0, wseq: 0, f_rate: 0, f_spread: 0};
+let sommelierAt = 0;
+
 // Latest tracker status, decoded from the dvs_track result stream. word0 packs
 // (locked<<24)|(cx<<16)|(cy<<8)|count; word1 packs (min_x<<24)|(min_y<<16)|(max_x<<8)|max_y.
 let trackBox = {locked: 0, cx: 0, cy: 0, count: 0, x0: 0, y0: 0, x1: 0, y1: 0, at: 0};
@@ -605,6 +630,7 @@ function resetAppState() {
   coinHist = []; coinLast = {prediction: 0, halfturns: 0, glint_count: 0, apex_reached: 0, valid: 0, seq: 0}; coinAt = 0;
   actuaryHist = []; actuaryLast = {countdown: 0, amplitude: 0, period: 0, valid: 0, seq: 0}; actuaryAt = 0;
   necropsyHist = []; necropsyLast = {seq: 0, burst: 0, peak_speed: 0, extent: 0}; necropsyAt = 0;
+  sommelierHist = []; sommelierLast = {cls: 0, margin: 0, valid: 0, wseq: 0, f_rate: 0, f_spread: 0}; sommelierAt = 0;
   appEnergy.fill(0); pendingApp.length = 0; appTail = [];
 }
 
@@ -754,6 +780,7 @@ function renderApp() {
   else if (loadedApp === 'dvs_coin') paintCoin();
   else if (loadedApp === 'dvs_actuary') paintActuary();
   else if (loadedApp === 'dvs_necropsy') paintNecropsy();
+  else if (loadedApp === 'dvs_sommelier') paintSommelier();
   else paint(appImage, appEnergy, palette);
   appCtx.putImageData(appImage,0,0);
   if (loadedApp === 'dvs_sonar' && appActive) drawSonarRings();
@@ -2046,6 +2073,94 @@ function paintNecropsy() {
     px(row, extLen, ...NECROPSY_CYAN);
 }
 
+// dvs_sommelier: the app IS a tasting card drawn on the 112(w) x 126(h) display
+// buffer. Layout:
+//   rows 0..55  -- margin/confidence history chart: one column per window;
+//                  bar height proportional to margin (0..255 growing up from
+//                  row 55); coloured by the class colour; dim when UNKNOWN.
+//   rows 59..125 -- tasting card: class-coloured background strip + big class
+//                   name centred as a filled rectangle indicator; f_rate and
+//                   f_spread mini-bars at the bottom; margin/confidence readout.
+// Like seismo/gravity this is an abstract gauge; ignores the orientation selector.
+const SOMMELIER_BG: [number, number, number]    = [10, 10, 14];
+const SOMMELIER_DIM: [number, number, number]   = [42, 42, 52];
+const SOMMELIER_CHART_BASE = 55;
+const SOMMELIER_CHART_ROWS = 52;
+const SOMMELIER_CARD_TOP = 59;
+function paintSommelier() {
+  for (let i = 0; i < 112 * 126; i++) appImage.data.set([...SOMMELIER_BG, 255], i * 4);
+  const px = (row: number, col: number, r: number, g: number, b: number) => {
+    if (row >= 0 && row < 126 && col >= 0 && col < 112)
+      appImage.data.set([r, g, b, 255], (row * 112 + col) * 4);
+  };
+  // Baseline
+  for (let col = 0; col < 112; col++) px(SOMMELIER_CHART_BASE, col, ...SOMMELIER_DIM);
+  // Margin history: one column per window, newest at right; bar coloured by class
+  for (let col = 0; col < 112; col++) {
+    const h = sommelierHist.length - 112 + col;
+    if (h < 0) continue;
+    const {margin, cls} = sommelierHist[h];
+    if (margin === 0 && cls === 0) continue;
+    const [br, bg2, bb] = cls === 0 ? SOMMELIER_DIM : SOMMELIER_CLASS_COLORS[cls];
+    const bar = Math.max(1, Math.min(SOMMELIER_CHART_ROWS, Math.round(margin * SOMMELIER_CHART_ROWS / 255)));
+    for (let k = 1; k <= bar; k++) px(SOMMELIER_CHART_BASE - k, col, br, bg2, bb);
+  }
+  // Tasting card background
+  const [cr, cg, cb] = SOMMELIER_CLASS_COLORS[sommelierLast.cls];
+  for (let row = SOMMELIER_CARD_TOP; row < 126; row++)
+    for (let col = 6; col < 106; col++) {
+      // Colour key strip: class-tinted dark background
+      const t = 0.18;
+      px(row, col,
+        Math.round(SOMMELIER_BG[0] * (1 - t) + cr * t),
+        Math.round(SOMMELIER_BG[1] * (1 - t) + cg * t),
+        Math.round(SOMMELIER_BG[2] * (1 - t) + cb * t));
+    }
+  // Card border (class colour, dimmed)
+  for (let col = 6; col < 106; col++) {
+    px(SOMMELIER_CARD_TOP, col, cr >> 1, cg >> 1, cb >> 1);
+    px(125, col, cr >> 1, cg >> 1, cb >> 1);
+  }
+  for (let row = SOMMELIER_CARD_TOP; row < 126; row++) {
+    px(row, 6, cr >> 1, cg >> 1, cb >> 1);
+    px(row, 105, cr >> 1, cg >> 1, cb >> 1);
+  }
+  // Class identity block: a filled rectangle centred in the card body (rows 64..82)
+  for (let row = 64; row <= 82; row++)
+    for (let col = 12; col < 100; col++) {
+      // Bright fill at full class colour when valid, dim when UNKNOWN or not yet valid
+      const bright = sommelierLast.valid && sommelierLast.cls !== 0;
+      px(row, col,
+        bright ? cr : cr >> 2,
+        bright ? cg : cg >> 2,
+        bright ? cb : cb >> 2);
+    }
+  // f_rate bar (log2 event rate, 0..255 across cols 12..99 at rows 89..93)
+  const rateLen = Math.round(sommelierLast.f_rate * 87 / 255);
+  for (let row = 89; row <= 93; row++) {
+    px(row, 12, ...SOMMELIER_DIM); px(row, 99, ...SOMMELIER_DIM);
+    for (let col = 13; col <= 13 + rateLen; col++) px(row, col, cr >> 1, cg >> 1, cb >> 1);
+  }
+  if (rateLen < 87 && sommelierLast.valid)
+    for (let row = 89; row <= 93; row++) px(row, 13 + rateLen, cr, cg, cb);
+  // f_spread bar (occupied 8x8 cells, 0..255 across cols 12..99 at rows 97..101)
+  const spreadLen = Math.round(sommelierLast.f_spread * 87 / 255);
+  for (let row = 97; row <= 101; row++) {
+    px(row, 12, ...SOMMELIER_DIM); px(row, 99, ...SOMMELIER_DIM);
+    for (let col = 13; col <= 13 + spreadLen; col++) px(row, col, cr >> 1, cb >> 1, cg >> 1);
+  }
+  if (spreadLen < 87 && sommelierLast.valid)
+    for (let row = 97; row <= 101; row++) px(row, 13 + spreadLen, cr, cb, cg);
+  // Margin bar (confidence gap, 0..255 across cols 12..99 at rows 108..112)
+  const marginLen = Math.round(sommelierLast.margin * 87 / 255);
+  for (let row = 108; row <= 112; row++) {
+    px(row, 12, ...SOMMELIER_DIM); px(row, 99, ...SOMMELIER_DIM);
+    for (let col = 13; col <= 13 + marginLen; col++) px(row, col, 95, 200, 138);
+  }
+  if (marginLen < 87 && sommelierLast.valid)
+    for (let row = 108; row <= 112; row++) px(row, 13 + marginLen, 160, 240, 180);
+}
+
 // 8-octant unit vector (x right, y down); N (dy<0) points up. Shared by the
 // stabilize + dir-consensus arrows (matches the mirrors' `dirs` table).
 const OCTANT_VEC: [number, number][] = [[1,0],[1,-1],[0,-1],[-1,-1],[-1,0],[-1,1],[0,1],[1,1]];
@@ -2377,6 +2492,16 @@ const APP_OVERLAYS: Record<string, () => void> = {
       : necropsyLast.burst
         ? `RUPTURE peak=${necropsyLast.peak_speed} px/bin extent=${necropsyLast.extent}`
         : 'waiting for a pop…';
+  },
+  dvs_sommelier() {
+    // The tasting card IS the render (paintSommelier paints the background); no
+    // cell overlay. Report the substance verdict on the status line.
+    const fresh = performance.now() - sommelierAt < 1500;
+    const cname = SOMMELIER_CLASS_NAMES[sommelierLast.cls];
+    q('#app-status').textContent = !fresh ? 'present something moving…'
+      : !sommelierLast.valid ? 'present something moving…'
+      : sommelierLast.cls === 0 ? 'UNKNOWN (present something moving…)'
+      : `${cname} (margin=${sommelierLast.margin})`;
   },
   dvs_track() {
     // Reuse the tracker box, drawn on the app canvas (same overlay as track mode).
@@ -2937,6 +3062,28 @@ const APP_DECODERS: Record<string, (words: Uint32Array) => void> = {
       }
       necropsyLast = {seq, burst, peak_speed, extent};
       necropsyAt = performance.now();
+    }
+  },
+  // dvs_sommelier_view.py unpack_status: class=w&0x7, margin=(w>>3)&0xFF,
+  // valid=(w>>11)&1, wseq=(w>>12)&0xF, f_rate=(w>>16)&0xFF, f_spread=(w>>24)&0xFF.
+  // The latched window result is re-emitted every batch; wseq only changes when a
+  // new window latches, so we push one history sample per wseq change (mirror of
+  // the tasting-card renderer's per-window history collection) and always keep the
+  // freshest word for the card/status.
+  dvs_sommelier(words) {
+    for (const w of words) {
+      const cls      =  w        & 0x7;
+      const margin   = (w >>  3) & 0xff;
+      const valid    = (w >> 11) & 0x1;
+      const wseq     = (w >> 12) & 0xf;
+      const f_rate   = (w >> 16) & 0xff;
+      const f_spread = (w >> 24) & 0xff;
+      if (wseq !== sommelierLast.wseq) {
+        sommelierHist.push({margin, cls});
+        if (sommelierHist.length > SOMMELIER_HIST) sommelierHist.splice(0, sommelierHist.length - SOMMELIER_HIST);
+      }
+      sommelierLast = {cls, margin, valid, wseq, f_rate, f_spread};
+      sommelierAt = performance.now();
     }
   },
   // dvs_track handled by decodeTrack in track mode; if selected in the app view
