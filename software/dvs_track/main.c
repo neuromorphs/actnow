@@ -72,7 +72,30 @@
    reported. HOT_GAP_LIMIT=4 and HOT_STREAK_THRESHOLD=20 are a starting
    heuristic (no capture with a known real hot pixel was available to tune
    against, unlike dvs_denoise's empirically-picked CORRELATION_WINDOW), so
-   treat them as a reasonable default rather than a validated constant. */
+   treat them as a reasonable default rather than a validated constant.
+
+   Tracking gate: without it, win_min/max is a literal min/max over every
+   surviving event in the window, and on a real busy scene that saturates
+   to nearly the whole SXxSY frame almost every window -- correct as
+   defined, but useless as "where is the object" (verified against a real
+   173k-event handheld recording: bounding boxes like (30,0)-(125,71) or
+   (4,52)-(125,111), i.e. most of the sensor, every window). isr_handler
+   now only lets an event feed the centroid/bbox/window_count if it's
+   within GATE_RADIUS (Chebyshev distance, multiply-free like dvs_rotate's
+   rotation) of the *current* ema_x/ema_y -- a standard tracking-gate
+   technique: reject measurements far from the predicted state as
+   "probably not the tracked object" rather than folding every scattered
+   event in the frame into one box.
+
+   The gate only activates once a window has actually locked onto
+   something (gate_active is set to the previous window's `locked` value
+   at each dump) -- if it stayed on unconditionally from a cold start, an
+   object that first appears far from the initial center-of-frame seed
+   would have every one of its events rejected as "too far," and the
+   estimate would never move to find it. So the gate opens back up wide
+   (accepts everything) any time the previous window failed to lock,
+   letting the tracker search the whole frame again to reacquire, and
+   narrows back down once it's found something worth trusting. */
 
 #define ADDR(base, offset) ((volatile uint32_t *)(((uint32_t)(base) << 16) | (uint32_t)(offset)))
 
@@ -107,11 +130,14 @@
 #define HOT_GAP_LIMIT      4    /* events; a retouch this close (or closer) to the cell's last touch extends its streak */
 #define HOT_STREAK_THRESHOLD 20 /* consecutive fast retouches before a cell's events get dropped as a hot pixel */
 
+#define GATE_RADIUS 48   /* Chebyshev distance from the current centroid an event must stay within, once locked */
+
 static int32_t ema_x_fp, ema_y_fp;             /* Q(FRAC) fixed-point running centroid */
 static int32_t win_min_x, win_min_y, win_max_x, win_max_y;
 static uint32_t window_count;
 static uint32_t batch_count;
 static uint32_t event_count;
+static uint32_t gate_active;   /* set from the previous window's `locked` -- see header */
 
 static uint16_t hot_last_seen[GRID_CELLS];   /* event_count (mod 65536) this cell was last touched at; 0 = never */
 static uint8_t hot_streak[GRID_CELLS];       /* consecutive fast retouches of this cell */
@@ -153,6 +179,17 @@ static __attribute__((noinline)) void isr_handler(void) {
             continue;   /* stuck/hot pixel -- drop this event before it reaches the tracker */
         }
 
+        if (gate_active) {
+            int32_t cx_now = ema_x_fp >> FRAC;
+            int32_t cy_now = ema_y_fp >> FRAC;
+            int32_t gdx = x - cx_now; if (gdx < 0) gdx = -gdx;
+            int32_t gdy = y - cy_now; if (gdy < 0) gdy = -gdy;
+            int32_t gdist = (gdx > gdy) ? gdx : gdy;
+            if (gdist > GATE_RADIUS) {
+                continue;   /* too far from the current track -- not the tracked object */
+            }
+        }
+
         ema_x_fp += ((x << FRAC) - ema_x_fp) >> EMA_SHIFT;
         ema_y_fp += ((y << FRAC) - ema_y_fp) >> EMA_SHIFT;
 
@@ -179,6 +216,7 @@ static __attribute__((noinline)) void isr_handler(void) {
         *FIFO_OUT = (locked << 24) | (cx << 16) | (cy << 8) | count_capped;
         *FIFO_OUT = (bx0 << 24) | (by0 << 16) | (bx1 << 8) | by1;
 
+        gate_active = locked;
         reset_window();
     }
 }
@@ -189,6 +227,7 @@ void main(void) {
     reset_window();
     batch_count = 0;
     event_count = 0;
+    gate_active = 0;   /* wide open on a cold start -- no track yet to gate around */
 
     for (uint32_t c = 0; c < GRID_CELLS; c++) {
         hot_last_seen[c] = 0;
