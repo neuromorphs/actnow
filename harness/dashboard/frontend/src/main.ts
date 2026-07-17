@@ -34,7 +34,7 @@ let activity = 0;                // smoothed events/frame
 const ACT_FULL = 200;            // events/frame that reads as a "full" (red) bar, log-scaled
 // App view: raw DVS tap as background (same 112x126 store) with the selected
 // demo app's decoded result overlaid on top.
-const appCanvas = q<HTMLCanvasElement>('#app');
+const appCanvas = q<HTMLCanvasElement>('#app-view');
 const appCtx = appCanvas.getContext('2d')!;
 const appImage = appCtx.createImageData(112, 126);
 const appEnergy = new Float32Array(112 * 126 * 2);
@@ -3284,7 +3284,7 @@ function setMode(next: Mode) {
   q('#mode-app').classList.toggle('active', next === 'app');
   q('#dvs').classList.toggle('hidden', next !== 'live');
   q('#track').classList.toggle('hidden', next !== 'track');
-  q('#app').classList.toggle('hidden', next !== 'app');
+  q('#app-view').classList.toggle('hidden', next !== 'app');
   q('#system-controls').classList.toggle('hidden', next !== 'live');
   q('#track-controls').classList.toggle('hidden', next !== 'track');
   q('#app-controls').classList.toggle('hidden', next !== 'app');
