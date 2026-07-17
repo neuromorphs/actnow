@@ -1,1 +1,50 @@
-{}
+{
+  "blocks": {
+    "languageVersion": 0,
+    "blocks": [
+      {
+        "type": "rotate",
+        "id": "WoQb1h;;V-:2~.J8#s|;",
+        "x": 108,
+        "y": 259,
+        "fields": {
+          "ANGLE": "180"
+        },
+        "next": {
+          "block": {
+            "type": "mirror",
+            "id": "#U0h*|onu=zF#)0t0F|d",
+            "fields": {
+              "AXIS": "X"
+            },
+            "next": {
+              "block": {
+                "type": "translate",
+                "id": "4xzf:6je/qZ}fR}xTi/7",
+                "fields": {
+                  "DX": 3,
+                  "DY": 5
+                },
+                "next": {
+                  "block": {
+                    "type": "pol_filter",
+                    "id": "X[$;$J(8S)O#.`!*hmdA",
+                    "fields": {
+                      "P": "1"
+                    },
+                    "next": {
+                      "block": {
+                        "type": "invert",
+                        "id": "N!+q60e#CEG7o3eKPoiF"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

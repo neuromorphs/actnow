@@ -20,11 +20,18 @@ const trackImage = trackCtx.createImageData(112, 126);
 // histogram over the persistence window) rather than a 0/1 "seen" flag.
 const rawEnergy = new Float32Array(112 * 126 * 2);
 const rawTotal = new Float32Array(112 * 126);   // on+off per pixel, for the denoise neighbour scan
+const rawFrameCount = new Uint32Array(112 * 126);   // raw events per pixel in the current rendered frame
 const RAW_CAP = 64;         // clamp accumulation so a hot/persistent pixel can't run away
 const DENOISE_EPS = 0.3;    // a neighbour with more decayed energy than this counts as "active"
 // Denoise strength (active neighbours of 8 required, self excluded) is read live
 // from the UI -- lower it in low light, where real events are sparse; 0 = off.
 const DISCO_DEG_PER_MS = 0.08;   // hue rotation speed when the disco toggle is on
+// Activity gauge: a smoothed count of post-denoise raw events per frame, drawn
+// as an arcade-style vertical bar (guarded by a checkbox).
+let gaugeOn = false;
+let postDenoiseFrame = 0;        // post-denoise events counted this frame
+let activity = 0;                // smoothed events/frame
+const ACT_FULL = 200;            // events/frame that reads as a "full" (red) bar, log-scaled
 let paused = false;
 let dirty = false;
 let transformAtBlockSync = '';
@@ -396,13 +403,31 @@ function playSpike() {
 }
 
 // Raw tap: accumulate an event *count* per pixel/polarity (clamped), not a flag.
+// Active neighbours (of 8, self excluded) supporting pixel i in rawTotal -- the
+// spatio-temporal denoise support, shared by the paint step and the gauge count.
+function denoiseSupport(i: number, row: number, col: number): number {
+  let n = 0;
+  const up = row > 0, dn = row < 125, lf = col > 0, rt = col < 111;
+  if (lf && rawTotal[i - 1] > DENOISE_EPS) n++;
+  if (rt && rawTotal[i + 1] > DENOISE_EPS) n++;
+  if (up && rawTotal[i - 112] > DENOISE_EPS) n++;
+  if (dn && rawTotal[i + 112] > DENOISE_EPS) n++;
+  if (lf && up && rawTotal[i - 113] > DENOISE_EPS) n++;
+  if (rt && up && rawTotal[i - 111] > DENOISE_EPS) n++;
+  if (lf && dn && rawTotal[i + 111] > DENOISE_EPS) n++;
+  if (rt && dn && rawTotal[i + 113] > DENOISE_EPS) n++;
+  return n;
+}
+
 function stampRaw(words: Uint32Array) {
   for (const word of words) {
     const x = (word >>> 24) & 0x7f, y = (word >>> 17) & 0x7f, p = word & 1;
     if (x >= 126 || y >= 112) continue;
     if (x === CENTRE_X && y === CENTRE_Y) playSpike();   // centre-pixel spike monitor
     const {row, col} = mapEvent(x, y);
-    const idx = (row * 112 + col) * 2 + p;
+    const i = row * 112 + col;
+    rawFrameCount[i]++;
+    const idx = i * 2 + p;
     const v = rawEnergy[idx] + 1;
     rawEnergy[idx] = v > RAW_CAP ? RAW_CAP : v;
   }
@@ -438,20 +463,9 @@ function paintTrack() {
     const i = row * 112 + col, j = i * 4, e = rawTotal[i];
     let R = 0, G = 0, B = 0;
     if (e > 0) {
-      // Denoise: count active neighbours in the 3x3 block (self excluded). An
-      // isolated noise pixel has none; a hot pixel firing into a quiet
-      // neighbourhood has none either -- both stay hidden.
-      let ncorr = 0;
-      const up = row > 0, dn = row < 125, lf = col > 0, rt = col < 111;
-      if (lf && rawTotal[i - 1] > DENOISE_EPS) ncorr++;
-      if (rt && rawTotal[i + 1] > DENOISE_EPS) ncorr++;
-      if (up && rawTotal[i - 112] > DENOISE_EPS) ncorr++;
-      if (dn && rawTotal[i + 112] > DENOISE_EPS) ncorr++;
-      if (lf && up && rawTotal[i - 113] > DENOISE_EPS) ncorr++;
-      if (rt && up && rawTotal[i - 111] > DENOISE_EPS) ncorr++;
-      if (lf && dn && rawTotal[i + 111] > DENOISE_EPS) ncorr++;
-      if (rt && dn && rawTotal[i + 113] > DENOISE_EPS) ncorr++;
-      if (ncorr >= denoise) {
+      // Denoise: an isolated noise pixel has no active neighbours; a hot pixel
+      // firing into a quiet neighbourhood has none either -- both stay hidden.
+      if (denoiseSupport(i, row, col) >= denoise) {
         // Histogram threshold: reach full opacity/saturation at `density` events.
         const inten = Math.min(1, e / density);
         const wOn = rawEnergy[i * 2 + 1] / e, wOff = rawEnergy[i * 2] / e;
@@ -464,14 +478,47 @@ function paintTrack() {
   }
 }
 
+// Arcade-style vertical activity bar: segments light green -> yellow -> red from
+// the bottom as post-denoise event activity rises. Drawn on its own (unmirrored)
+// canvas so #track's left/right flip doesn't touch it.
+function drawActivityGauge() {
+  const g = q<HTMLCanvasElement>('#activity-gauge');
+  const gx = g.getContext('2d')!;
+  gx.clearRect(0, 0, g.width, g.height);
+  const fill = Math.min(1, Math.log1p(activity) / Math.log1p(ACT_FULL));
+  const N = 16, seg = 7, gap = 1, pad = 1, lit = Math.round(fill * N);
+  for (let s = 0; s < N; s++) {
+    const frac = s / (N - 1);
+    const on = frac < 0.6 ? '#3ad14e' : frac < 0.85 ? '#ffd43b' : '#ff4d4d';   // green/yellow/red zones
+    gx.fillStyle = s < lit ? on : '#161c22';
+    gx.fillRect(pad + 1, g.height - pad - (s + 1) * seg - s * gap, g.width - 2 * (pad + 1), seg);
+  }
+}
+
+function countPostDenoiseFrame(denoise: number) {
+  let count = 0;
+  for (let row = 0; row < 126; row++) for (let col = 0; col < 112; col++) {
+    const i = row * 112 + col, c = rawFrameCount[i];
+    if (c > 0 && (denoise === 0 || denoiseSupport(i, row, col) >= denoise)) count += c;
+  }
+  return count;
+}
+
 function renderTrack() {
   const decay = Number(q<HTMLInputElement>('#decay').value) / 100;
+  postDenoiseFrame = 0;
+  rawFrameCount.fill(0);
   if (!paused) {
     for (let i=0; i<rawEnergy.length; i++) rawEnergy[i] *= decay;
     for (const words of pendingRaw.splice(0)) stampRaw(words);
   }
   paintTrack();
   trackCtx.putImageData(trackImage,0,0);
+  if (gaugeOn) {
+    postDenoiseFrame = countPostDenoiseFrame(Number(q<HTMLInputElement>('#denoise').value));
+    activity += (postDenoiseFrame - activity) * 0.25;
+    drawActivityGauge();
+  }
   if (spikeSoundOn) {   // mark the monitored centre pixel
     const c = mapEvent(CENTRE_X, CENTRE_Y);
     trackCtx.strokeStyle = '#ffffff'; trackCtx.lineWidth = 1;
@@ -557,6 +604,7 @@ function setMode(next: Mode) {
   // Tracking is a view-only mode -- hide the code/blocks/log workbench and let
   // the stage fill the width.
   dashboardMain.classList.toggle('stage-only', next === 'track');
+  q('#activity-gauge').classList.toggle('hidden', !(gaugeOn && next === 'track'));
   q('#stage-label').textContent = next === 'track' ? 'RAW TAP + TRACKER' : 'FPGA / CORE OUTPUT';
   if (next === 'track') { rawEnergy.fill(0); pendingRaw.length = 0; trackTail = []; updateTrackReadout(); }
   const src = next === 'track' ? rawStream : stream;
@@ -579,6 +627,10 @@ q<HTMLSelectElement>('#algo').onchange = e => q<HTMLInputElement>('#window').dis
 q<HTMLInputElement>('#density').oninput = e => q('#density-value').textContent = (e.target as HTMLInputElement).value;
 q<HTMLInputElement>('#denoise').oninput = e => q('#denoise-value').textContent = (e.target as HTMLInputElement).value;
 q<HTMLInputElement>('#spike-sound').onchange = e => enableSpikeAudio((e.target as HTMLInputElement).checked);
+q<HTMLInputElement>('#activity-gauge-toggle').onchange = e => {
+  gaugeOn = (e.target as HTMLInputElement).checked;
+  q('#activity-gauge').classList.toggle('hidden', !(gaugeOn && mode === 'track'));
+};
 q<HTMLInputElement>('#min-events').oninput = e => { q('#min-events-value').textContent = (e.target as HTMLInputElement).value; updateTrackReadout(); };
 
 const ws = new WebSocket(`ws://${location.host}/ws`); ws.binaryType = 'arraybuffer';

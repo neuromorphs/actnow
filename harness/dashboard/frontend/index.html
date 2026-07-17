@@ -35,6 +35,7 @@
           <label>Density <output id="density-value">3</output><input id="density" type="range" min="1" max="50" value="3"></label>
           <label class="check"><input id="disco" type="checkbox"> Disco — cycle event colours</label>
           <label class="check"><input id="spike-sound" type="checkbox"> Spike sound — centre pixel</label>
+          <label class="check"><input id="activity-gauge-toggle" type="checkbox"> Activity gauge — post-denoise events</label>
           <p class="hint">The raw tap is accumulated into a per-pixel histogram over the persistence window. <b>Denoise</b> is how many of a pixel's 8 neighbours must be active for it to show (hides isolated and hot pixels) — <b>lower it in low light</b>, where real events are sparse; 0 = off. <b>Density</b> is the event count at which a pixel reaches full opacity and saturation.</p>
           <dl class="track-readout">
             <div><dt>Lock</dt><dd id="track-lock">—</dd></div>
@@ -59,7 +60,7 @@
       <main class="stage-only">
         <section class="stage">
           <div class="stage-head"><div><button id="rail-toggle" title="Show/hide settings" aria-label="Show/hide settings">☰</button><span class="live-dot"></span><span id="stage-label">RAW TAP + TRACKER</span></div><div id="firmware-state">Firmware unknown</div></div>
-          <div class="canvas-wrap"><canvas id="dvs" class="hidden" width="112" height="126"></canvas><canvas id="track" width="112" height="126"></canvas><div id="paused-badge">PAUSED</div></div>
+          <div class="canvas-wrap"><canvas id="dvs" class="hidden" width="112" height="126"></canvas><canvas id="track" width="112" height="126"></canvas><canvas id="activity-gauge" class="hidden" width="18" height="130"></canvas><div id="paused-badge">PAUSED</div></div>
         </section>
         <div id="workspace-divider" role="separator" aria-label="Resize visualizer and programming panels" aria-orientation="vertical" tabindex="0"></div>
         <section class="workbench">

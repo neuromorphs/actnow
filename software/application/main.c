@@ -45,6 +45,21 @@ static bool transform_event(uint32_t input, uint32_t *output) {
     int32_t y = (int32_t)((word >> Y_SHIFT) & 0x7Fu);
     uint32_t p = word & 1u;
     y = (SY - 1) - y;
+    {
+        int32_t tx = x - CX;
+        int32_t ty = y - CY;
+        int32_t rx;
+        int32_t ry;
+        rx = -tx;
+        ry = -ty;
+        x = rx + CX;
+        y = ry + CY;
+    }
+    y = (SY - 1) - y;
+    y += 3;
+    x += 5;
+    if (p != 1u) return false;
+    p ^= 1u;
     x = clampi(x, 0, SX - 1);
     y = clampi(y, 0, SY - 1);
     *output = (word & ~(XY_MASK | 1u)) | ((uint32_t)x << X_SHIFT) |
