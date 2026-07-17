@@ -11,7 +11,18 @@
         <header><span class="mark">A</span><div><h1>ActNow</h1><small>KR260 live lab</small></div></header>
         <section class="modes">
           <div class="section-title">Mode</div>
-          <div class="button-row"><button id="mode-track" class="mode-btn active">Tracking</button><button id="mode-live" class="mode-btn">Live Lab</button></div>
+          <div class="button-row"><button id="mode-track" class="mode-btn active">Tracking</button><button id="mode-live" class="mode-btn">Live Lab</button><button id="mode-app" class="mode-btn">Apps</button></div>
+        </section>
+        <section id="app-controls" class="hidden">
+          <div class="section-title">Demo apps</div>
+          <label>Application <select id="app-select"></select></label>
+          <p id="app-blurb" class="hint"></p>
+          <div id="app-params"></div>
+          <button id="app-load" class="primary">Load app firmware</button>
+          <dl class="track-readout">
+            <div><dt>Loaded</dt><dd id="app-loaded">—</dd></div>
+            <div><dt>Status</dt><dd id="app-status">—</dd></div>
+          </dl>
         </section>
         <section id="system-controls" class="hidden">
           <div class="section-title">System <span id="connection" class="status">Connecting</span></div>
@@ -60,7 +71,7 @@
       <main class="stage-only">
         <section class="stage">
           <div class="stage-head"><div><button id="rail-toggle" title="Show/hide settings" aria-label="Show/hide settings">☰</button><span class="live-dot"></span><span id="stage-label">RAW TAP + TRACKER</span></div><div id="firmware-state">Firmware unknown</div></div>
-          <div class="canvas-wrap"><canvas id="dvs" class="hidden" width="112" height="126"></canvas><canvas id="track" width="112" height="126"></canvas><canvas id="activity-gauge" class="hidden" width="18" height="130"></canvas><div id="paused-badge">PAUSED</div></div>
+          <div class="canvas-wrap"><canvas id="dvs" class="hidden" width="112" height="126"></canvas><canvas id="track" width="112" height="126"></canvas><canvas id="app" class="hidden" width="112" height="126"></canvas><canvas id="activity-gauge" class="hidden" width="18" height="130"></canvas><div id="paused-badge">PAUSED</div></div>
         </section>
         <div id="workspace-divider" role="separator" aria-label="Resize visualizer and programming panels" aria-orientation="vertical" tabindex="0"></div>
         <section class="workbench">

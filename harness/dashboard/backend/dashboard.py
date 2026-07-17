@@ -31,6 +31,170 @@ STREAM_RESULT = 0
 STREAM_RAW = 1
 
 
+# --- Demo-app registry ------------------------------------------------------
+# Every event-camera demo app that the dashboard can build+load onto the board.
+# id -> {prog, label, blurb, params}. `prog` is the software/<prog> folder built
+# by `make -C software PROG=<prog>`; the per-app result-word layout is decoded in
+# the FRONTEND (each mirror in chips/fpga/ is authoritative -- see main.ts).
+#
+# `params` is a list of build-time knobs surfaced in the UI. Each entry:
+#   {name, label, min, max, default, cflag} where cflag is a printf-style
+#   template (e.g. "-DGATE_RADIUS=%d") clamped to [min, max] and appended to
+#   EXTRA_CFLAGS. Apps whose main.c has `#ifndef CORR_MIN` accept a
+#   -DCORR_MIN=<n> correlation knob; dvs_track additionally takes GATE_RADIUS.
+def _corr_param(default=2):
+    return {"name": "correlation", "label": "Correlation",
+            "min": 0, "max": 8, "default": default, "cflag": "-DCORR_MIN=%d"}
+
+
+APP_REGISTRY = {
+    "dvs_motion": {
+        "prog": "dvs_motion", "label": "Motion (4x4 grid)",
+        "blurb": "Decaying 4x4 activity grid; highlights the hottest cell.",
+        "params": []},
+    "dvs_track": {
+        "prog": "dvs_track", "label": "Object tracker",
+        "blurb": "Centroid + bounding box over the raw event tap.",
+        "params": [
+            {"name": "radius", "label": "Gate radius", "min": 4, "max": 126,
+             "default": 32, "cflag": "-DGATE_RADIUS=%d"},
+            _corr_param(2)]},
+    "dvs_stabilize": {
+        "prog": "dvs_stabilize", "label": "Stabilize (global flow)",
+        "blurb": "Global background-motion vector, drawn as an arrow.",
+        "params": [_corr_param(2)]},
+    "dvs_mayfly": {
+        "prog": "dvs_mayfly", "label": "Computational Mayfly",
+        "blurb": "Event-spawned walkers toggling a 126x112 occupancy world.",
+        "params": [_corr_param(2)]},
+    "dvs_heartbeats": {
+        "prog": "dvs_heartbeats", "label": "Secret Heartbeats",
+        "blurb": "Per-region period/frequency colour grid (8x7 regions).",
+        "params": [_corr_param(2)]},
+    "dvs_apophenia": {
+        "prog": "dvs_apophenia", "label": "Apophenia Engine",
+        "blurb": "A living Rorschach: coarse decaying activity mirrored 4-fold into a breathing inkblot.",
+        "params": []},
+    "dvs_sonar": {
+        "prog": "dvs_sonar", "label": "Radial Sonar",
+        "blurb": "Radial Motion Oracle: per-batch dominant octant/radius drawn as expanding, fading sonar rings from centre.",
+        "params": []},
+    "dvs_caustics": {
+        "prog": "dvs_caustics", "label": "Caustic Refractor",
+        "blurb": "Event-Caustic Refractor: events warped through a wavy sine-LUT water surface into a shimmering, decaying underwater light-caustic field.",
+        "params": []},
+    "dvs_blackhole": {
+        "prog": "dvs_blackhole", "label": "Micro Black Holes",
+        "blurb": "Micro-Event Black Holes: coarse two-EMA density per region; where motion was busy then abruptly COLLAPSES (an object stops/leaves) it emits a dark imploding well with a gravitational-lensing ring.",
+        "params": []},
+    "dvs_loom": {
+        "prog": "dvs_loom", "label": "Finish-Line Loom",
+        "blurb": "Event-driven slit-scan (photo-finish weaving): three fixed 4-px vertical slits sample whatever crosses them; time unrolls sideways on an event-count weft axis and the host weaves three cloth strips (gold=ON, indigo=OFF threads, faint below the noise floor).",
+        "params": []},
+    "dvs_flinch": {
+        "prog": "dvs_flinch", "label": "The Flinch",
+        "blurb": "Locust LGMD looming detector: a giant eye that tracks the covered AREA over a coarse cell grid and FLINCHES (blink + screen-shake) when something LUNGES at the camera (area grows), ignoring pans/waves (constant area) and receding objects (area shrinks).",
+        "params": []},
+    "dvs_entropy": {
+        "prog": "dvs_entropy", "label": "Entropy's Bloodhound",
+        "blurb": "Arrow-of-time detector: per-pixel last-polarity memory counts same-pixel ON→OFF (decay) vs OFF→ON (kindle) transitions per window; the signed difference is a thermodynamic verdict needle (FORWARD / BACKWARD / UNDECIDED) — reversing the recording provably flips it, and symmetric hot-pixel chatter cancels exactly.",
+        "params": []},
+    "dvs_widdershins": {
+        "prog": "dvs_widdershins", "label": "Widdershins Engine",
+        "blurb": "Communal winding-number counter: a median tracker follows the activity locus; its compass octant around frame centre is sampled on an event-count timebase and circular octant differences accumulate into a signed winding register — circle the camera deosil (clockwise) to wind it up, widdershins to unwind it; noise/stillness freeze it via a radius dead-zone.",
+        "params": []},
+    "dvs_vital": {
+        "prog": "dvs_vital", "label": "The Vitalometer",
+        "blurb": "Alive-or-mechanism séance gauge from burst TIMING only (position-invariant): confirmed inter-burst intervals fill a 32-bin half-octave log histogram per window; a tight spread reads MECHANISM (metronome), a wide spread reads ALIVE (jitter/drift), too few confirmed bursts reads DORMANT — dense sparkle never pauses long enough to form bursts and singleton noise never confirms one, so noise cannot fake a pulse.",
+        "params": []},
+    "dvs_quartz": {
+        "prog": "dvs_quartz", "label": "The Human Quartz",
+        "blurb": "Finger-tap timing graded like a crystal oscillator (position-invariant, timing only): the burst detector confirms each tap, 16 consecutive in-tempo inter-tap intervals yield a multiply-free mean tempo + MAD jitter, and a four-way grade is latched — QUARTZ / METRONOME / MORTAL HAND / JELLY; dense sparkle never forms taps, singletons never confirm, and out-of-tempo pairs reset the collection, so noise cannot fake a grade.",
+        "params": []},
+    "dvs_oms_meister": {
+        "prog": "dvs_oms_meister", "label": "OMS Meister",
+        "blurb": "Object-motion-sensitivity heat over an 8x8 grid.",
+        "params": []},
+    "dvs_oms_dirconsensus": {
+        "prog": "dvs_oms_dirconsensus", "label": "OMS Dir-consensus",
+        "blurb": "Flags independent-motion tiles + a global-direction arrow.",
+        "params": []},
+    "dvs_seismo": {
+        "prog": "dvs_seismo", "label": "Ballroom Seismology",
+        "blurb": "Stares at a fixed vertical edge and detects slow oscillation (building sway / surface vibration) by integrating the signed event-polarity sum into a displacement proxy, counting zero-crossings per window for a frequency label, and gating the output with a resonance threshold so random hot-pixel noise cannot fake a sway.",
+        "params": []},
+    "dvs_mirror": {
+        "prog": "dvs_mirror", "label": "Who Is the Mirror?",
+        "blurb": "Causality-lag detector for two-player mimicry: splits the FOV left/right, binarizes per-half time-bin activity against a mean threshold, and finds the lag that maximises AND-popcount between the two bitmasks — names the leader (LEFT/RIGHT/NONE) with lag and confidence.",
+        "params": []},
+    "dvs_heist": {
+        "prog": "dvs_heist", "label": "The Museum Heist",
+        "blurb": "Stealth vs motion-alarm game: a global leaky rate integrator charges on every event and decays per batch — fast motion trips the alarm, slow creep does not; an 8-bin column histogram tracks the burglar's horizontal position and ratchets a progress counter toward a clean crossing.",
+        "params": []},
+    "dvs_shibboleth": {
+        "prog": "dvs_shibboleth", "label": "Shibboleth",
+        "blurb": "PWM-accent identifier: finds the hottest pixel region, builds a 32-bin half-octave IEI log-histogram over that region per window, and reports the dominant period bin when the peak holds at least 1/8 of all IEIs — identifies a flashlight's dimmer frequency invisible to frame cameras.",
+        "params": []},
+    "dvs_gravity": {
+        "prog": "dvs_gravity", "label": "The Gravity Notary",
+        "blurb": "Free-fall certificator: tracks vertical centroid of a thrown object across its parabolic arc, computes the discrete 2nd-difference D2 as a gravity proxy, median-filters it, and notarises which planet the arc was recorded on (Moon/Mars/Earth/Jupiter) — stamping FRAUD on non-ballistic motion.",
+        "params": []},
+    "dvs_tremor": {
+        "prog": "dvs_tremor", "label": "The Tremor Tarot",
+        "blurb": "Hold a hand still: the DVS reads involuntary physiological tremor (4-12 Hz) via ROI event-rate EWMA zero-crossings, recovers frequency and amplitude bins, maps the pair to a major-arcana tarot card via a 2D LUT, and draws the card with a fortune.",
+        "params": []},
+    "dvs_seance": {
+        "prog": "dvs_seance", "label": "The Séance Circuit",
+        "blurb": "Crowd ouija planchette: net motion bias (left/right/up/down half-sum imbalance) per 512-event window steers a planchette across a candle-lit ouija board — hot pixels suppressed by a per-region refractory guard.",
+        "params": []},
+    "dvs_whip": {
+        "prog": "dvs_whip", "label": "The Whipcracker",
+        "blurb": "Supersonic tip detector: per-column leaky activity counters and epoch-based activation gates track the traveling wave front; a LUT classifies each column hop into one of 16 speed bins; bin 15 (one tick per column) certifies SONIC BOOM.",
+        "params": []},
+    "dvs_coin": {
+        "prog": "dvs_coin", "label": "Heads or Tails, Mid-Air",
+        "blurb": "Predicts a coin-toss face at the apex of the trajectory before it lands: tracks vertical centroid over event windows, counts compact glint windows (coin face in view), detects the apex sign-flip, and predicts HEADS/TAILS from parity of total half-turns.",
+        "params": []},
+    "dvs_actuary": {
+        "prog": "dvs_actuary", "label": "The Actuary of Spinning Tops",
+        "blurb": "Watch a spinning top: as its precession wobble grows, extrapolate the moment of death and show a countdown in precession cycles — a coroner-report panel with amplitude and period bars.",
+        "params": []},
+    "dvs_necropsy": {
+        "prog": "dvs_necropsy", "label": "Necropsy of a Pop",
+        "blurb": "Autopsy a balloon burst: a rolling event-rate IIR baseline detects the density spike, then per-bin min/max x-extent tracks the tear-front speed; on burst a glowing expanding rupture front lights up sized by extent with a peak-speed readout.",
+        "params": []},
+    "dvs_sommelier": {
+        "prog": "dvs_sommelier", "label": "Sommelier of Motion",
+        "blurb": "Substance classifier from 8 multiply-free motion features via nearest-centroid: holds up cloth, water, a fan, wiggling fingers, or a flame and the chip names what kind of thing is moving; UNKNOWN guards reject ambiguous or noisy scenes.",
+        "params": []},
+}
+
+
+def registry_payload():
+    """The registry as sent to the frontend (cflag templates stay server-side)."""
+    return {aid: {"prog": app["prog"], "label": app["label"],
+                  "blurb": app["blurb"],
+                  "params": [{k: p[k] for k in ("name", "label", "min", "max", "default")}
+                             for p in app["params"]]}
+            for aid, app in APP_REGISTRY.items()}
+
+
+def app_cflags(app, params):
+    """Build the EXTRA_CFLAGS string for `app` from user-supplied `params`,
+    clamping each knob to its [min, max] range (mirrors track()'s old clamping)."""
+    params = params or {}
+    flags = []
+    for spec in app["params"]:
+        value = params.get(spec["name"], spec["default"])
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            value = spec["default"]
+        value = max(spec["min"], min(spec["max"], value))
+        flags.append(spec["cflag"] % value)
+    return " ".join(flags) or None
+
+
 class Dashboard:
     def __init__(self, args):
         self.args = args
@@ -249,6 +413,25 @@ class Dashboard:
         reply = await self.upload_and_reload()
         return {"ok": True, "diagnostics": result["diagnostics"], "board": reply}
 
+    async def load_app(self, app_id, params=None):
+        # Build+apply one demo app from APP_REGISTRY. Its result stream carries
+        # that app's status words instead of per-event echoes; the browser
+        # decodes+overlays them (see the per-app decoders in main.ts).
+        app = APP_REGISTRY.get(app_id)
+        if app is None:
+            raise RuntimeError(f"unknown app '{app_id}'")
+        prog = app["prog"]
+        cflags = app_cflags(app, params)
+        # The .elf depends only on sources, not on CFLAGS, so changed knobs would
+        # otherwise be ignored as "up to date" -- force a fresh compile.
+        await self.run(["rm", "-rf", f"software/{prog}/build"])
+        result = await self.build(prog=prog, extra_cflags=cflags)
+        if not result["ok"]:
+            return result
+        reply = await self.upload_and_reload()
+        return {"ok": True, "app": app_id, "diagnostics": result["diagnostics"],
+                "board": reply}
+
     async def broadcast_state(self):
         asyncio.create_task(self.broadcast_json(
             {"type": "state", "board": self.board, "stream": self.stats}))
@@ -343,7 +526,8 @@ async def make_app(args):
         await ws.prepare(request)
         dashboard.websockets.add(ws)
         await ws.send_json({"type": "init", "board": dashboard.board,
-                            "stream": dashboard.stats, "logs": dashboard.log_lines})
+                            "stream": dashboard.stats, "logs": dashboard.log_lines,
+                            "apps": registry_payload()})
         async for message in ws:
             if message.type == WSMsgType.TEXT:
                 try:
@@ -393,6 +577,11 @@ async def make_app(args):
                                                payload.get("correlation"),
                                                payload.get("window"),
                                                payload.get("algo"))
+            elif name == "load_app":
+                result = await dashboard.load_app(payload["app"],
+                                                  payload.get("params"))
+            elif name == "list_apps":
+                result = {"ok": True, "apps": registry_payload()}
             elif name == "reconnect":
                 await dashboard.deploy()
                 result = {"ok": True}

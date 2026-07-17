@@ -35,8 +35,8 @@ main { --stage-width: 45%; display: grid; grid-template-columns: minmax(280px, v
 .stage-head { display: flex; justify-content: space-between; color: #84919a; font-size: 11px; padding: 0 0 9px; }
 .live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #e85643; box-shadow: 0 0 8px #e85643; margin-right: 7px; }
 .canvas-wrap { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; container-type: size; background: #050708; border: 1px solid #283139; overflow: hidden; }
-#dvs, #track { display: block; width: min(100cqw, calc(100cqh * 0.888889)); height: auto; aspect-ratio: 112 / 126; image-rendering: pixelated; }
-#track { transform: scaleX(-1); }   /* mirror the tracker view left/right */
+#dvs, #track, #app { display: block; width: min(100cqw, calc(100cqh * 0.888889)); height: auto; aspect-ratio: 112 / 126; image-rendering: pixelated; }
+#track { transform: scaleX(-1); }   /* mirror the tracker view left/right (box only, no text) */
 #activity-gauge { position: absolute; left: 12px; top: 12px; width: 18px; height: 130px; padding: 1px; background: #05070999; border: 1px solid #38434d; border-radius: 4px; box-shadow: 0 0 8px #000a; image-rendering: pixelated; }
 .hidden { display: none !important; }
 main.stage-only { grid-template-columns: 1fr; grid-template-rows: 1fr; }
