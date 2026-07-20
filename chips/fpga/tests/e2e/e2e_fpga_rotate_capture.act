@@ -1,0 +1,73 @@
+import "chips/fpga/core.act";
+import "core/peripherals/mem.act";
+import "core/peripherals/fifo_out.act";
+import "gen/file_ids.act";
+import sim;
+
+// Not a pass/fail test -- a capture generator for chips/fpga/dvs_rotate_view.py.
+// Streams chips/fpga/rotate_capture_events.mem (one decimal packed AER word
+// per line) through the real simulated core running software/dvs_rotate/
+// main.c's actual ISR, using actsim's runtime file I/O (sim::file::*, the
+// same mechanism core/peripherals/mem.act uses to preload ROM images) rather
+// than unrolling one CHP statement per event -- this loop body is a fixed
+// handful of statements regardless of event count, so it scales to the full
+// 61752-event recording without generating a huge program.
+//
+// Each BATCH-sized (4) group is read from the input file, pushed, and the
+// ISR's real rotated results are popped and written one-per-line to
+// chips/fpga/rotate_capture_results.mem -- so that file's line i is the real
+// simulated chip's own output for event i, not a Python reimplementation.
+// e2e_fpga_rotate_test.act (with asserts, on 600 events) already proved this
+// ISR matches the reference rotation; this file exists purely to produce a
+// real capture for the viewer. Relies on the event count being an exact
+// multiple of BATCH=4 (61752 is) -- main.c's ISR always reads/writes exactly
+// BATCH words per interrupt, so a partial trailing group would leave it
+// blocked on a 4th word that never arrives.
+defproc e2e_fpga_rotate_capture() {
+    core<4> c;
+
+    mem<true, ROM_IMAGE> rom;
+    rom.addr = c.rom_addr;
+    rom.mode = c.rom_mode;
+    rom.rdata = c.rom_rdata;
+
+    fifo_out<4> fout;
+    fout.addr = c.io_addr;
+    fout.mode = c.io_mode;
+    fout.wdata = c.io_wdata;
+    fout.rdata = c.io_rdata;
+
+    int<WIDTH_DATA> result;
+    int<64> ev;
+    int<32> reader_id, writer_id;
+    bool ok;
+
+    chp {
+        log("======== dvs rotate-45 capture start (fpga) ========");
+        c.reset_ext!true;
+
+        reader_id := sim::file::openr(ROTATE_CAPTURE_EVENTS);
+        assert(reader_id != 0, "capture: failed to open event capture file");
+        writer_id := sim::file::openw(ROTATE_CAPTURE_RESULTS);
+        assert(writer_id != 0, "capture: failed to open result capture file");
+
+        *[ ~sim::file::eof(reader_id) ->
+            ev := sim::file::read(reader_id); c.fifo_push!int(ev, WIDTH_DATA);
+            ev := sim::file::read(reader_id); c.fifo_push!int(ev, WIDTH_DATA);
+            ev := sim::file::read(reader_id); c.fifo_push!int(ev, WIDTH_DATA);
+            ev := sim::file::read(reader_id); c.fifo_push!int(ev, WIDTH_DATA);
+
+            fout.pop?result; ok := sim::file::write(writer_id, int(result, 64));
+            fout.pop?result; ok := sim::file::write(writer_id, int(result, 64));
+            fout.pop?result; ok := sim::file::write(writer_id, int(result, 64));
+            fout.pop?result; ok := sim::file::write(writer_id, int(result, 64))
+        ];
+
+        ok := sim::file::closer(reader_id);
+        ok := sim::file::closew(writer_id);
+
+        log("======== dvs rotate-45 capture complete ========")
+    }
+}
+
+e2e_fpga_rotate_capture e2e;

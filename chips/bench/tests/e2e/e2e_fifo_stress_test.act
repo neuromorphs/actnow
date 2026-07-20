@@ -1,0 +1,51 @@
+import "chips/bench/core.act";
+import "gen/file_ids.act";
+
+// Continuous-push variant of e2e_fifo_test. That test pushes exactly BATCH,
+// then pops all BATCH results before pushing the next batch -- so fifo_in fully
+// drains between interrupt fires. This one pushes a long stream as fast as
+// fifo_in will accept it while a parallel consumer drains the results, which is
+// what a live producer does (events keep arriving regardless of whether the ISR
+// has finished the previous batch).
+//
+// Regression for the fifo_in single-batch hang: fired on the exact
+// count==trigger_level push, that only re-arms if the FIFO drains below the
+// level between batches, so a continuous producer that saturates it deadlocks
+// the core after one batch (3 results). The watermark/re-arm fix in
+// core/peripherals/fifo_in.act makes it service every batch. See the identical
+// scenario for the fpga chip in chips/fpga/tests/e2e/e2e_fpga_fifo_stress.act.
+defproc e2e_fifo_stress_test() {
+    core<ROM_IMAGE> c;
+    c.event_id_0 = c.fifo_event;
+
+    int<WIDTH_DATA> result;
+    int<32> icnt, ocnt;
+
+    // 4 full batches (BATCH=3 in software/application): enough to prove the
+    // interrupt re-arms past the first batch, small enough to sim fast.
+    chp {
+        log("======== fifo stress (continuous push) start ========");
+        c.reset_ext!true;
+        (
+            ( icnt := 1;
+              *[ icnt <= 12 ->
+                    c.push!int(icnt, WIDTH_DATA);
+                    icnt := icnt + 1
+              ]
+            )
+            ,
+            ( ocnt := 0;
+              *[ ocnt < 12 ->
+                    c.pop?result;
+                    log("RESULT #", ocnt, " = ", result);
+                    // the ISR adds 1; inputs are 1..12, popped in order
+                    assert(result = ocnt + 2, "stress: result ", ocnt, " want ", ocnt + 2, " got ", result);
+                    ocnt := ocnt + 1
+              ]
+            )
+        );
+        log("======== fifo stress complete: all 12 results correct ========")
+    }
+}
+
+e2e_fifo_stress_test e2e;

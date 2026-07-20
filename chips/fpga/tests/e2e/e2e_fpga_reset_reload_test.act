@@ -1,0 +1,99 @@
+import "chips/fpga/core.act";
+import "core/peripherals/mem.act";
+import "core/peripherals/fifo_out.act";
+import "core/peripherals/rom_selector.act";
+import "gen/file_ids.act";
+
+// FPGA-variant port of chips/bench/tests/e2e/e2e_reset_reload_test.act: the
+// "wrong firmware" scenario -- reset recovers from a genuinely different, broken
+// program by rebooting into a corrected one.
+//
+// Unlike the bench version (which hand-rolls soc + demux + rom_selector +
+// fifo_in/fifo_out because harness.act is parameterized on a single ROM_IMAGE),
+// the FPGA core already exposes the ROM as a *raw* external route -- so this
+// test just hangs a rom_selector + two backing ROMs off core's rom_* ports, no
+// need to bypass the chip's own harness. The base-6 output is a testbench
+// fifo_out on the raw io_* route, exactly as in e2e_fpga_fifo_test.
+//
+// software/hang/main.c is deliberately erroneous: a real infinite loop that
+// never configures or services any peripheral. rom_selector routes the raw ROM
+// route to whichever bank `flip_bank` selects, independent of reset_ext --
+// exactly like a real dual-bank-boot flash.
+//
+// Sequence: boot into hang (bank A) and let it idle (nothing is pushed -- hang
+// never configures the FIFO trigger, so a push would just block forever;
+// "operator notices the hang" is modelled as the passage of time). Then flip
+// rom_selector to bank B (application) and assert reset_ext, and run the same
+// batch e2e_fpga_fifo_test uses, proving the corrected program boots and runs.
+defproc e2e_fpga_reset_reload_test() {
+    core<4> c;
+
+    // dual-bank external ROM behind rom_selector, feeding the raw ROM route.
+    // rom_selector.wdata_in is left unconnected: the ROM route is read-only, so
+    // its write branch never fires.
+    rom_selector rs;
+    rs.addr_in = c.rom_addr;
+    rs.mode_in = c.rom_mode;
+    rs.rdata_in = c.rom_rdata;
+
+    mem<true, ROM_IMAGE_HANG> rom_a;
+    rs.addr_a = rom_a.addr;
+    rs.mode_a = rom_a.mode;
+    rs.wdata_a = rom_a.wdata;
+    rs.rdata_a = rom_a.rdata;
+
+    mem<true, ROM_IMAGE_APPLICATION> rom_b;
+    rs.addr_b = rom_b.addr;
+    rs.mode_b = rom_b.mode;
+    rs.wdata_b = rom_b.wdata;
+    rs.rdata_b = rom_b.rdata;
+
+    fifo_out<4> fout;
+    fout.addr = c.io_addr;
+    fout.mode = c.io_mode;
+    fout.wdata = c.io_wdata;
+    fout.rdata = c.io_rdata;
+
+    int<WIDTH_DATA> result;
+    int<32> delay;
+
+    chp {
+        log("======== reset+reload e2e test start (fpga) ========");
+
+        // soc boots from a cold reset -- assert reset_ext once to boot it. With
+        // rom_selector still on bank A, that boots the *broken* image, which is
+        // the starting condition this test recovers from.
+        c.reset_ext!true;
+
+        // rom_selector defaults to bank A (hang) at elaboration.
+        log("--- booted into hang (bank A) -- letting it idle ---");
+        delay := 0;
+        *[ delay < 3000 -> delay := delay + 1 ];
+        log("--- operator notices no progress: flipping ROM bank to the corrected program ---");
+
+        rs.flip_bank!true;
+
+        log("--- asserting external reset ---");
+        c.reset_ext!true;
+        log("--- reset done -- should now be booting the corrected program from bank B ---");
+
+        // Same batch e2e_fpga_fifo_test uses -- only passes if the corrected
+        // program genuinely booted and reconfigured itself from scratch.
+        log("--- pushing 41, 42, 43 into the input FIFO ---");
+        c.fifo_push!int(41, WIDTH_DATA);
+        c.fifo_push!int(42, WIDTH_DATA);
+        c.fifo_push!int(43, WIDTH_DATA);
+
+        fout.pop?result;
+        assert(result = 42, "result 1: want 42, got ", result);
+        fout.pop?result;
+        assert(result = 43, "result 2: want 43, got ", result);
+        fout.pop?result;
+        assert(result = 44, "result 3: want 44, got ", result);
+        log("got 42, 43, 44 back from the base-6 output -- recovery into the corrected program confirmed");
+
+        log("======== reset+reload e2e test complete ========")
+    }
+}
+
+e2e_fpga_reset_reload_test errt;

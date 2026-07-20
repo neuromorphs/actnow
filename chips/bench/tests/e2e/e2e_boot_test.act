@@ -5,15 +5,21 @@ import "gen/file_ids.act";
 // (software/boot_only/main.c) through the real bootloader, with zero
 // peripheral interaction, and confirm it reaches WFI cleanly.
 //
-// No chp body of its own: boot_only never touches a channel this test
-// could block on, so there's nothing to synchronize against. soc runs
-// autonomously regardless, and actsim's `cycle` doesn't return until the
-// whole simulation quiesces -- so soc's own "decoded wfi" log line is
-// guaranteed to appear by completion either way. chips/bench/Makefile's
-// e2e_boot_test rule checks the log for that line directly, rather than
-// this test emitting a "test complete" line like the others do.
+// boot_only never touches a channel this test could otherwise block on, so
+// the only thing this chp body needs to do is the one thing nothing else
+// can do for it: assert reset_ext once so soc actually boots (soc.act no
+// longer boots itself -- see core/soc.act's own header comment). Once
+// released, actsim's `cycle` doesn't return until the whole simulation
+// quiesces -- so soc's own "decoded wfi" log line is guaranteed to appear
+// by completion either way. chips/bench/Makefile's e2e_boot_test rule
+// checks the log for that line directly, rather than this test emitting a
+// "test complete" line like the others do.
 defproc e2e_boot_test() {
     core<ROM_IMAGE> c;
+
+    chp {
+        c.reset_ext!true
+    }
 }
 
 e2e_boot_test ebt;

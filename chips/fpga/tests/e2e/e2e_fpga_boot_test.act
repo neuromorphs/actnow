@@ -1,0 +1,38 @@
+import "chips/fpga/core.act";
+import "core/peripherals/mem.act";
+import "gen/file_ids.act";
+
+// Baseline end-to-end scenario for the FPGA chip variant: boot a real compiled
+// program (software/boot_only/main.c) through the real bootloader, XIP from the
+// *raw* ROM route (base 4), and confirm it reaches WFI cleanly -- the exact
+// boot path chips/bench/tests/e2e/e2e_boot_test.act exercises, but with the ROM
+// modelled *outside* the chip (a file-preloaded mem<true,...> hung off core's
+// raw rom_* ports) instead of living inside the harness.
+//
+// boot_only never touches a peripheral this test could otherwise block on, so
+// the only thing this chp body does is the one thing nothing else can do for it:
+// assert reset_ext once, so soc actually boots (soc.act blocks until
+// reset_ext is asserted -- see core/soc.act's header). Once released,
+// actsim's `cycle` doesn't return until the whole simulation quiesces, so
+// soc's own "decoded wfi" log line is guaranteed to appear by completion.
+// The Makefile rule checks the log for that line directly, same as
+// chips/bench's e2e_boot_test.
+//
+// Beyond reset_ext, only the ROM route is wired: boot_only touches no input FIFO
+// (base 5) and no raw IO (base 6), so core's fifo_push / io_* are intentionally
+// left unconnected -- nothing ever communicates on them. rom.wdata is likewise
+// unconnected: the ROM is read-only and every access is a fetch/load (R).
+defproc e2e_fpga_boot_test() {
+    core<4> c;
+
+    mem<true, ROM_IMAGE> rom;
+    rom.addr = c.rom_addr;
+    rom.mode = c.rom_mode;
+    rom.rdata = c.rom_rdata;
+
+    chp {
+        c.reset_ext!true
+    }
+}
+
+e2e_fpga_boot_test eft;

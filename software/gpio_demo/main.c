@@ -16,20 +16,17 @@
 #define INT_CTRL_ENABLE    ADDR(1, 64)
 #define GPIO               ADDR(7, 0)
 
-static inline void wfi(void) {
-    asm volatile (".word 0x0000000b");
-}
+/* Each ISR must not call wfi() -- see software/application/main.c's
+   isr_handler comment for why. */
 
 /* gpio_in_0 (event_id_14) -> drive 0b0101 */
 static __attribute__((noinline)) void isr_gpio_in_0(void) {
     *GPIO = 0b0101;
-    wfi();
 }
 
 /* gpio_in_1 (event_id_15) -> drive 0b1010 */
 static __attribute__((noinline)) void isr_gpio_in_1(void) {
     *GPIO = 0b1010;
-    wfi();
 }
 
 void main(void) {

@@ -1,0 +1,69 @@
+import "chips/fpga/core.act";
+import "core/peripherals/mem.act";
+import "core/peripherals/fifo_out.act";
+import "gen/file_ids.act";
+import sim;
+
+// Not a pass/fail test -- a capture generator for chips/fpga/dvs_motion_view.py,
+// mirroring e2e_fpga_rotate_capture.act's structure. Streams
+// chips/fpga/rotate_capture_events.mem (the full 61752-event real recording,
+// one packed AER word per line) through the real simulated core running
+// software/dvs_motion/main.c's actual ISR, using actsim's runtime file I/O
+// (sim::file::*) so the loop body is a fixed handful of statements regardless
+// of event count.
+//
+// Unlike e2e_fpga_rotate_capture.act, dvs_motion's ISR writes exactly one
+// status word per BATCH=4-event batch, not one per event -- so this reads 4
+// events per iteration but writes only 1 result, to
+// chips/fpga/motion_capture_results.mem. That file's line i is the real
+// simulated chip's decaying-grid argmax after processing events
+// [4*i, 4*i+4), one line per interrupt. e2e_fpga_motion_test.act (with
+// asserts, on 150 status words) already proved this ISR matches the
+// reference grid math; this file exists purely to produce a full-length real
+// capture for the viewer. Relies on the event count being an exact multiple
+// of BATCH=4 (61752 is).
+defproc e2e_fpga_motion_capture() {
+    core<4> c;
+
+    mem<true, ROM_IMAGE> rom;
+    rom.addr = c.rom_addr;
+    rom.mode = c.rom_mode;
+    rom.rdata = c.rom_rdata;
+
+    fifo_out<4> fout;
+    fout.addr = c.io_addr;
+    fout.mode = c.io_mode;
+    fout.wdata = c.io_wdata;
+    fout.rdata = c.io_rdata;
+
+    int<WIDTH_DATA> result;
+    int<64> ev;
+    int<32> reader_id, writer_id;
+    bool ok;
+
+    chp {
+        log("======== dvs motion-grid capture start (fpga) ========");
+        c.reset_ext!true;
+
+        reader_id := sim::file::openr(ROTATE_CAPTURE_EVENTS);
+        assert(reader_id != 0, "capture: failed to open event capture file");
+        writer_id := sim::file::openw(MOTION_CAPTURE_RESULTS);
+        assert(writer_id != 0, "capture: failed to open result capture file");
+
+        *[ ~sim::file::eof(reader_id) ->
+            ev := sim::file::read(reader_id); c.fifo_push!int(ev, WIDTH_DATA);
+            ev := sim::file::read(reader_id); c.fifo_push!int(ev, WIDTH_DATA);
+            ev := sim::file::read(reader_id); c.fifo_push!int(ev, WIDTH_DATA);
+            ev := sim::file::read(reader_id); c.fifo_push!int(ev, WIDTH_DATA);
+
+            fout.pop?result; ok := sim::file::write(writer_id, int(result, 64))
+        ];
+
+        ok := sim::file::closer(reader_id);
+        ok := sim::file::closew(writer_id);
+
+        log("======== dvs motion-grid capture complete ========")
+    }
+}
+
+e2e_fpga_motion_capture e2e;

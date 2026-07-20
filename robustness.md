@@ -570,76 +570,361 @@ split, `gpio.act`, `chips/bench/` pattern all exist and are stable).
 
 ### 2.1 dvs event topology
 
-- [ ] 3 events total: `event_id_0` driven directly by the new 20-bit AER
-      input (replacing `fifo_in`'s role); `event_id_1`/`event_id_2`
-      externally driven, same as `chips/bench/core.act`'s spare interrupt
-      lines.
-- [ ] Remove `fifo_out` entirely — any chip-to-outside data path goes
-      through the bidirectional program/data SPI instead (2.3).
-- [ ] Open design question to resolve first: does the AER input need its
-      own edge-triggered wrapper (a `fifo_in`-style "new 20-bit word
-      arrived → fire `event_id_0`" peripheral, e.g.
-      `core/peripherals/aer_input.act`), or does it wire straight through
-      as a plain rendezvous? Decide before implementing — it determines
-      whether a new peripheral file is needed.
+- [x] **Resolved the open design question:** the AER input needs an
+      edge-triggered wrapper (something has to hold a pixel-event's value
+      between when it asynchronously arrives and when the CPU's ISR reads
+      it, and buffer more than one in case the sensor bursts faster than
+      software drains it) — but **not** a new peripheral file.
+      `core/peripherals/fifo_in.act` already *is* that wrapper; the only
+      thing tying it to 32-bit data was its buffer/push element type, so it
+      gained a second template parameter, `WIDTH`
+      (`template<pint DEPTH; pint WIDTH>`), governing `buf[]`/`push`'s
+      element width while `addr`/`mode`/`wdata`/`rdata` (the CPU-facing MMIO
+      bus) stay fixed at `WIDTH_DATA` — `rdata` zero-extends a narrower
+      buffered word via `int(buf[head], WIDTH_DATA)`. The dvs chip variant
+      will instantiate `fifo_in<DEPTH, WIDTH_ADDR>` for its 20-bit AER
+      input in 2.5 (`WIDTH_ADDR` — already defined in `core/globals.act`,
+      previously unused — is this project's own address width, which an
+      AER pixel-event payload naturally matches). Existing callers
+      (`chips/bench/harness.act`, `tests/peripherals/fifo_test.act`,
+      `chips/bench/tests/e2e/e2e_reset_reload_test.act`) updated to
+      `fifo_in<4, WIDTH_DATA>`, preserving today's behavior exactly.
+- [x] 3 events total: new `chips/dvs/harness.act` + `chips/dvs/core.act`
+      (built incrementally starting here, rather than in one shot at 2.5 --
+      2.2/2.3/2.4 will extend these same two files rather than assembling
+      fresh ones). `chips/dvs/harness.act` is a demux with exactly one
+      route so far (`base=ADDR_AER=5`, `fifo_in<AER_DEPTH, WIDTH_ADDR>` --
+      the AER input, taking fifo_in's old base=5 slot from `chips/bench`).
+      `chips/dvs/core.act` wires `soc` + that harness together:
+      `event_id_0` is hardwired directly to the AER input's `event_out`
+      (unlike `chips/bench/core.act`'s `fifo_event`, left as an
+      independent, optionally-connected port -- dvs has no equivalent of
+      `e2e_multi_event_test.act`'s need to fire that line manually, so
+      there's no reason to expose the choice); `event_id_1`/`event_id_2`
+      are generic externally-driven pass-through lines, the dvs equivalent
+      of `chips/bench/core.act`'s spare interrupt lines (and where its two
+      GPIO input pins will come from -- 2.2). `event_id_3..15` are simply
+      never connected. Compile-checked by fully elaborating `core<8>`
+      (`aflat` on a throwaway instantiating file) -- clean, only the
+      pre-existing unrelated `mem.act` write-conflict warning that appears
+      on every `soc`-based compile. `make test`/`make software-tests` both
+      still pass (nothing here is reachable from the existing suite).
+- [x] Remove `fifo_out` entirely — satisfied by omission: `chips/dvs/
+      harness.act` never imports or instantiates `fifo_out.act`. Any
+      chip-to-outside data path will go through spi_prog instead (2.3, base
+      reserved at `ADDR_AER+1`, i.e. 6 -- fifo_out's old slot).
+- [x] **Gate:** `make test`/`make software-tests` both still pass with
+      `fifo_in`'s new signature — verified end to end.
 
 ### 2.2 GPIO reuse
 
-- [ ] Reuse `core/peripherals/gpio.act` and the same 4-in/4-out pin
-      allocation from 1.6 unchanged; SWD's 2 pins stay stubbed/no-op.
+- [x] **Confirmed:** `core/peripherals/gpio.act` is fully chip-agnostic — a
+      generic MMIO register + 4 output pins, no `soc`/`chips/bench`-specific
+      coupling — so it's reused for `chips/dvs` with zero code changes.
+      The 4-in/4-out pin allocation from 1.6 carries over unchanged in
+      role, just re-targeted to dvs's own (smaller) event set: `gpio_in_0`/
+      `gpio_in_1` will wire onto `event_id_1`/`event_id_2` (dvs's two spare
+      lines, per 2.1 — the dvs equivalent of `chips/bench`'s
+      `event_id_14`/`event_id_15`), `swd_0`/`swd_1` stay stubbed/no-op, and
+      `gpio_out_0`..`gpio_out_3` pass through a `gpio` instance exactly like
+      `chips/bench/harness.act`'s does. Not wired yet -- `chips/dvs/
+      harness.act`/`core.act` now exist (started in 2.1) and will gain
+      these ports as an incremental extension when this stage is actually
+      implemented, the same way 2.3/2.4 will extend them further rather
+      than a one-shot assembly in 2.5.
 
 ### 2.3 SPI peripherals
 
-Transaction framing (both interfaces): 1 bit read(0)/write(1), 20-bit
-address, 32-bit data — one "transmission" per chip-select-low pulse.
+**Reworked mid-stage** — the first pass (both peripherals receiving `cs`/
+`mosi` as `chan?(bool)`, using each bit rendezvous as an implicit clock
+edge) was wrong: it modeled the dvs chip as the SPI *slave* on both
+interfaces, but both `spi_boot` and `spi_prog` are SPI **masters** —
+`spi_boot` actively reads its own boot image from an external flash;
+`spi_prog` actively streams RAM contents to an external device. A real SPI
+master always drives `cs`/`sclk`/`mosi` itself and only listens on `miso` —
+there's no external device handshaking back to synchronize against, so
+"one channel rendezvous per bit" doesn't correspond to anything a real SPI
+slave device would do. Fixed by making `cs`/`sclk`/`mosi`/`miso` plain
+`bool` wires (not `chan`) — real signal lines, not rendezvous channels —
+with the master side generating its own clock.
 
-- [ ] `core/peripherals/spi_boot.act` — unidirectional, read-only from the
-      chip's perspective: loads the bootloader image into RAM once at
-      boot, does nothing thereafter.
-- [ ] `core/peripherals/spi_prog.act` — bidirectional: implements the
-      transaction framing above, used both to push programs into memory
-      and to read/write data through the demux (replacing `fifo_out`'s old
-      role).
-- [ ] New unit tests: `tests/peripherals/spi_boot_test.act` and
-      `tests/peripherals/spi_prog_test.act`, each driving raw SPI-shaped
-      transactions and asserting the correct addr/mode/wdata/rdata sequence
-      comes out on the memory-facing side.
+**Async clock generation:** the mechanism is request-attached-to-
+acknowledge through a delay line — real, working, wired into both
+peripherals via a new `core/peripherals/spi_clock.act`. Getting there took
+three attempts:
+1. `std::delay_lines::chain_delay_buffer` instantiated *inside*
+   `spi_boot`/`spi_prog` themselves. Works in total isolation, but crashes
+   actsim (`Assertion failed, file core.cc, line 2814: offset >= 0`, in its
+   multi-driver-conflict detection pass) as soon as the *same* process also
+   exposes a plain `bool` port to its own parent — true regardless of the
+   delay mechanism (also hit with a hand-written `[after=N]` prs rule in
+   the same position), and true even through a clean single-purpose wrapper
+   process. Minimally reproduced outside this project's files; a genuine
+   actsim limitation on hybrid `chp`/`prs` *port-level* boundaries, not a
+   language issue.
+2. Fix: keep `req`/`ack` as plain **ports** of `spi_boot`/`spi_prog`
+   (never an internal instance touching `prs`), and move the delay line out
+   into `spi_clock.act` — its own tiny, 100% structural process (no `chp`
+   body at all) that whoever instantiates `spi_boot`/`spi_prog` wires up as
+   a sibling. Neither process individually has "a port + local var touching
+   prs" anymore, so the crash goes away — confirmed even when the wiring
+   process itself has further ports up to its own parent, as long as that
+   wiring process is purely structural (matches `harness.act`'s own style).
+3. `chain_delay_buffer` itself (a real inverter-chain circuit) turned out
+   to be unstable under the actual back-to-back toggling a full SPI
+   transaction needs — `unstable transition`/`weak-interference` warnings
+   and `ack` reading `X`, corrupting later bits. Persisted even at very
+   large `N` (more stages doesn't fix a circuit not given time to settle
+   between toggles). Fixed by switching `spi_clock.act` to an explicit
+   `[after=N]` timing annotation directly in a flat `prs` rule (`req => ack+`
+   / `~req => ack-`) instead — an ideal, simulator-only delay with none of
+   the physical circuit's switch-level hazard dynamics.
+   One more wrinkle: `ack` starts unknown (`X`) and only resolves once
+   `req` has toggled *and the delay line has actually driven it* — if
+   anything else runs first (e.g. `spi_prog`'s RAM read, which happens
+   before its first real `sclk` edge), that first real toggle wedges
+   forever waiting on an `ack` that never arrives. Fixed with a one-time
+   throwaway priming toggle (`req := ~req; [ack=req]`, twice) at the very
+   top of both peripherals' `chp`, before anything else touches req/ack.
+
+`SPI_CLOCK_DELAY_N` (`core/globals.act`) is now a real `[after=N]` time
+value (currently 20), not a delay-line chain length.
+
+**spi_boot** (reworked a second time, in Stage 2.5, per direct feedback:
+"we should not need an entire memory"): has **no backing store at all**.
+Every CPU read is relayed live, address and all, as its own SPI
+transaction to the external flash — genuine XIP, not "pull everything in
+once, then serve from a copy." No `IMAGE_WORDS` template parameter either
+— spi_boot doesn't know or care how big the image is; `software/
+bootloader/main.c` (unchanged) runs directly out of it, one fetch at a
+time, reads its own length-prefixed payload the same way, and copies it
+into SRAM itself before jumping there. Protocol: 1 R/W bit (always 0,
+since spi_boot never writes to the flash) + 20 address bits (the CPU's
+real requested offset) + 32 data bits back over `miso`, all per CPU
+transaction.
+
+**spi_prog** (role reworked a second time, this time to stick): the
+"RAM-facing bus master" design turned out to be a dead end — `soc.act`'s
+RAM is entirely private (owned inside `soc`, reached only through `mmu`'s
+own CPU-facing route), so a peer-level process like `spi_prog` had no port
+to actually reach it through at all. Fixing that would have meant adding a
+new external RAM-facing port to `soc.act` itself plus an arbiter merging
+it with `mmu`'s own route — a real change to a shared, chip-agnostic core
+file, for a design that was also just more machinery than needed. Instead:
+`spi_prog` is a small **CPU-facing MMIO peripheral**, routed by the demux
+exactly like `fifo_in`/`gpio`/`spi_boot` — no RAM access of its own at
+all. Two registers: offset 0 (address register) stages a 20-bit address;
+offset 4 (data register) triggers the actual SPI transaction — a write
+stages 32 bits and sends them out (R/W=1 + staged address + data), a read
+sends out a read command (R/W=0 + staged address) and blocks until the
+32-bit result shifts back in over `miso`. This is how real, simple SPI
+controller IP actually works: the CPU orchestrates RAM↔peripheral data
+movement itself via ordinary loads/stores; the peripheral only shifts bits
+over the external bus. `spi_prog` is still the SPI *master* externally
+(drives `cs`/`sclk`/`mosi`, self-times `sclk` via `req`/`ack` + a
+`spi_clock` sibling, same as `spi_boot`) — that part didn't change, only
+which side decides what to send.
+
+- [x] `core/peripherals/spi_boot.act` — as above.
+- [x] `core/peripherals/spi_prog.act` — as above (now register-based, no
+      template parameters).
+- [x] `core/peripherals/spi_clock.act` — new; the real delay-line clock
+      source, wired as a sibling wherever `spi_boot`/`spi_prog` are used.
+- [x] `core/globals.act`: added `SPI_CLOCK_DELAY_N` (an `[after=N]` time
+      value spi_clock.act uses, currently 20), `ADDR_SPI_BOOT` (=4) and
+      `ADDR_SPI_PROG` (=6).
+- [x] Rewrote unit tests to match: `tests/peripherals/spi_boot_test.act`
+      wires `spi_boot` to a new `external_flash` process playing the slave
+      role (gated purely by observing `cs`/`sclk`/`mosi` transitions, never
+      rendezvousing with `spi_boot`), drives two CPU reads at different
+      offsets, and `external_flash` answers by decoding the real requested
+      offset each time (not a fixed sequence) — updated again in 2.5 once
+      spi_boot dropped its backing store. `tests/peripherals/
+      spi_prog_test.act` drives `spi_prog` as the CPU would (address
+      register write, data register write, address register write, data
+      register read) against a new `external_device` process playing the
+      SPI slave role for both directions — checks the write it receives and
+      answers the read with a known value that comes back correctly through
+      spi_prog's own `rdata`.
+- [x] **Gate:** `make test` (still 26 testbenches, both SPI tests rewritten
+      in place) and `make software-tests` (38/38) both pass.
 
 ### 2.4 New demux wiring for dvs
 
-- [ ] A dvs-specific `demux` instantiation (reuse
-      `core/peripherals/demux.act` from 1.1 with a new base table) that
-      routes converted addr/mode/wdata streams from both SPI peripherals
-      into RAM (mirroring how `chips/bench/harness.act`'s demux routes ROM
-      traffic today) — with no `fifo_out` route at all.
-- [ ] Document the new address map additions in `core/globals.act` (new
-      `ADDR_*` constants for the two SPI bases), alongside a comment
-      analogous to the existing `ADDR_EXT_MIN` block.
+Much simpler than originally scoped, now that 2.3 settled on `spi_prog`
+being CPU-facing (not a RAM bus master) — no RAM arbitration or `soc.act`
+changes needed at all, just two more ordinary demux routes.
+
+- [x] `chips/dvs/harness.act`'s demux extended to 3 exact bases
+      (`ADDR_SPI_BOOT`, `ADDR_AER`, `ADDR_SPI_PROG`), no catch-all (nothing
+      here needs to reach further off-chip) — same shape as `chips/bench/
+      harness.act`'s own table, still no `fifo_out` route. `spi_boot` and
+      `spi_prog` each get their own `spi_clock` sibling (their `req`/`ack`
+      ports can't share one — each peripheral drives its own `req`
+      independently). Both peripherals' external pins
+      (`spi_boot_cs`/`spi_boot_sclk`/`spi_boot_mosi`/`spi_boot_miso`,
+      `spi_prog_*` likewise) are threaded out through `harness.act` and
+      `chips/dvs/core.act` as real ports, same reasoning as `aer_in`.
+- [x] Address map additions already landed in 2.3: `ADDR_SPI_BOOT` (=4),
+      `ADDR_SPI_PROG` (=6), in `core/globals.act`.
+- [x] **Gate:** compile-checked by fully elaborating `core<8>` (`aflat`
+      on a throwaway instantiating file) — clean, only the pre-existing
+      `mem.act` write-conflict warning. `make test`/`make software-tests`
+      both still pass (nothing here is reachable from the existing suite
+      yet — chips/dvs has no e2e tests of its own until 2.6).
 
 ### 2.5 Assemble `chips/dvs/core.act`
 
-- [ ] `chips/dvs/harness.act` (3 events + AER input + GPIO + both SPIs +
-      the dvs demux, mirroring `chips/bench/harness.act`'s role) and `soc`
-      instantiated together into `chips/dvs/core.act` (mirroring
-      `chips/bench/core.act`).
-- [ ] New `chips/dvs/Makefile` (+ supporting scripts as needed), modeled on
-      `chips/bench/Makefile` from 1.5, reusing existing test-running logic
-      where practical.
-- [ ] `chips/dvs/tests/e2e/` holds this variant's e2e tests, same pattern
-      as `chips/bench/tests/e2e/`.
+- [x] GPIO wired in, mirroring `chips/bench/core.act`'s pattern exactly:
+      `chips/dvs/harness.act` gained a `gpio` instance (4th demux route,
+      base=`ADDR_GPIO`) with `gpio_out_0..3` threaded through to `core.act`.
+      `core.act`'s `event_id_1`/`event_id_2` ports were renamed to
+      `gpio_in_0`/`gpio_in_1` (pure pass-through wiring onto those same two
+      event lines, not a new mechanism) and `swd_0`/`swd_1` stub ports were
+      added, unconnected, for interface completeness -- same as
+      `chips/bench/core.act`'s own `gpio_in_0`/`gpio_in_1` ->
+      `event_id_14`/`event_id_15` and `swd_0`/`swd_1`.
+- [x] **Gate:** compile-checked by fully elaborating `core<8>` (`aflat`
+      on a throwaway instantiating file) -- clean, only the pre-existing
+      `mem.act` write-conflict warning. `make test`/`make software-tests`
+      both still pass.
+- [x] `spi_boot` reworked to drop its backing store entirely (see above) --
+      direct feedback mid-stage: "we should not need an entire memory."
+      Genuine XIP passthrough, no `IMAGE_WORDS`.
+- [x] **Found and fixed a real bug in `core/soc.act`** (shared,
+      chip-agnostic core file, not dvs-specific) while bringing up the
+      first dvs e2e test. `running`, a plain `bool` used as a guard in
+      `soc`'s top-level probed selection (`[| ... [] running -> skip
+      [] ... |]`), was set once per instruction and expected to keep
+      reading correctly indefinitely. It doesn't, on this actsim build:
+      after `soc`'s own thread blocks on a channel rendezvous for a long
+      stretch (confirmed with spi_boot's real, comparatively slow SPI
+      transactions -- chips/bench's near-instant ROM fetch never blocks
+      long enough to expose it), `running` reads back `false` -- its
+      *initial* value -- instead of the `true` it was last written.
+      Confirmed with a canary: an `int` set on the very next line after
+      `running := true` survives the same gap correctly, isolating the bug
+      to boolean guard variables specifically, not general state
+      corruption. Root-caused, not worked around: removed a redundant
+      second `running := true` (there were two -- one inside the
+      `#reset_ext` branch, one unconditional right after the selection --
+      only the second is actually needed) as a first pass, which didn't
+      fix it alone, then restructured to stop depending on a long-held
+      boolean guard entirely -- "idle vs. running" is now encoded by which
+      block of code is executing (a one-time wait before the main loop,
+      plus a repeated wait after WFI) rather than by re-reading a variable
+      set arbitrarily far in the past. `running` no longer exists as a
+      variable. The in-loop `reset_ext` check became `[ #reset_ext -> ...
+      [] ~#reset_ext -> skip ]` -- ACT rejects `else` when a guard
+      contains a channel probe, so the negated probe is spelled out
+      explicitly instead. Verified `make test` (26/26) and
+      `make software-tests` (38/38) still pass unchanged after the
+      rewrite -- chips/bench never blocks long enough to have been
+      exercising the buggy path either way.
+- [x] `chips/dvs/Makefile`, modeled on `chips/bench/Makefile`: `e2e_boot_test`
+      target (boots `software/boot_only/main.c` genuinely XIP out of
+      spi_boot, checks for `soc`'s own "decoded wfi" log line, same
+      completion convention as chips/bench's own `e2e_boot_test`).
+- [x] `chips/dvs/tests/e2e/spi_flash_stub.act` -- new, shared test-support
+      process playing spi_boot's external flash for e2e tests. Preloads
+      the same `.mem` file `mem.act`'s `READ_ONLY` mode already reads
+      (`sim::file`, no new file format or conversion tool needed) into an
+      array, then answers by decoded address, not file position -- a real
+      program's instruction fetches aren't monotonic (a loop's own
+      backedge isn't), confirmed by testing a lazy sequential-only version
+      first, which asserted the moment the bootloader's copy loop looped
+      back.
+- [x] `chips/dvs/tests/e2e/e2e_boot_test.act` -- passes end to end,
+      including the real `software/bootloader/main.c` XIP-executing out of
+      spi_boot and copying `software/boot_only/main.c`'s payload into SRAM
+      before jumping there.
+- [x] **Gate:** `make -C chips/dvs e2e_boot_test` passes; `make test`
+      (26/26) and `make software-tests` (38/38) both still pass.
 
-### 2.6 dvs-specific e2e tests + SPI serialization script
+### 2.6 dvs-specific e2e tests
 
-- [ ] New conversion script (e.g. `tools/spi_serialize.py`) that reframes
-      compiled program images / assembly test vectors as SPI transaction
-      streams (R/W bit + 20-bit addr + 32-bit data per transmission) for
-      `spi_prog_test` and the dvs e2e tests.
-- [ ] Port the Stage 1 execution-path matrix (1.7) to `chips/dvs/core.act`,
-      substituting AER input for fifo_in-driven events and SPI in/out for
-      `fifo_out`, plus at least one test specific to the 20-bit AER data
-      width end to end.
-- [ ] **Gate:** `chips/dvs/` has its own green test run, mirroring the
-      top-level `make test` gate structure.
+No separate SPI serialization script needed after all (originally
+scoped as one, `tools/spi_serialize.py`) -- `spi_flash_stub.act` (2.5)
+already reads the exact same `.mem` file every other ROM consumer in this
+project uses, just serves it over a live SPI protocol instead of a direct
+memory preload. Remaining work:
+
+Ported what maps onto dvs's actual (deliberately reduced) topology; three
+of chips/bench's seven e2e scenarios don't have a meaningful dvs
+equivalent and were left out rather than forced:
+- `e2e_multi_event_test`/`e2e_multi_event_reset_test` stress all 16 event
+  lines — dvs's `core.act` only ever exposes 3 (`event_id_0`=AER,
+  `event_id_1`/`event_id_2`=GPIO in); `event_id_3..15` are permanently
+  unconnected by design (Stage 2.1), so a 16-line test has nothing to
+  drive.
+- `e2e_reset_reload_test` exercises `core/peripherals/rom_selector.act`'s
+  bank-select register — chips/bench-specific hardware for swapping which
+  of two preloaded ROM images is live. dvs has no equivalent register;
+  which image `spi_flash_stub.act` serves is a simulation-harness choice
+  (which file it opens), not something dvs's own hardware can select.
+
+New software (mirrors the chips/bench program each is based on, adjusted
+for dvs's addresses/event lines):
+- `software/dvs_application/main.c` — `e2e_fifo_test` equivalent's
+  program. Same ISR shape as `software/application/main.c` (read `BATCH`
+  values, write back `+1` each), but reads from the AER input (base=5,
+  `fifo_in`'s own interface, just a 20-bit element width) instead of
+  `fifo_in` proper, and writes out through `spi_prog`'s two-register
+  interface (stage an address at offset 0, write offset 4 to trigger the
+  SPI transaction) instead of a plain push to `fifo_out`.
+- `software/dvs_gpio_demo/main.c` — identical to `software/gpio_demo/
+  main.c` except the vector vectors/enable bits target `event_id_1`/
+  `event_id_2` (dvs's spare lines) instead of `event_id_14`/`event_id_15`.
+
+New tests, all under `chips/dvs/tests/e2e/`, all booting genuinely XIP out
+of `spi_boot` via `spi_flash_stub.act` (2.5) — no ROM:
+- [x] `e2e_aer_test.act` — `e2e_fifo_test` equivalent. Two AER batches;
+      each result checked as an (address, data) pair observed over SPI by
+      a new `spi_sink` process (the receiving end chips/bench's output
+      FIFO played). Waits for an explicit `done` signal from `spi_sink`
+      before printing "test complete" — without it, the driver's own
+      thread finishes issuing pushes and could print completion before
+      `spi_sink`'s (still in-flight) checks on the later words actually
+      run, letting a real failure slip past the Makefile's
+      `grep "test complete"` gate.
+- [x] `e2e_reset_test.act` — same program, one batch, `reset_ext`, identical
+      batch again -- only passes if the rebooted bootloader + dvs_application
+      genuinely re-registered its ISR vector, AER trigger level, and enable
+      bit from a clean interrupt controller. Its own `spi_sink` variant hands
+      each (address, data) pair straight back to the driver (rather than
+      asserting internally) so the driver knows precisely when the
+      pre-reset batch has finished, before it's safe to assert `reset_ext`.
+- [x] `e2e_gpio_test.act` — direct structural port of chips/bench's own,
+      `gpio_in_0`/`gpio_in_1` wired onto `event_id_1`/`event_id_2` instead
+      of `event_id_14`/`event_id_15`.
+- [x] Found and fixed a real bug along the way (`tests/peripherals/
+      spi_prog_test.act`'s `external_device` had the same shape, but this
+      is where it first surfaced end to end): a hand-rolled `spi_sink` in
+      `e2e_aer_test.act` initially forgot to consume spi_prog's leading
+      R/W bit before reading the address field, shifting every bit read by
+      one position -- caught immediately by a garbage address value in the
+      very first assertion, fixed by sampling and discarding that bit
+      first, matching the existing `external_device` pattern.
+- [x] **Coverage gap caught after the fact:** every test above (and both
+      of `chips/bench`'s own equivalents) only ever drives `spi_prog`'s
+      *write* direction -- `tests/peripherals/spi_prog_test.act` covers the
+      read direction in isolation (no `soc` involved), but nothing
+      exercised a real program, running through the real bootloader,
+      actually pulling data in over SPI and using it. Closed with
+      `software/dvs_spi_read_demo/main.c` (stages an address via
+      `spi_prog`'s address register, reads its data register -- the read
+      itself is what triggers the SPI transaction -- and drives a
+      self-checking pattern onto GPIO: `0b1111` if the value matches a
+      known constant, `0b0000` if not) and `e2e_spi_read_test.act` (new
+      `external_source` process answers the read; the test just checks
+      GPIO landed on `0b1111`).
+- [x] `chips/dvs/Makefile` gained `e2e_aer_test`, `e2e_reset_test`,
+      `e2e_gpio_test`, `e2e_spi_read_test`, and a `test` target running all
+      five dvs e2e tests together (mirroring the top-level `make test`'s
+      own role).
+- [x] **Gate:** `make -C chips/dvs test` (all 5 green); `make test` (26/26)
+      and `make software-tests` (38/38) at the top level both still pass
+      unaffected.
 
 ## Stage 3 — Debugging support (not yet scoped)
 
@@ -656,5 +941,36 @@ actionable tasks until these are answered:
       both (e.g. forcing `pc`, halting the `chp` loop from outside)?
 - [ ] Is this needed on `chips/bench`, `chips/dvs`, or both?
 
+## Backlog
+
+- [ ] Configuring the SPI protocol with registers
+
+- [ ] Implement UART equivalent implementation in place of SPI
+
+- [ ] Make the number of events templated in core
+
+- [x] Confirm bootloader is XIP — done in Stage 2.5: `spi_boot` has no
+      backing store, every CPU fetch (including the bootloader's own
+      instructions) is a live SPI transaction; R/W bit convention (0=read,
+      1=write) landed in Stage 2.3/2.5. `software/bootloader/main.c` reads
+      its own length-prefixed payload the same way and copies it into SRAM
+      itself, verified end to end by `e2e_boot_test`.
+
+- [ ] untemplate the ram
+
+- [x] Ensure programs can actually be loaded thru spi prog, and that data
+      can be read/written — the narrow version of this (a real program,
+      through the real bootloader, genuinely reading a value through
+      `spi_prog` and using it) is done: `e2e_spi_read_test` (Stage 2.6).
+      Still open: a *multi-word* load through `spi_prog` that actually
+      writes the result into RAM (closer to "load a program"-scale, rather
+      than one value staged through a GPIO pass/fail check).
+
+- [x] SPI boot and SPI prog share the same clk instance. We have to find a way to test this reliably and safely. (using explicit delays )
+
+- [ ] Reset is a channel communication
+
 Once these are answered, expand this section into the same
 checkbox/Gate structure as Stages 1 and 2 before starting implementation.
+
+

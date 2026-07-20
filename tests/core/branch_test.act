@@ -14,6 +14,9 @@ defproc branch_test() {
     int<32> insn, off;
 
     chp {
+        // soc boots from a cold reset -- assert reset_ext once to kick it off.
+        s.reset_ext!true;
+
         // pc=ADDR_RESET+0: BEQ x1, x2, +8  (x1=x2=0 -> equal -> taken)
         off := int(8,32);
         insn := (off{12} << 31) | (off{11} << 7) | (off{10..5} << 25) | (off{4..1} << 8)

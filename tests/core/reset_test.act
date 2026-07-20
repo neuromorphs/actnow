@@ -151,6 +151,11 @@ defproc reset_test() {
     chp {
         log("======== reset_test start ========");
 
+        // soc boots from a cold reset -- assert reset_ext once to kick it off
+        // (distinct from the mid-test reset_ext below, which is the actual
+        // hang-recovery this test proves).
+        s.reset_ext!true;
+
         // Let the self-loop spin for a while before asserting reset --
         // fetch_answerer keeps answering it indefinitely in the meantime.
         delay := 2000;

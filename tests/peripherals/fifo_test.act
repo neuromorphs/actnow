@@ -9,7 +9,7 @@ import "core/peripherals/fifo_out.act";
 // lands (rather than racing ahead with stale/garbage data), and that a
 // CPU write to a full fifo_out blocks for room rather than crashing.
 defproc fifo_test() {
-    fifo_in<4> fin;
+    fifo_in<4, WIDTH_DATA> fin;
     fifo_out<4> fout;
 
     chan(addr_t) addr_in;

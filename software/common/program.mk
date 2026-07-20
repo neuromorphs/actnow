@@ -18,6 +18,10 @@ CFLAGS    := $(ARCHFLAGS) -O3 -g -ffreestanding -nostdlib -fno-builtin \
              -Wall -Wextra -ffunction-sections -fdata-sections
 LDFLAGS   := $(ARCHFLAGS) -nostdlib -Wl,--gc-sections -Wl,--build-id=none
 
+# Caller-injected compiler flags (propagated through recursive make from the
+# command line, e.g. the dashboard passes EXTRA_CFLAGS=-DGATE_RADIUS=N).
+CFLAGS    += $(EXTRA_CFLAGS)
+
 SRCS  := $(CRT0) $(wildcard *.c) $(wildcard *.S)
 BUILD := build
 ELF   := $(BUILD)/$(PROG).elf

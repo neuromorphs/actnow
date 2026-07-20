@@ -7,6 +7,9 @@ software/**/build/
 
 # test suite artifacts
 /gen/
+/prs_list.txt
 __pycache__/
 
 .claude/*
+.DS_Store
+riscv32-unknown-elf.gcc-12.1.0.tar.gz

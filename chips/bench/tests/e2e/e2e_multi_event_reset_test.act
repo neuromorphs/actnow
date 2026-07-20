@@ -45,6 +45,11 @@ defproc e2e_multi_event_reset_test() {
     chp {
         log("======== multi-event back-to-back + reset test start ========");
 
+        // soc boots from a cold reset -- assert reset_ext once to kick it off
+        // (distinct from the mid-test reset_ext below, which proves recovery
+        // rather than boot).
+        c.reset_ext!true;
+
         // --- Batch 1: fire events 0..7 back-to-back, no inter-event delay ---
         log("--- batch 1: firing events 0..7 back-to-back (no delay) ---");
         i := 0;

@@ -1,0 +1,77 @@
+import "core/globals.act";
+
+// SPI boot loader: what answers soc's very first fetch on the dvs chip
+// (ADDR_RESET, base=4, hardcoded in core/soc.act for every chip variant),
+// and every fetch/read after that. Unlike chips/bench's ROM
+// (core/peripherals/mem.act's READ_ONLY mode, preloaded from a file at
+// elaboration and backed by real storage), spi_boot holds no image of its
+// own at all -- it's a thin relay: every CPU read is forwarded, address
+// and all, as a live SPI transaction to the external flash, and whatever
+// comes back over miso is what the CPU gets. This is genuine XIP, not
+// "pull everything in once, then serve from a copy" -- dvs reuses
+// software/bootloader/main.c completely unchanged: it runs directly out of
+// spi_boot (each of its own instruction fetches becomes its own SPI
+// transaction), reads the length prefix in front of the real program image,
+// and copies exactly that many bytes into SRAM (base=0) itself, one real
+// LOAD at a time -- spi_boot doesn't need to know anything about image
+// sizes or copying; it only ever relays one word per request.
+//
+// spi_boot is the SPI *master*: it drives cs/sclk/mosi and only listens on
+// miso, exactly like a real MCU reading its own boot flash. A real SPI
+// slave never hands anything back except on miso -- there's no handshake
+// to pace sclk against, so each edge is self-timed via a plain busy-wait
+// loop (SPI_CLOCK_DELAY_N, core/globals.act) rather than paced by
+// rendezvous with the external device.
+//
+// Protocol: one transmission per CPU read, MSB-first -- 1 R/W bit (always
+// 0, read; spi_boot never writes to the flash), 20 address bits (the CPU's
+// own real requested offset, not a counter), then 32 data bits in via
+// miso. A CPU write is rejected via assert, same as chips/bench's
+// READ_ONLY ROM.
+defproc spi_boot(
+    chan?(addr_t) addr; chan?(mode_mem_t) mode;
+    chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata;
+
+    bool! cs; bool! sclk; bool! mosi;
+    bool? miso
+) {
+    addr_t a;
+    mode_mem_t md;
+    int<WIDTH_DATA> shift;
+    int i, k;
+    bool bit;
+
+    chp {
+        cs := false; sclk := false; mosi := false;
+
+        *[
+            addr?a; mode?md;
+            assert(md.op = op_mem_t.R, "spi_boot: write attempted to read-only memory");
+
+            cs := true;
+            mosi := false;  // R/W bit: 0 = read
+            sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+            sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+
+            shift := int(a.offset, WIDTH_DATA) << (WIDTH_DATA - WIDTH_ADDR); i := 0;
+            *[ i < WIDTH_ADDR ->
+                mosi := (shift{31} = 1); shift := shift << 1;
+                sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                i := i + 1
+            ];
+
+            shift := 0; i := 0;
+            *[ i < WIDTH_DATA ->
+                sclk := true;  k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                bit := miso;
+                sclk := false; k := 0; *[ k < SPI_CLOCK_DELAY_N -> k := k + 1 ];
+                shift := (shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+                i := i + 1
+            ];
+
+            cs := false;
+            rdata!shift
+        ]
+    }
+}

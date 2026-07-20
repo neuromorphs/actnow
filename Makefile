@@ -70,6 +70,21 @@ CROSS ?= $(firstword \
         $(if $(shell command -v $(p)gcc 2>/dev/null),$(p))) \
     riscv64-unknown-elf-)
 
+# KR260 hardware bring-up/run defaults. HOST_IP is the address the KR260 should
+# send UDP packets back to; override it if your host is not 192.168.10.1.
+KRIA      ?= kria.local
+KRIA_USER ?= ubuntu
+HOST_IP   ?= 192.168.10.1
+UDP_PORT  ?= 3334
+RAW_UDP_PORT ?= 3336
+HTTP_PORT ?= 8088
+XSA       ?= harness/fpga/vivado/actnow.xsa
+FW_MEM    ?= software/build/rom.mem
+DASHBOARD := harness/dashboard
+DASH_PY   := $(DASHBOARD)/.venv/bin/python
+DASH_VENV := $(DASHBOARD)/.venv/.installed
+DASH_DIST := $(DASHBOARD)/frontend/dist/index.html
+
 # RV32I tests run through soc by `make software-tests`: the official RISC-V
 # suite under software/tests/unit/ plus our own tests in software/tests/ (.S or
 # .c compiled with rv32i gcc). Derived from the source files, excluding the
@@ -80,7 +95,7 @@ SW_TESTS   := $(filter-out $(MEXT_TESTS),$(basename $(notdir $(wildcard \
                   software/tests/*.S software/tests/*.c \
                   software/tests/unit/*.S software/tests/unit/*.c))))
 
-.PHONY: all test list clean help file-registry software-tests force e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test $(TESTS)
+.PHONY: all test list clean help file-registry software-tests force dashboard kria-headless raw-viewer dashboard-deps dashboard-test e2e_fifo_test e2e_fifo_stress_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test $(TESTS)
 
 all: test
 
@@ -108,6 +123,10 @@ help:
 	@echo "  make e2e_multi_event_reset_test  16-event back-to-back pressure across reset"
 	@echo "  make rom_program_test        run one program image through soc (see ROM_TEST)"
 	@echo "  make file-registry           (re)generate gen/file_ids.act + gen/file_registry.conf"
+	@echo "  make kria-headless       run the original terminal/diagnostic viewer"
+	@echo "  make dashboard               build/deploy and open the live coding dashboard"
+	@echo "  make raw-viewer              open the independent raw DVS UDP viewer"
+	@echo "  make dashboard-test          type-check/build the UI and run dashboard tests"
 	@echo "  make clean                   remove local simulator artifacts (gen/, history)"
 	@echo "  make help                    show this message"
 	@echo ""
@@ -117,11 +136,14 @@ help:
 	@echo "                    instead of executing in place from external ROM"
 	@echo "  CROSS=<prefix>    RISC-V cross-compiler prefix (default: auto-detected from PATH)"
 	@echo "  SW_TESTS=\"...\"    subset of programs for software-tests (default: all non-M-ext)"
+	@echo "  KRIA=<host>       KR260 SSH host for dashboard (default: $(KRIA))"
+	@echo "  HOST_IP=<ip>      host UDP address passed to the KR260 (default: $(HOST_IP))"
+	@echo "  RAW_UDP_PORT=<n>  independent raw-event UDP port (default: $(RAW_UDP_PORT))"
 	@echo ""
 	@echo "Must be run from this directory (actnow/) -- see the top of this Makefile and"
 	@echo "the README's Toolchain section for why."
 
-test: $(TESTS) e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test
+test: $(TESTS) e2e_fifo_test e2e_fifo_stress_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test
 	@echo "=== all tests passed ==="
 
 file-registry: $(FILE_REGISTRY_GEN)
@@ -136,6 +158,50 @@ else
 	$(MAKE) -C software/tests TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS)
 endif
 force:
+
+dashboard-deps: $(DASH_VENV) $(DASH_DIST)
+
+dashboard-test: dashboard-deps
+	$(DASH_PY) -m unittest discover -s $(DASHBOARD)/tests -v
+	cd $(DASHBOARD)/frontend && npm exec tsc -- --noEmit
+
+$(DASH_VENV): $(DASHBOARD)/requirements.txt
+	python3 -m venv $(DASHBOARD)/.venv
+	$(DASHBOARD)/.venv/bin/pip install -r $<
+	touch $@
+
+$(DASHBOARD)/frontend/node_modules: $(DASHBOARD)/frontend/package.json
+	cd $(DASHBOARD)/frontend && npm install
+
+$(DASH_DIST): $(DASHBOARD)/frontend/node_modules $(shell find $(DASHBOARD)/frontend/src -type f) $(DASHBOARD)/frontend/index.html
+	cd $(DASHBOARD)/frontend && npm run build
+
+dashboard: dashboard-deps
+	$(MAKE) -C software PROG=application CROSS=$(CROSS)
+	$(DASH_PY) $(DASHBOARD)/backend/dashboard.py \
+		--kria $(KRIA) \
+		--user $(KRIA_USER) \
+		--listen-host $(HOST_IP) \
+		--udp-port $(UDP_PORT) \
+		--raw-udp-port $(RAW_UDP_PORT) \
+		--http-port $(HTTP_PORT) \
+		--xsa $(XSA) \
+		--static $(DASHBOARD)/frontend/dist
+
+kria-headless:
+	$(MAKE) -C software PROG=application CROSS=$(CROSS)
+	python3 harness/host/actnow_client.py \
+		--kria $(KRIA) \
+		--user $(KRIA_USER) \
+		--listen-host $(HOST_IP) \
+		--port $(UDP_PORT) \
+		--raw-port $(RAW_UDP_PORT) \
+		--xsa $(XSA) \
+		--firmware $(FW_MEM) \
+		--headless
+
+raw-viewer:
+	python3 harness/host/actnow_raw_viewer.py --port $(RAW_UDP_PORT)
 
 # Built once, not force-rebuilt per test like $(ROM_IMAGE) above -- these two
 # are permanent fixtures for e2e_reset_reload_test, not swapped out per run.
@@ -176,7 +242,7 @@ $(TESTS): $(FILE_REGISTRY_GEN)
 # rebuild dance each one needs (see its own e2e_fifo_test comment for why),
 # this just delegates by name with the same variables a direct invocation
 # would use.
-e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test:
+e2e_fifo_test e2e_fifo_stress_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test:
 	@$(MAKE) -C chips/bench $@ ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS)
 
 # Run every RV32I software test through soc's real pipeline. For each test we

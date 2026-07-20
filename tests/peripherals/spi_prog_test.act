@@ -1,0 +1,119 @@
+import "core/globals.act";
+import "core/peripherals/spi_prog.act";
+
+// Plays the external SPI device's role: a slave gated purely by observing
+// cs/sclk/mosi/miso transitions, matching a real (non-ACT) external SPI
+// memory/logger -- spi_prog (the master) never rendezvous with it, exactly
+// like spi_boot_test's external_flash. Handles both directions: a WRITE
+// transaction (R/W=1) is checked against the one expected address/data
+// pair; a READ transaction (R/W=0) answers with a fixed known value
+// regardless of address, since this test only issues one of each.
+defproc external_device(
+    bool? cs; bool? sclk; bool? mosi;
+    bool! miso
+) {
+    int<WIDTH_DATA> addr_shift, data_shift;
+    int i;
+    bool rw, bit;
+
+    chp {
+        miso := false;
+
+        // --- expect the write first ---
+        [cs];
+        [sclk]; rw := mosi; [~sclk];
+
+        addr_shift := 0; i := 0;
+        *[ i < WIDTH_ADDR ->
+            [sclk]; bit := mosi;
+            addr_shift := (addr_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+            [~sclk];
+            i := i + 1
+        ];
+        assert(rw, "external_device: expected a write first");
+        assert(addr_shift = 0x50, "external_device: write addr: want 0x50, got ", addr_shift);
+
+        data_shift := 0; i := 0;
+        *[ i < WIDTH_DATA ->
+            [sclk]; bit := mosi;
+            data_shift := (data_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+            [~sclk];
+            i := i + 1
+        ];
+        assert(data_shift = 0xAABBCCDD, "external_device: write data: want 0xAABBCCDD, got ", data_shift);
+        log("%xexternal_device: write observed 0x", data_shift, " at addr 0x50, as expected");
+        [~cs];
+
+        // --- then the read ---
+        [cs];
+        [sclk]; rw := mosi; [~sclk];
+
+        addr_shift := 0; i := 0;
+        *[ i < WIDTH_ADDR ->
+            [sclk]; bit := mosi;
+            addr_shift := (addr_shift << 1) | (bit ? int(1, WIDTH_DATA) : int(0, WIDTH_DATA));
+            [~sclk];
+            i := i + 1
+        ];
+        assert(~rw, "external_device: expected a read second");
+        assert(addr_shift = 0x60, "external_device: read addr: want 0x60, got ", addr_shift);
+
+        data_shift := int(0x99887766, WIDTH_DATA); i := 0;
+        *[ i < WIDTH_DATA ->
+            miso := (data_shift{31} = 1); data_shift := data_shift << 1;
+            [sclk]; [~sclk];
+            i := i + 1
+        ];
+        log("external_device: read answered with 0x99887766");
+        [~cs]
+    }
+}
+
+// Drives spi_prog directly (no soc involved), playing the CPU's role over
+// its two MMIO registers: writes the address register then the data
+// register (triggering an outbound SPI write, checked by external_device
+// above), then writes a new address and reads the data register
+// (triggering an outbound SPI read, checked against what external_device
+// answers with).
+defproc spi_prog_test() {
+    spi_prog sp;
+    external_device ed;
+
+    chan(addr_t) addr;
+    chan(mode_mem_t) mode;
+    chan(int<WIDTH_DATA>) wdata;
+    chan(int<WIDTH_DATA>) rdata;
+    bool cs, sclk, mosi, miso;
+
+    sp.addr = addr; sp.mode = mode; sp.wdata = wdata; sp.rdata = rdata;
+    sp.cs = cs; sp.sclk = sclk; sp.mosi = mosi; sp.miso = miso;
+    ed.cs = cs; ed.sclk = sclk; ed.mosi = mosi; ed.miso = miso;
+
+    addr_t a;
+    mode_mem_t md;
+    int<WIDTH_DATA> r;
+
+    chp {
+        log("======== spi_prog test start ========");
+
+        // --- write: stage addr=0x50, then write data=0xAABBCCDD ---
+        a.base := 0; a.offset := 0; md.op := op_mem_t.W; md.size := size_mem_t.WORD;
+        addr!a; mode!md; wdata!int(0x50, WIDTH_DATA);
+
+        a.offset := 4;
+        addr!a; mode!md; wdata!int(0xAABBCCDD, WIDTH_DATA);
+
+        // --- read: stage addr=0x60, then read data register ---
+        a.offset := 0;
+        addr!a; mode!md; wdata!int(0x60, WIDTH_DATA);
+
+        a.offset := 4; md.op := op_mem_t.R;
+        addr!a; mode!md; rdata?r;
+        assert(r = 0x99887766, "spi_prog: read want 0x99887766, got ", r);
+        log("%xspi_prog: read back 0x", r);
+
+        log("======== spi_prog test complete ========")
+    }
+}
+
+spi_prog_test spt;

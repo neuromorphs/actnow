@@ -31,7 +31,7 @@ ROM_TEST ?= simple
 
 ROM_IMAGE := software/tests/build/rom_image.mem
 
-.PHONY: e2e_fifo_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test
+.PHONY: e2e_fifo_test e2e_fifo_stress_test e2e_multi_event_test e2e_reset_test e2e_reset_reload_test e2e_gpio_test e2e_boot_test e2e_multi_event_reset_test
 
 # e2e_fifo_test.act exercises software/application/main.c's real
 # interrupt/FIFO flow specifically -- it needs that exact ROM image, not
@@ -66,6 +66,29 @@ e2e_fifo_test:
 		echo "e2e_fifo_test: FAIL (no completion)"; exit 1; \
 	else \
 		echo "e2e_fifo_test: PASS"; \
+	fi
+
+# Continuous-push regression for the fifo_in single-batch hang: pushes a stream
+# far past one batch while draining results in parallel (see the test's own
+# comment). Same ROM image and pinning rationale as e2e_fifo_test above.
+e2e_fifo_stress_test:
+	@echo "--- e2e_fifo_stress_test ---"
+	@rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem
+	@$(MAKE) -s -C $(ROOT) ROM_TEST=application CROSS=$(CROSS) file-registry
+	@cd $(ROOT) && $(AFLAT) chips/bench/tests/e2e/e2e_fifo_stress_test.act
+	@out=$$(cd $(ROOT) && printf "cycle\nquit\n" | $(ACTSIM) -cnf=gen/file_registry.conf chips/bench/tests/e2e/e2e_fifo_stress_test.act e2e_fifo_stress_test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	rm -f $(ROOT)/$(ROM_IMAGE) $(ROOT)/software/tests/build/rom.mem $(ROOT)/software/build/rom.mem; \
+	$(MAKE) -s -C $(ROOT) ROM_TEST=$(ROM_TEST) BOOT=$(BOOT) CROSS=$(CROSS) file-registry >/dev/null 2>&1 || true; \
+	if [ $$status -ne 0 ]; then \
+		echo "e2e_fifo_stress_test: FAIL"; exit $$status; \
+	elif echo "$$out" | grep -qiE "ASSERTION failed|EBREAK -- test FAILED"; then \
+		echo "e2e_fifo_stress_test: FAIL"; exit 1; \
+	elif ! echo "$$out" | grep -qi "test complete\|stress complete"; then \
+		echo "e2e_fifo_stress_test: FAIL (no completion)"; exit 1; \
+	else \
+		echo "e2e_fifo_stress_test: PASS"; \
 	fi
 
 # Same rationale and pattern as e2e_fifo_test above, pinned to

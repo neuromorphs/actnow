@@ -30,6 +30,9 @@ defproc wfi_test() {
     int<32> insn, off;
 
     chp {
+        // soc boots from a cold reset -- assert reset_ext once to kick it off.
+        s.reset_ext!true;
+
         // LUI x1, 0x41
         insn := (int(0x41,32) << 12) | (int(1,32) << 7) | 0b0110111;
         s.addr_ext?addr; s.mode_ext?mode;

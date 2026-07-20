@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ActNow KR260</title>
+  </head>
+  <body>
+    <div id="app">
+      <aside class="rail">
+        <header><span class="mark">A</span><div><h1>ActNow</h1><small>KR260 live lab</small></div></header>
+        <section class="modes">
+          <div class="section-title">Mode</div>
+          <div class="button-row"><button id="mode-track" class="mode-btn active">Tracking</button><button id="mode-live" class="mode-btn">Live Lab</button></div>
+        </section>
+        <section id="system-controls" class="hidden">
+          <div class="section-title">System <span id="connection" class="status">Connecting</span></div>
+          <button id="build-apply" class="primary">Build &amp; Apply</button>
+          <div class="button-row"><button id="build">Build</button><button id="save">Save</button></div>
+          <div class="button-row"><button id="reset">Reset core</button><button id="reconnect">Reconnect</button></div>
+        </section>
+        <section id="track-controls">
+          <div class="section-title">Object tracker</div>
+          <label>Algorithm <select id="algo"><option value="1">Median + MAD box</option><option value="0">EMA + min/max box</option></select></label>
+          <label>Gate radius <output id="radius-value">50</output><input id="radius" type="range" min="4" max="126" value="50"></label>
+          <label>Correlation <output id="correlation-value">2</output><input id="correlation" type="range" min="0" max="8" value="2"></label>
+          <label>Window N <output id="window-value">256</output><input id="window" type="range" min="16" max="512" step="16" value="256"></label>
+          <button id="track-start" class="primary">Load tracker firmware</button>
+          <p class="hint">Runs <code>dvs_track</code> on the core and overlays its box on the raw event tap. The centre is the <b>median</b> event location and the box is sized by the spread (median absolute deviation) of the last <b>Window N</b> events around it. <b>Gate radius</b> bounds how far from the centre an event may count; <b>Correlation</b> is the spatio-temporal noise filter (0 = off, 2 = jAER default). All take effect when you load the tracker.</p>
+          <label>Min events <output id="min-events-value">18</output><input id="min-events" type="range" min="0" max="200" value="18"></label>
+          <p class="hint">Reject a window as noise unless it collected at least this many events — filters flickery low-activity boxes. Applies live; no reload needed.</p>
+          <label class="check"><input id="show-track" type="checkbox" checked> Show tracking box</label>
+          <div class="section-title">Raw tap display</div>
+          <label>Denoise <output id="denoise-value">3</output><input id="denoise" type="range" min="0" max="8" value="3"></label>
+          <label>Density <output id="density-value">3</output><input id="density" type="range" min="1" max="50" value="3"></label>
+          <label class="check"><input id="disco" type="checkbox"> Disco — cycle event colours</label>
+          <label class="check"><input id="spike-sound" type="checkbox"> Spike sound — centre pixel</label>
+          <label class="check"><input id="activity-gauge-toggle" type="checkbox"> Activity gauge — post-denoise events</label>
+          <p class="hint">The raw tap is accumulated into a per-pixel histogram over the persistence window. <b>Denoise</b> is how many of a pixel's 8 neighbours must be active for it to show (hides isolated and hot pixels) — <b>lower it in low light</b>, where real events are sparse; 0 = off. <b>Density</b> is the event count at which a pixel reaches full opacity and saturation.</p>
+          <dl class="track-readout">
+            <div><dt>Lock</dt><dd id="track-lock">—</dd></div>
+            <div><dt>Window</dt><dd id="track-count">0</dd></div>
+            <div><dt>Centroid</dt><dd id="track-centroid">—</dd></div>
+            <div><dt>Box</dt><dd id="track-box">—</dd></div>
+          </dl>
+        </section>
+        <section>
+          <div class="section-title">Display</div>
+          <label>Persistence <output id="decay-value">70%</output><input id="decay" type="range" min="50" max="99" value="70"></label>
+          <label>Frame cap <output id="fps-value">60</output><input id="fps" type="range" min="15" max="120" value="60"></label>
+          <label>Palette <select id="palette"><option value="signal">Signal</option><option value="mono">Monochrome</option><option value="heat">Heat</option></select></label>
+          <label>Orientation <select id="orientation"><option value="rig">Camera rig</option><option value="native">Native XY</option><option value="mirror">Mirrored</option></select></label>
+          <div class="button-row"><button id="pause">Pause</button><button id="clear">Clear</button></div>
+        </section>
+        <section class="metrics">
+          <div class="section-title">Live telemetry</div>
+          <dl><div><dt>Events</dt><dd id="event-rate">0/s</dd></div><div><dt>Packets</dt><dd id="packet-rate">0/s</dd></div><div><dt>Lost</dt><dd id="lost">0</dd></div><div><dt>PL drops</dt><dd id="drops">0</dd></div><div><dt>Fetches</dt><dd id="fetch">0</dd></div><div><dt>Results</dt><dd id="results">0</dd></div></dl>
+        </section>
+      </aside>
+      <main class="stage-only">
+        <section class="stage">
+          <div class="stage-head"><div><button id="rail-toggle" title="Show/hide settings" aria-label="Show/hide settings">☰</button><span class="live-dot"></span><span id="stage-label">RAW TAP + TRACKER</span></div><div id="firmware-state">Firmware unknown</div></div>
+          <div class="canvas-wrap"><canvas id="dvs" class="hidden" width="112" height="126"></canvas><canvas id="track" width="112" height="126"></canvas><canvas id="activity-gauge" class="hidden" width="18" height="130"></canvas><div id="paused-badge">PAUSED</div></div>
+        </section>
+        <div id="workspace-divider" role="separator" aria-label="Resize visualizer and programming panels" aria-orientation="vertical" tabindex="0"></div>
+        <section class="workbench">
+          <nav><button class="tab active" data-tab="code">C Code</button><button class="tab" data-tab="blocks">Easy Mode</button><button class="tab" data-tab="log">Build Log <span id="error-count"></span></button><span id="dirty-state">Saved</span></nav>
+          <div id="code-panel" class="panel active"><div id="editor"></div></div>
+          <div id="blocks-panel" class="panel"><div class="block-toolbar"><span id="block-state">Pipeline synchronized</span></div><div id="blockly"></div></div>
+          <div id="log-panel" class="panel"><pre id="log"></pre></div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

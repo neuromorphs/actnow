@@ -1,0 +1,62 @@
+import "core/globals.act";
+import "core/soc.act";
+import "chips/dvs/harness.act";
+
+// dvs's whole chip: soc + its off-chip periphery (chips/dvs/harness.act)
+// wired together. Only 3 of soc's 16 event lines are used:
+//   - event_id_0 is hardwired directly to the AER input's own event_out --
+//     nothing ever needs to fire that line manually, so there's no reason
+//     to expose the wiring as a choice (contrast chips/bench/core.act's
+//     fifo_event, left as an independent, optionally-connected port).
+//   - event_id_1/event_id_2 carry dvs's two GPIO input pins (gpio_in_0/
+//     gpio_in_1): a physical pin jumps to a program-associated pc through
+//     the interrupt-controller vector table, same as any other event line.
+// event_id_3..15 are simply never connected -- dvs has no use for them.
+//
+// swd_0/swd_1 are stub input pins reserved for future SWD debug support --
+// declared for interface completeness, genuinely unconnected to any soc
+// functionality today. gpio_out_0..3 pass straight through to harness.act's
+// gpio peripheral pins; software drives them with an MMIO write to
+// base=ADDR_GPIO. Both SPI peripherals' external pins are exposed here
+// since they're real chip-package pins.
+template<pint AER_DEPTH>
+defproc core(
+    chan?(bool) gpio_in_0; chan?(bool) gpio_in_1;
+    chan?(bool) swd_0; chan?(bool) swd_1;
+    chan?(bool) reset_ext;
+
+    chan?(int<WIDTH_AER>) aer_in;
+
+    bool! spi_boot_cs; bool! spi_boot_sclk; bool! spi_boot_mosi; bool? spi_boot_miso;
+    bool! spi_prog_cs; bool! spi_prog_sclk; bool! spi_prog_mosi; bool? spi_prog_miso;
+
+    chan!(bool) gpio_out_0; chan!(bool) gpio_out_1;
+    chan!(bool) gpio_out_2; chan!(bool) gpio_out_3
+) {
+    soc s;
+    harness<AER_DEPTH> h;
+
+    h.addr_in = s.addr_ext;
+    h.mode_in = s.mode_ext;
+    h.wdata_in = s.wdata_ext;
+    h.rdata_in = s.rdata_ext;
+    h.aer_in = aer_in;
+
+    h.spi_boot_cs = spi_boot_cs; h.spi_boot_sclk = spi_boot_sclk;
+    h.spi_boot_mosi = spi_boot_mosi; h.spi_boot_miso = spi_boot_miso;
+    h.spi_prog_cs = spi_prog_cs; h.spi_prog_sclk = spi_prog_sclk;
+    h.spi_prog_mosi = spi_prog_mosi; h.spi_prog_miso = spi_prog_miso;
+
+    h.gpio_out_0 = gpio_out_0;
+    h.gpio_out_1 = gpio_out_1;
+    h.gpio_out_2 = gpio_out_2;
+    h.gpio_out_3 = gpio_out_3;
+
+    chan(bool) aer_event;
+    h.aer_event = aer_event;
+    s.event_id_0 = aer_event;
+
+    s.event_id_1 = gpio_in_0;
+    s.event_id_2 = gpio_in_1;
+    s.reset_ext = reset_ext;
+}

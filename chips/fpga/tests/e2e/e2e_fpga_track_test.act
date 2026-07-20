@@ -1,0 +1,121 @@
+import "chips/fpga/core.act";
+import "core/peripherals/mem.act";
+import "core/peripherals/fifo_out.act";
+import "gen/file_ids.act";
+
+// FPGA-variant correctness test for the object-centroid/bounding-box
+// tracker: boots software/dvs_track/main.c through the bootloader, then
+// replays the same 256 events (64 batches -- exactly one DUMP_INTERVAL)
+// from the real recorded capture that e2e_fpga_denoise_test.act uses
+// (chips/fpga/dvs_capture_20260714_151049.csv), through the input FIFO
+// (base 5). Each event is packed in the hardware ABI evt_pack.v produces --
+// x in bits [30:24], y in [23:17] -- exactly what dvs_track/main.c decodes,
+// so this exercises the same coordinate path the FPGA does.
+//
+// After all 256 pushes the ISR has written 2 words: a status word
+// (locked<<24 | cx<<16 | cy<<8 | count) and a bounding-box word
+// (min_x<<24 | min_y<<16 | max_x<<8 | max_y) -- see software/dvs_track/
+// main.c's header for the exact packing and the EMA-centroid/window-bbox
+// math. Both are asserted against the same math computed in Python when
+// this file was generated (spatio-temporal correlation filter with
+// CORR_WINDOW=30/CORR_MIN=2, then over the last TRACK_N=256 surviving events:
+// median x/y for the centre and box = median +/- BOX_K=2 * MAD, where MAD is
+// the median absolute deviation; LOCK_THRESHOLD=32), proving the ISR's tracker
+// matches the reference model bit-for-bit. The correlation filter drops the
+// scattered events, so count=40 (of 256) and the median/MAD box is a robust,
+// tight box around the moving object, not the whole frame.
+defproc e2e_fpga_track_test() {
+    core<4> c;
+
+    mem<true, ROM_IMAGE> rom;
+    rom.addr = c.rom_addr;
+    rom.mode = c.rom_mode;
+    rom.rdata = c.rom_rdata;
+
+    fifo_out<4> fout;
+    fout.addr = c.io_addr;
+    fout.mode = c.io_mode;
+    fout.wdata = c.io_wdata;
+    fout.rdata = c.io_rdata;
+
+    int<WIDTH_DATA> result;
+
+    chp {
+        log("======== dvs track e2e test start (fpga) ========");
+        c.reset_ext!true;
+        log("--- replaying 256 recorded events (64 batches, one dump interval) ---");
+
+        c.fifo_push!int(1900937216, WIDTH_DATA); c.fifo_push!int(1969618944, WIDTH_DATA); c.fifo_push!int(2037907456, WIDTH_DATA); c.fifo_push!int(2065432576, WIDTH_DATA);
+        c.fifo_push!int(2092040192, WIDTH_DATA); c.fifo_push!int(1985740800, WIDTH_DATA); c.fifo_push!int(2091909120, WIDTH_DATA); c.fifo_push!int(2055077888, WIDTH_DATA);
+        c.fifo_push!int(1699610624, WIDTH_DATA); c.fifo_push!int(979763200, WIDTH_DATA); c.fifo_push!int(1478098944, WIDTH_DATA); c.fifo_push!int(1785200640, WIDTH_DATA);
+        c.fifo_push!int(1647575040, WIDTH_DATA); c.fifo_push!int(1664090112, WIDTH_DATA); c.fifo_push!int(2106720256, WIDTH_DATA); c.fifo_push!int(1433796608, WIDTH_DATA);
+        c.fifo_push!int(1029046272, WIDTH_DATA); c.fifo_push!int(1699872768, WIDTH_DATA); c.fifo_push!int(1243611136, WIDTH_DATA); c.fifo_push!int(962330624, WIDTH_DATA);
+        c.fifo_push!int(1234567168, WIDTH_DATA); c.fifo_push!int(1011875840, WIDTH_DATA); c.fifo_push!int(1238630400, WIDTH_DATA); c.fifo_push!int(1302462464, WIDTH_DATA);
+        c.fifo_push!int(1635123200, WIDTH_DATA); c.fifo_push!int(1553596416, WIDTH_DATA); c.fifo_push!int(1545469952, WIDTH_DATA); c.fifo_push!int(1200357376, WIDTH_DATA);
+        c.fifo_push!int(1313210368, WIDTH_DATA); c.fifo_push!int(1080295424, WIDTH_DATA); c.fifo_push!int(1502478336, WIDTH_DATA); c.fifo_push!int(1428815872, WIDTH_DATA);
+        c.fifo_push!int(1178337280, WIDTH_DATA); c.fifo_push!int(1159200768, WIDTH_DATA); c.fifo_push!int(1530003456, WIDTH_DATA); c.fifo_push!int(1972109312, WIDTH_DATA);
+        c.fifo_push!int(1562902528, WIDTH_DATA); c.fifo_push!int(1631584256, WIDTH_DATA); c.fifo_push!int(1852047360, WIDTH_DATA); c.fifo_push!int(1580859392, WIDTH_DATA);
+        c.fifo_push!int(948568064, WIDTH_DATA); c.fifo_push!int(1368653824, WIDTH_DATA); c.fifo_push!int(1956380672, WIDTH_DATA); c.fifo_push!int(2030829568, WIDTH_DATA);
+        c.fifo_push!int(1697644544, WIDTH_DATA); c.fifo_push!int(1218183168, WIDTH_DATA); c.fifo_push!int(2085879808, WIDTH_DATA); c.fifo_push!int(1179516928, WIDTH_DATA);
+        c.fifo_push!int(1547304960, WIDTH_DATA); c.fifo_push!int(1228537856, WIDTH_DATA); c.fifo_push!int(1012793344, WIDTH_DATA); c.fifo_push!int(1479409664, WIDTH_DATA);
+        c.fifo_push!int(1815085056, WIDTH_DATA); c.fifo_push!int(1579417600, WIDTH_DATA); c.fifo_push!int(1518993408, WIDTH_DATA); c.fifo_push!int(1887043584, WIDTH_DATA);
+        c.fifo_push!int(1015939072, WIDTH_DATA); c.fifo_push!int(1343619072, WIDTH_DATA); c.fifo_push!int(1869086720, WIDTH_DATA); c.fifo_push!int(1379139584, WIDTH_DATA);
+        c.fifo_push!int(1312948224, WIDTH_DATA); c.fifo_push!int(965869568, WIDTH_DATA); c.fifo_push!int(1684406272, WIDTH_DATA); c.fifo_push!int(1856372736, WIDTH_DATA);
+        c.fifo_push!int(1201143808, WIDTH_DATA); c.fifo_push!int(1780482048, WIDTH_DATA); c.fifo_push!int(1277034496, WIDTH_DATA); c.fifo_push!int(1429471232, WIDTH_DATA);
+        c.fifo_push!int(1163001856, WIDTH_DATA); c.fifo_push!int(1029439488, WIDTH_DATA); c.fifo_push!int(1349517312, WIDTH_DATA); c.fifo_push!int(1802108928, WIDTH_DATA);
+        c.fifo_push!int(1199046656, WIDTH_DATA); c.fifo_push!int(1919811584, WIDTH_DATA); c.fifo_push!int(1687158784, WIDTH_DATA); c.fifo_push!int(1713897472, WIDTH_DATA);
+        c.fifo_push!int(896925696, WIDTH_DATA); c.fifo_push!int(1449656320, WIDTH_DATA); c.fifo_push!int(1419116544, WIDTH_DATA); c.fifo_push!int(1445068800, WIDTH_DATA);
+        c.fifo_push!int(1295777792, WIDTH_DATA); c.fifo_push!int(1564213248, WIDTH_DATA); c.fifo_push!int(1395654656, WIDTH_DATA); c.fifo_push!int(1763442688, WIDTH_DATA);
+        c.fifo_push!int(1346633728, WIDTH_DATA); c.fifo_push!int(1696464896, WIDTH_DATA); c.fifo_push!int(1337458688, WIDTH_DATA); c.fifo_push!int(1715339264, WIDTH_DATA);
+        c.fifo_push!int(1720451072, WIDTH_DATA); c.fifo_push!int(1921908736, WIDTH_DATA); c.fifo_push!int(1204551680, WIDTH_DATA); c.fifo_push!int(1405222912, WIDTH_DATA);
+        c.fifo_push!int(1249378304, WIDTH_DATA); c.fifo_push!int(1152516096, WIDTH_DATA); c.fifo_push!int(1048707072, WIDTH_DATA); c.fifo_push!int(1445462016, WIDTH_DATA);
+        c.fifo_push!int(1130364928, WIDTH_DATA); c.fifo_push!int(1483997184, WIDTH_DATA); c.fifo_push!int(1228013568, WIDTH_DATA); c.fifo_push!int(897843200, WIDTH_DATA);
+        c.fifo_push!int(1951268864, WIDTH_DATA); c.fifo_push!int(1568407552, WIDTH_DATA); c.fifo_push!int(1902641152, WIDTH_DATA); c.fifo_push!int(1196163072, WIDTH_DATA);
+        c.fifo_push!int(1971191808, WIDTH_DATA); c.fifo_push!int(1413218304, WIDTH_DATA); c.fifo_push!int(1219100672, WIDTH_DATA); c.fifo_push!int(1653997568, WIDTH_DATA);
+        c.fifo_push!int(1720582144, WIDTH_DATA); c.fifo_push!int(979894272, WIDTH_DATA); c.fifo_push!int(2036072448, WIDTH_DATA); c.fifo_push!int(1513357312, WIDTH_DATA);
+        c.fifo_push!int(1446379520, WIDTH_DATA); c.fifo_push!int(1735262208, WIDTH_DATA); c.fifo_push!int(1110179840, WIDTH_DATA); c.fifo_push!int(1818624000, WIDTH_DATA);
+        c.fifo_push!int(1194196992, WIDTH_DATA); c.fifo_push!int(1200750592, WIDTH_DATA); c.fifo_push!int(1236402176, WIDTH_DATA); c.fifo_push!int(1466564608, WIDTH_DATA);
+        c.fifo_push!int(1012400128, WIDTH_DATA); c.fifo_push!int(1316880384, WIDTH_DATA); c.fifo_push!int(1199570944, WIDTH_DATA); c.fifo_push!int(1150681088, WIDTH_DATA);
+        c.fifo_push!int(1416364032, WIDTH_DATA); c.fifo_push!int(1362231296, WIDTH_DATA); c.fifo_push!int(930217984, WIDTH_DATA); c.fifo_push!int(1938423808, WIDTH_DATA);
+        c.fifo_push!int(1310588928, WIDTH_DATA); c.fifo_push!int(1162870784, WIDTH_DATA); c.fifo_push!int(1130233856, WIDTH_DATA); c.fifo_push!int(1955463168, WIDTH_DATA);
+        c.fifo_push!int(1552809984, WIDTH_DATA); c.fifo_push!int(1853227008, WIDTH_DATA); c.fifo_push!int(1854930944, WIDTH_DATA); c.fifo_push!int(2049310720, WIDTH_DATA);
+        c.fifo_push!int(1145831424, WIDTH_DATA); c.fifo_push!int(1786249216, WIDTH_DATA); c.fifo_push!int(1670774784, WIDTH_DATA); c.fifo_push!int(1218052096, WIDTH_DATA);
+        c.fifo_push!int(1415315456, WIDTH_DATA); c.fifo_push!int(1129316352, WIDTH_DATA); c.fifo_push!int(1114112000, WIDTH_DATA); c.fifo_push!int(1580072960, WIDTH_DATA);
+        c.fifo_push!int(2038169600, WIDTH_DATA); c.fifo_push!int(981467136, WIDTH_DATA); c.fifo_push!int(1635778560, WIDTH_DATA); c.fifo_push!int(1906835456, WIDTH_DATA);
+        c.fifo_push!int(1737097216, WIDTH_DATA); c.fifo_push!int(1897529344, WIDTH_DATA); c.fifo_push!int(1264320512, WIDTH_DATA); c.fifo_push!int(1183973376, WIDTH_DATA);
+        c.fifo_push!int(1449787392, WIDTH_DATA); c.fifo_push!int(1250557952, WIDTH_DATA); c.fifo_push!int(1822687232, WIDTH_DATA); c.fifo_push!int(1984430080, WIDTH_DATA);
+        c.fifo_push!int(1627914240, WIDTH_DATA); c.fifo_push!int(2064121856, WIDTH_DATA); c.fifo_push!int(1078984704, WIDTH_DATA); c.fifo_push!int(1077673984, WIDTH_DATA);
+        c.fifo_push!int(1079377920, WIDTH_DATA); c.fifo_push!int(1704853504, WIDTH_DATA); c.fifo_push!int(1283850240, WIDTH_DATA); c.fifo_push!int(1981546496, WIDTH_DATA);
+        c.fifo_push!int(1768554496, WIDTH_DATA); c.fifo_push!int(1662910464, WIDTH_DATA); c.fifo_push!int(1335623680, WIDTH_DATA); c.fifo_push!int(2019295232, WIDTH_DATA);
+        c.fifo_push!int(999424000, WIDTH_DATA); c.fifo_push!int(598605824, WIDTH_DATA); c.fifo_push!int(1648492544, WIDTH_DATA); c.fifo_push!int(895221760, WIDTH_DATA);
+        c.fifo_push!int(1431961600, WIDTH_DATA); c.fifo_push!int(913440768, WIDTH_DATA); c.fifo_push!int(2071199744, WIDTH_DATA); c.fifo_push!int(1428684800, WIDTH_DATA);
+        c.fifo_push!int(1663172608, WIDTH_DATA); c.fifo_push!int(2083127296, WIDTH_DATA); c.fifo_push!int(1282539520, WIDTH_DATA); c.fifo_push!int(1217265664, WIDTH_DATA);
+        c.fifo_push!int(1956118528, WIDTH_DATA); c.fifo_push!int(2039480320, WIDTH_DATA); c.fifo_push!int(1163132928, WIDTH_DATA); c.fifo_push!int(1065222144, WIDTH_DATA);
+        c.fifo_push!int(1096024064, WIDTH_DATA); c.fifo_push!int(1165361152, WIDTH_DATA); c.fifo_push!int(2057568256, WIDTH_DATA); c.fifo_push!int(1696989184, WIDTH_DATA);
+        c.fifo_push!int(1379008512, WIDTH_DATA); c.fifo_push!int(1770127360, WIDTH_DATA); c.fifo_push!int(1482948608, WIDTH_DATA); c.fifo_push!int(1347813376, WIDTH_DATA);
+        c.fifo_push!int(1078722560, WIDTH_DATA); c.fifo_push!int(1905917952, WIDTH_DATA); c.fifo_push!int(1159069696, WIDTH_DATA); c.fifo_push!int(1117257728, WIDTH_DATA);
+        c.fifo_push!int(2084831232, WIDTH_DATA); c.fifo_push!int(1367343104, WIDTH_DATA); c.fifo_push!int(1200881664, WIDTH_DATA); c.fifo_push!int(1620443136, WIDTH_DATA);
+        c.fifo_push!int(1146880000, WIDTH_DATA); c.fifo_push!int(1801715712, WIDTH_DATA); c.fifo_push!int(1295384576, WIDTH_DATA); c.fifo_push!int(2089549824, WIDTH_DATA);
+        c.fifo_push!int(1295253504, WIDTH_DATA); c.fifo_push!int(948568064, WIDTH_DATA); c.fifo_push!int(964952064, WIDTH_DATA); c.fifo_push!int(1820459008, WIDTH_DATA);
+        c.fifo_push!int(1703280640, WIDTH_DATA); c.fifo_push!int(1331036160, WIDTH_DATA); c.fifo_push!int(1599209472, WIDTH_DATA); c.fifo_push!int(1720975360, WIDTH_DATA);
+        c.fifo_push!int(1981939712, WIDTH_DATA); c.fifo_push!int(1818492928, WIDTH_DATA); c.fifo_push!int(1399062528, WIDTH_DATA); c.fifo_push!int(2031878144, WIDTH_DATA);
+        c.fifo_push!int(1819410432, WIDTH_DATA); c.fifo_push!int(1481113600, WIDTH_DATA); c.fifo_push!int(1312423936, WIDTH_DATA); c.fifo_push!int(1919025152, WIDTH_DATA);
+        c.fifo_push!int(2098855936, WIDTH_DATA); c.fifo_push!int(2001338368, WIDTH_DATA); c.fifo_push!int(1654259712, WIDTH_DATA); c.fifo_push!int(1870266368, WIDTH_DATA);
+        c.fifo_push!int(1199439872, WIDTH_DATA); c.fifo_push!int(1134428160, WIDTH_DATA); c.fifo_push!int(946077696, WIDTH_DATA); c.fifo_push!int(1404043264, WIDTH_DATA);
+        c.fifo_push!int(1646526464, WIDTH_DATA); c.fifo_push!int(1518075904, WIDTH_DATA); c.fifo_push!int(1889796096, WIDTH_DATA); c.fifo_push!int(1166540800, WIDTH_DATA);
+        c.fifo_push!int(1822294016, WIDTH_DATA); c.fifo_push!int(1483472896, WIDTH_DATA); c.fifo_push!int(1985740800, WIDTH_DATA); c.fifo_push!int(1129971712, WIDTH_DATA);
+        c.fifo_push!int(1400766464, WIDTH_DATA); c.fifo_push!int(1015152640, WIDTH_DATA); c.fifo_push!int(1281622016, WIDTH_DATA); c.fifo_push!int(1780613120, WIDTH_DATA);
+        c.fifo_push!int(1868038144, WIDTH_DATA); c.fifo_push!int(2024800256, WIDTH_DATA); c.fifo_push!int(1636696064, WIDTH_DATA); c.fifo_push!int(1118044160, WIDTH_DATA);
+        c.fifo_push!int(1197867008, WIDTH_DATA); c.fifo_push!int(1932394496, WIDTH_DATA); c.fifo_push!int(928645120, WIDTH_DATA); c.fifo_push!int(1544945664, WIDTH_DATA);
+        c.fifo_push!int(1328545792, WIDTH_DATA); c.fifo_push!int(1497497600, WIDTH_DATA); c.fifo_push!int(1535377408, WIDTH_DATA); c.fifo_push!int(1344143360, WIDTH_DATA);
+        c.fifo_push!int(1614020608, WIDTH_DATA); c.fifo_push!int(1462501376, WIDTH_DATA); c.fifo_push!int(1981153280, WIDTH_DATA); c.fifo_push!int(1868431360, WIDTH_DATA);
+
+        log("--- dump triggered at batch 64: popping status + bbox words ---");
+        fout.pop?result; assert(result = 22226472, "status word: want 22226472 (locked=1 cx=83 cy=38 count=40 -- cx,cy = median), got ", result);
+        fout.pop?result; assert(result = 990538562, "bbox word: want 990538562 (min=59,10 max=107,66 -- median +/- 2*MAD), got ", result);
+
+        log("======== dvs track e2e test complete ========")
+    }
+}
+
+e2e_fpga_track_test e2e;

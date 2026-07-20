@@ -1,0 +1,359 @@
+import "chips/fpga/core.act";
+import "core/peripherals/mem.act";
+import "core/peripherals/fifo_out.act";
+import "gen/file_ids.act";
+
+// FPGA-variant "real-life" test for the motion detector: boots
+// software/dvs_motion/main.c through the bootloader, then replays
+// 200 events taken verbatim from a real recorded capture
+// (chips/fpga/dvs_capture_20260714_151049.csv, packed the same way
+// evt_pack.v would on real hardware) through the input FIFO (base 5)
+// 3 times in a row -- same replay-a-capture-file pattern as
+// e2e_fpga_rotate_test.act.
+//
+// Unlike the rotation ISR, dvs_motion writes exactly one status word per
+// BATCH=4-event batch (a decaying per-cell activity grid's argmax), not one
+// word per event -- see software/dvs_motion/main.c's header for the grid
+// math (16x16-pixel cells, 8x8 grid, shift-only indexing, no multiply/
+// divide). Every one of the 150 status words is
+// asserted against the same grid math computed in Python when this file was
+// generated, with the grid state carried across all 3 reps exactly
+// like the firmware's static array -- proving the ISR's aggregate tracking
+// matches the reference model bit-for-bit. Indices are literal constants
+// rather than a runtime loop because ACT does not permit dynamic
+// dereference of pint (parameter-array) literals.
+defproc e2e_fpga_motion_test() {
+    core<4> c;
+
+    mem<true, ROM_IMAGE> rom;
+    rom.addr = c.rom_addr;
+    rom.mode = c.rom_mode;
+    rom.rdata = c.rom_rdata;
+
+    fifo_out<4> fout;
+    fout.addr = c.io_addr;
+    fout.mode = c.io_mode;
+    fout.wdata = c.io_wdata;
+    fout.rdata = c.io_rdata;
+
+    int<WIDTH_DATA> result;
+
+    chp {
+        log("======== dvs motion-grid e2e test start (fpga) ========");
+        c.reset_ext!true;
+        log("--- replaying 200 recorded events, 3 loops ---");
+
+        // --- rep 0 ---
+        c.fifo_push!int(21489, WIDTH_DATA); c.fifo_push!int(23029, WIDTH_DATA); c.fifo_push!int(7801, WIDTH_DATA); c.fifo_push!int(18299, WIDTH_DATA);
+        fout.pop?result; assert(result = 22539, "rep 0 word 0: want 22539, got ", result);
+        c.fifo_push!int(11516, WIDTH_DATA); c.fifo_push!int(22390, WIDTH_DATA); c.fifo_push!int(11388, WIDTH_DATA); c.fifo_push!int(8186, WIDTH_DATA);
+        fout.pop?result; assert(result = 23563, "rep 0 word 1: want 23563, got ", result);
+        c.fifo_push!int(5093, WIDTH_DATA); c.fifo_push!int(22970, WIDTH_DATA); c.fifo_push!int(1752, WIDTH_DATA); c.fifo_push!int(23146, WIDTH_DATA);
+        fout.pop?result; assert(result = 24075, "rep 0 word 2: want 24075, got ", result);
+        c.fifo_push!int(3426, WIDTH_DATA); c.fifo_push!int(3171, WIDTH_DATA); c.fifo_push!int(9469, WIDTH_DATA); c.fifo_push!int(24021, WIDTH_DATA);
+        fout.pop?result; assert(result = 4355, "rep 0 word 3: want 4355, got ", result);
+        c.fifo_push!int(5565, WIDTH_DATA); c.fifo_push!int(5349, WIDTH_DATA); c.fifo_push!int(2122, WIDTH_DATA); c.fifo_push!int(5945, WIDTH_DATA);
+        fout.pop?result; assert(result = 4617, "rep 0 word 4: want 4617, got ", result);
+        c.fifo_push!int(26057, WIDTH_DATA); c.fifo_push!int(5180, WIDTH_DATA); c.fifo_push!int(13641, WIDTH_DATA); c.fifo_push!int(26829, WIDTH_DATA);
+        fout.pop?result; assert(result = 4361, "rep 0 word 5: want 4361, got ", result);
+        c.fifo_push!int(7649, WIDTH_DATA); c.fifo_push!int(9948, WIDTH_DATA); c.fifo_push!int(2012, WIDTH_DATA); c.fifo_push!int(9031, WIDTH_DATA);
+        fout.pop?result; assert(result = 22546, "rep 0 word 6: want 22546, got ", result);
+        c.fifo_push!int(4558, WIDTH_DATA); c.fifo_push!int(22848, WIDTH_DATA); c.fifo_push!int(9177, WIDTH_DATA); c.fifo_push!int(2773, WIDTH_DATA);
+        fout.pop?result; assert(result = 5138, "rep 0 word 7: want 5138, got ", result);
+        c.fifo_push!int(3910, WIDTH_DATA); c.fifo_push!int(1605, WIDTH_DATA); c.fifo_push!int(3291, WIDTH_DATA); c.fifo_push!int(9077, WIDTH_DATA);
+        fout.pop?result; assert(result = 24258, "rep 0 word 8: want 24258, got ", result);
+        c.fifo_push!int(2653, WIDTH_DATA); c.fifo_push!int(4193, WIDTH_DATA); c.fifo_push!int(22894, WIDTH_DATA); c.fifo_push!int(3806, WIDTH_DATA);
+        fout.pop?result; assert(result = 24450, "rep 0 word 9: want 24450, got ", result);
+        c.fifo_push!int(25272, WIDTH_DATA); c.fifo_push!int(9553, WIDTH_DATA); c.fifo_push!int(10100, WIDTH_DATA); c.fifo_push!int(17273, WIDTH_DATA);
+        fout.pop?result; assert(result = 4034, "rep 0 word 10: want 4034, got ", result);
+        c.fifo_push!int(3173, WIDTH_DATA); c.fifo_push!int(10056, WIDTH_DATA); c.fifo_push!int(21884, WIDTH_DATA); c.fifo_push!int(5062, WIDTH_DATA);
+        fout.pop?result; assert(result = 3410, "rep 0 word 11: want 3410, got ", result);
+        c.fifo_push!int(3804, WIDTH_DATA); c.fifo_push!int(3785, WIDTH_DATA); c.fifo_push!int(6076, WIDTH_DATA); c.fifo_push!int(3032, WIDTH_DATA);
+        fout.pop?result; assert(result = 23554, "rep 0 word 12: want 23554, got ", result);
+        c.fifo_push!int(3180, WIDTH_DATA); c.fifo_push!int(2398, WIDTH_DATA); c.fifo_push!int(8922, WIDTH_DATA); c.fifo_push!int(7920, WIDTH_DATA);
+        fout.pop?result; assert(result = 5634, "rep 0 word 13: want 5634, got ", result);
+        c.fifo_push!int(25532, WIDTH_DATA); c.fifo_push!int(1488, WIDTH_DATA); c.fifo_push!int(23151, WIDTH_DATA); c.fifo_push!int(3410, WIDTH_DATA);
+        fout.pop?result; assert(result = 23298, "rep 0 word 14: want 23298, got ", result);
+        c.fifo_push!int(4302, WIDTH_DATA); c.fifo_push!int(9401, WIDTH_DATA); c.fifo_push!int(23012, WIDTH_DATA); c.fifo_push!int(10734, WIDTH_DATA);
+        fout.pop?result; assert(result = 3851, "rep 0 word 15: want 3851, got ", result);
+        c.fifo_push!int(26183, WIDTH_DATA); c.fifo_push!int(2154, WIDTH_DATA); c.fifo_push!int(1996, WIDTH_DATA); c.fifo_push!int(3413, WIDTH_DATA);
+        fout.pop?result; assert(result = 5826, "rep 0 word 16: want 5826, got ", result);
+        c.fifo_push!int(5317, WIDTH_DATA); c.fifo_push!int(5949, WIDTH_DATA); c.fifo_push!int(7248, WIDTH_DATA); c.fifo_push!int(23275, WIDTH_DATA);
+        fout.pop?result; assert(result = 4682, "rep 0 word 17: want 4682, got ", result);
+        c.fifo_push!int(7751, WIDTH_DATA); c.fifo_push!int(23538, WIDTH_DATA); c.fifo_push!int(25700, WIDTH_DATA); c.fifo_push!int(2662, WIDTH_DATA);
+        fout.pop?result; assert(result = 4426, "rep 0 word 18: want 4426, got ", result);
+        c.fifo_push!int(7605, WIDTH_DATA); c.fifo_push!int(6742, WIDTH_DATA); c.fifo_push!int(26068, WIDTH_DATA); c.fifo_push!int(2262, WIDTH_DATA);
+        fout.pop?result; assert(result = 4298, "rep 0 word 19: want 4298, got ", result);
+        c.fifo_push!int(20301, WIDTH_DATA); c.fifo_push!int(3933, WIDTH_DATA); c.fifo_push!int(3155, WIDTH_DATA); c.fifo_push!int(18281, WIDTH_DATA);
+        fout.pop?result; assert(result = 23938, "rep 0 word 20: want 23938, got ", result);
+        c.fifo_push!int(4432, WIDTH_DATA); c.fifo_push!int(18405, WIDTH_DATA); c.fifo_push!int(11855, WIDTH_DATA); c.fifo_push!int(4070, WIDTH_DATA);
+        fout.pop?result; assert(result = 5507, "rep 0 word 21: want 5507, got ", result);
+        c.fifo_push!int(25446, WIDTH_DATA); c.fifo_push!int(9202, WIDTH_DATA); c.fifo_push!int(13127, WIDTH_DATA); c.fifo_push!int(12499, WIDTH_DATA);
+        fout.pop?result; assert(result = 4307, "rep 0 word 22: want 4307, got ", result);
+        c.fifo_push!int(7754, WIDTH_DATA); c.fifo_push!int(11460, WIDTH_DATA); c.fifo_push!int(24766, WIDTH_DATA); c.fifo_push!int(2646, WIDTH_DATA);
+        fout.pop?result; assert(result = 3010, "rep 0 word 23: want 3010, got ", result);
+        c.fifo_push!int(6211, WIDTH_DATA); c.fifo_push!int(23896, WIDTH_DATA); c.fifo_push!int(3273, WIDTH_DATA); c.fifo_push!int(24885, WIDTH_DATA);
+        fout.pop?result; assert(result = 5578, "rep 0 word 24: want 5578, got ", result);
+        c.fifo_push!int(21492, WIDTH_DATA); c.fifo_push!int(8029, WIDTH_DATA); c.fifo_push!int(23153, WIDTH_DATA); c.fifo_push!int(4935, WIDTH_DATA);
+        fout.pop?result; assert(result = 23306, "rep 0 word 25: want 23306, got ", result);
+        c.fifo_push!int(8181, WIDTH_DATA); c.fifo_push!int(3924, WIDTH_DATA); c.fifo_push!int(10952, WIDTH_DATA); c.fifo_push!int(26082, WIDTH_DATA);
+        fout.pop?result; assert(result = 4171, "rep 0 word 26: want 4171, got ", result);
+        c.fifo_push!int(25574, WIDTH_DATA); c.fifo_push!int(23098, WIDTH_DATA); c.fifo_push!int(22393, WIDTH_DATA); c.fifo_push!int(3418, WIDTH_DATA);
+        fout.pop?result; assert(result = 4171, "rep 0 word 27: want 4171, got ", result);
+        c.fifo_push!int(19926, WIDTH_DATA); c.fifo_push!int(7143, WIDTH_DATA); c.fifo_push!int(2882, WIDTH_DATA); c.fifo_push!int(23020, WIDTH_DATA);
+        fout.pop?result; assert(result = 22603, "rep 0 word 28: want 22603, got ", result);
+        c.fifo_push!int(3015, WIDTH_DATA); c.fifo_push!int(25799, WIDTH_DATA); c.fifo_push!int(11465, WIDTH_DATA); c.fifo_push!int(6871, WIDTH_DATA);
+        fout.pop?result; assert(result = 4994, "rep 0 word 29: want 4994, got ", result);
+        c.fifo_push!int(5692, WIDTH_DATA); c.fifo_push!int(24526, WIDTH_DATA); c.fifo_push!int(8263, WIDTH_DATA); c.fifo_push!int(26052, WIDTH_DATA);
+        fout.pop?result; assert(result = 22738, "rep 0 word 30: want 22738, got ", result);
+        c.fifo_push!int(6996, WIDTH_DATA); c.fifo_push!int(3281, WIDTH_DATA); c.fifo_push!int(7351, WIDTH_DATA); c.fifo_push!int(8947, WIDTH_DATA);
+        fout.pop?result; assert(result = 3722, "rep 0 word 31: want 3722, got ", result);
+        c.fifo_push!int(1998, WIDTH_DATA); c.fifo_push!int(5189, WIDTH_DATA); c.fifo_push!int(22467, WIDTH_DATA); c.fifo_push!int(9204, WIDTH_DATA);
+        fout.pop?result; assert(result = 5962, "rep 0 word 32: want 5962, got ", result);
+        c.fifo_push!int(9180, WIDTH_DATA); c.fifo_push!int(7662, WIDTH_DATA); c.fifo_push!int(9326, WIDTH_DATA); c.fifo_push!int(2554, WIDTH_DATA);
+        fout.pop?result; assert(result = 3667, "rep 0 word 33: want 3667, got ", result);
+        c.fifo_push!int(4932, WIDTH_DATA); c.fifo_push!int(7786, WIDTH_DATA); c.fifo_push!int(26083, WIDTH_DATA); c.fifo_push!int(9928, WIDTH_DATA);
+        fout.pop?result; assert(result = 3923, "rep 0 word 34: want 3923, got ", result);
+        c.fifo_push!int(5972, WIDTH_DATA); c.fifo_push!int(5187, WIDTH_DATA); c.fifo_push!int(6722, WIDTH_DATA); c.fifo_push!int(3038, WIDTH_DATA);
+        fout.pop?result; assert(result = 24330, "rep 0 word 35: want 24330, got ", result);
+        c.fifo_push!int(8057, WIDTH_DATA); c.fifo_push!int(24634, WIDTH_DATA); c.fifo_push!int(8289, WIDTH_DATA); c.fifo_push!int(10865, WIDTH_DATA);
+        fout.pop?result; assert(result = 5139, "rep 0 word 36: want 5139, got ", result);
+        c.fifo_push!int(25319, WIDTH_DATA); c.fifo_push!int(18161, WIDTH_DATA); c.fifo_push!int(5963, WIDTH_DATA); c.fifo_push!int(25798, WIDTH_DATA);
+        fout.pop?result; assert(result = 4627, "rep 0 word 37: want 4627, got ", result);
+        c.fifo_push!int(6870, WIDTH_DATA); c.fifo_push!int(25290, WIDTH_DATA); c.fifo_push!int(10604, WIDTH_DATA); c.fifo_push!int(21110, WIDTH_DATA);
+        fout.pop?result; assert(result = 4371, "rep 0 word 38: want 4371, got ", result);
+        c.fifo_push!int(609, WIDTH_DATA); c.fifo_push!int(17019, WIDTH_DATA); c.fifo_push!int(5184, WIDTH_DATA); c.fifo_push!int(20288, WIDTH_DATA);
+        fout.pop?result; assert(result = 4675, "rep 0 word 39: want 4675, got ", result);
+        c.fifo_push!int(5568, WIDTH_DATA); c.fifo_push!int(10213, WIDTH_DATA); c.fifo_push!int(25036, WIDTH_DATA); c.fifo_push!int(18294, WIDTH_DATA);
+        fout.pop?result; assert(result = 4419, "rep 0 word 40: want 4419, got ", result);
+        c.fifo_push!int(23273, WIDTH_DATA); c.fifo_push!int(18403, WIDTH_DATA); c.fifo_push!int(26447, WIDTH_DATA); c.fifo_push!int(22392, WIDTH_DATA);
+        fout.pop?result; assert(result = 4491, "rep 0 word 41: want 4491, got ", result);
+        c.fifo_push!int(9403, WIDTH_DATA); c.fifo_push!int(11171, WIDTH_DATA); c.fifo_push!int(4322, WIDTH_DATA); c.fifo_push!int(5941, WIDTH_DATA);
+        fout.pop?result; assert(result = 4299, "rep 0 word 42: want 4299, got ", result);
+        c.fifo_push!int(5845, WIDTH_DATA); c.fifo_push!int(7350, WIDTH_DATA); c.fifo_push!int(7547, WIDTH_DATA); c.fifo_push!int(2645, WIDTH_DATA);
+        fout.pop?result; assert(result = 4235, "rep 0 word 43: want 4235, got ", result);
+        c.fifo_push!int(2275, WIDTH_DATA); c.fifo_push!int(2812, WIDTH_DATA); c.fifo_push!int(23756, WIDTH_DATA); c.fifo_push!int(25544, WIDTH_DATA);
+        fout.pop?result; assert(result = 4675, "rep 0 word 44: want 4675, got ", result);
+        c.fifo_push!int(9844, WIDTH_DATA); c.fifo_push!int(9337, WIDTH_DATA); c.fifo_push!int(5445, WIDTH_DATA); c.fifo_push!int(24511, WIDTH_DATA);
+        fout.pop?result; assert(result = 4243, "rep 0 word 45: want 4243, got ", result);
+        c.fifo_push!int(5441, WIDTH_DATA); c.fifo_push!int(7621, WIDTH_DATA); c.fifo_push!int(10618, WIDTH_DATA); c.fifo_push!int(2533, WIDTH_DATA);
+        fout.pop?result; assert(result = 5962, "rep 0 word 46: want 5962, got ", result);
+        c.fifo_push!int(3282, WIDTH_DATA); c.fifo_push!int(24809, WIDTH_DATA); c.fifo_push!int(22872, WIDTH_DATA); c.fifo_push!int(5584, WIDTH_DATA);
+        fout.pop?result; assert(result = 23498, "rep 0 word 47: want 23498, got ", result);
+        c.fifo_push!int(4928, WIDTH_DATA); c.fifo_push!int(9969, WIDTH_DATA); c.fifo_push!int(1477, WIDTH_DATA); c.fifo_push!int(26178, WIDTH_DATA);
+        fout.pop?result; assert(result = 5642, "rep 0 word 48: want 5642, got ", result);
+        c.fifo_push!int(20860, WIDTH_DATA); c.fifo_push!int(24657, WIDTH_DATA); c.fifo_push!int(25927, WIDTH_DATA); c.fifo_push!int(26080, WIDTH_DATA);
+        fout.pop?result; assert(result = 5266, "rep 0 word 49: want 5266, got ", result);
+        log("--- loop 0 complete: all 50 status words correct ---");
+
+        // --- rep 1 ---
+        c.fifo_push!int(21489, WIDTH_DATA); c.fifo_push!int(23029, WIDTH_DATA); c.fifo_push!int(7801, WIDTH_DATA); c.fifo_push!int(18299, WIDTH_DATA);
+        fout.pop?result; assert(result = 23627, "rep 1 word 50: want 23627, got ", result);
+        c.fifo_push!int(11516, WIDTH_DATA); c.fifo_push!int(22390, WIDTH_DATA); c.fifo_push!int(11388, WIDTH_DATA); c.fifo_push!int(8186, WIDTH_DATA);
+        fout.pop?result; assert(result = 24139, "rep 1 word 51: want 24139, got ", result);
+        c.fifo_push!int(5093, WIDTH_DATA); c.fifo_push!int(22970, WIDTH_DATA); c.fifo_push!int(1752, WIDTH_DATA); c.fifo_push!int(23146, WIDTH_DATA);
+        fout.pop?result; assert(result = 24395, "rep 1 word 52: want 24395, got ", result);
+        c.fifo_push!int(3426, WIDTH_DATA); c.fifo_push!int(3171, WIDTH_DATA); c.fifo_push!int(9469, WIDTH_DATA); c.fifo_push!int(24021, WIDTH_DATA);
+        fout.pop?result; assert(result = 4419, "rep 1 word 53: want 4419, got ", result);
+        c.fifo_push!int(5565, WIDTH_DATA); c.fifo_push!int(5349, WIDTH_DATA); c.fifo_push!int(2122, WIDTH_DATA); c.fifo_push!int(5945, WIDTH_DATA);
+        fout.pop?result; assert(result = 4681, "rep 1 word 54: want 4681, got ", result);
+        c.fifo_push!int(26057, WIDTH_DATA); c.fifo_push!int(5180, WIDTH_DATA); c.fifo_push!int(13641, WIDTH_DATA); c.fifo_push!int(26829, WIDTH_DATA);
+        fout.pop?result; assert(result = 4425, "rep 1 word 55: want 4425, got ", result);
+        c.fifo_push!int(7649, WIDTH_DATA); c.fifo_push!int(9948, WIDTH_DATA); c.fifo_push!int(2012, WIDTH_DATA); c.fifo_push!int(9031, WIDTH_DATA);
+        fout.pop?result; assert(result = 22610, "rep 1 word 56: want 22610, got ", result);
+        c.fifo_push!int(4558, WIDTH_DATA); c.fifo_push!int(22848, WIDTH_DATA); c.fifo_push!int(9177, WIDTH_DATA); c.fifo_push!int(2773, WIDTH_DATA);
+        fout.pop?result; assert(result = 5202, "rep 1 word 57: want 5202, got ", result);
+        c.fifo_push!int(3910, WIDTH_DATA); c.fifo_push!int(1605, WIDTH_DATA); c.fifo_push!int(3291, WIDTH_DATA); c.fifo_push!int(9077, WIDTH_DATA);
+        fout.pop?result; assert(result = 24258, "rep 1 word 58: want 24258, got ", result);
+        c.fifo_push!int(2653, WIDTH_DATA); c.fifo_push!int(4193, WIDTH_DATA); c.fifo_push!int(22894, WIDTH_DATA); c.fifo_push!int(3806, WIDTH_DATA);
+        fout.pop?result; assert(result = 24450, "rep 1 word 59: want 24450, got ", result);
+        c.fifo_push!int(25272, WIDTH_DATA); c.fifo_push!int(9553, WIDTH_DATA); c.fifo_push!int(10100, WIDTH_DATA); c.fifo_push!int(17273, WIDTH_DATA);
+        fout.pop?result; assert(result = 4034, "rep 1 word 60: want 4034, got ", result);
+        c.fifo_push!int(3173, WIDTH_DATA); c.fifo_push!int(10056, WIDTH_DATA); c.fifo_push!int(21884, WIDTH_DATA); c.fifo_push!int(5062, WIDTH_DATA);
+        fout.pop?result; assert(result = 3474, "rep 1 word 61: want 3474, got ", result);
+        c.fifo_push!int(3804, WIDTH_DATA); c.fifo_push!int(3785, WIDTH_DATA); c.fifo_push!int(6076, WIDTH_DATA); c.fifo_push!int(3032, WIDTH_DATA);
+        fout.pop?result; assert(result = 23554, "rep 1 word 62: want 23554, got ", result);
+        c.fifo_push!int(3180, WIDTH_DATA); c.fifo_push!int(2398, WIDTH_DATA); c.fifo_push!int(8922, WIDTH_DATA); c.fifo_push!int(7920, WIDTH_DATA);
+        fout.pop?result; assert(result = 5634, "rep 1 word 63: want 5634, got ", result);
+        c.fifo_push!int(25532, WIDTH_DATA); c.fifo_push!int(1488, WIDTH_DATA); c.fifo_push!int(23151, WIDTH_DATA); c.fifo_push!int(3410, WIDTH_DATA);
+        fout.pop?result; assert(result = 23298, "rep 1 word 64: want 23298, got ", result);
+        c.fifo_push!int(4302, WIDTH_DATA); c.fifo_push!int(9401, WIDTH_DATA); c.fifo_push!int(23012, WIDTH_DATA); c.fifo_push!int(10734, WIDTH_DATA);
+        fout.pop?result; assert(result = 3851, "rep 1 word 65: want 3851, got ", result);
+        c.fifo_push!int(26183, WIDTH_DATA); c.fifo_push!int(2154, WIDTH_DATA); c.fifo_push!int(1996, WIDTH_DATA); c.fifo_push!int(3413, WIDTH_DATA);
+        fout.pop?result; assert(result = 5826, "rep 1 word 66: want 5826, got ", result);
+        c.fifo_push!int(5317, WIDTH_DATA); c.fifo_push!int(5949, WIDTH_DATA); c.fifo_push!int(7248, WIDTH_DATA); c.fifo_push!int(23275, WIDTH_DATA);
+        fout.pop?result; assert(result = 4682, "rep 1 word 67: want 4682, got ", result);
+        c.fifo_push!int(7751, WIDTH_DATA); c.fifo_push!int(23538, WIDTH_DATA); c.fifo_push!int(25700, WIDTH_DATA); c.fifo_push!int(2662, WIDTH_DATA);
+        fout.pop?result; assert(result = 4426, "rep 1 word 68: want 4426, got ", result);
+        c.fifo_push!int(7605, WIDTH_DATA); c.fifo_push!int(6742, WIDTH_DATA); c.fifo_push!int(26068, WIDTH_DATA); c.fifo_push!int(2262, WIDTH_DATA);
+        fout.pop?result; assert(result = 4298, "rep 1 word 69: want 4298, got ", result);
+        c.fifo_push!int(20301, WIDTH_DATA); c.fifo_push!int(3933, WIDTH_DATA); c.fifo_push!int(3155, WIDTH_DATA); c.fifo_push!int(18281, WIDTH_DATA);
+        fout.pop?result; assert(result = 23938, "rep 1 word 70: want 23938, got ", result);
+        c.fifo_push!int(4432, WIDTH_DATA); c.fifo_push!int(18405, WIDTH_DATA); c.fifo_push!int(11855, WIDTH_DATA); c.fifo_push!int(4070, WIDTH_DATA);
+        fout.pop?result; assert(result = 5507, "rep 1 word 71: want 5507, got ", result);
+        c.fifo_push!int(25446, WIDTH_DATA); c.fifo_push!int(9202, WIDTH_DATA); c.fifo_push!int(13127, WIDTH_DATA); c.fifo_push!int(12499, WIDTH_DATA);
+        fout.pop?result; assert(result = 4307, "rep 1 word 72: want 4307, got ", result);
+        c.fifo_push!int(7754, WIDTH_DATA); c.fifo_push!int(11460, WIDTH_DATA); c.fifo_push!int(24766, WIDTH_DATA); c.fifo_push!int(2646, WIDTH_DATA);
+        fout.pop?result; assert(result = 3010, "rep 1 word 73: want 3010, got ", result);
+        c.fifo_push!int(6211, WIDTH_DATA); c.fifo_push!int(23896, WIDTH_DATA); c.fifo_push!int(3273, WIDTH_DATA); c.fifo_push!int(24885, WIDTH_DATA);
+        fout.pop?result; assert(result = 5578, "rep 1 word 74: want 5578, got ", result);
+        c.fifo_push!int(21492, WIDTH_DATA); c.fifo_push!int(8029, WIDTH_DATA); c.fifo_push!int(23153, WIDTH_DATA); c.fifo_push!int(4935, WIDTH_DATA);
+        fout.pop?result; assert(result = 23306, "rep 1 word 75: want 23306, got ", result);
+        c.fifo_push!int(8181, WIDTH_DATA); c.fifo_push!int(3924, WIDTH_DATA); c.fifo_push!int(10952, WIDTH_DATA); c.fifo_push!int(26082, WIDTH_DATA);
+        fout.pop?result; assert(result = 4171, "rep 1 word 76: want 4171, got ", result);
+        c.fifo_push!int(25574, WIDTH_DATA); c.fifo_push!int(23098, WIDTH_DATA); c.fifo_push!int(22393, WIDTH_DATA); c.fifo_push!int(3418, WIDTH_DATA);
+        fout.pop?result; assert(result = 4171, "rep 1 word 77: want 4171, got ", result);
+        c.fifo_push!int(19926, WIDTH_DATA); c.fifo_push!int(7143, WIDTH_DATA); c.fifo_push!int(2882, WIDTH_DATA); c.fifo_push!int(23020, WIDTH_DATA);
+        fout.pop?result; assert(result = 22603, "rep 1 word 78: want 22603, got ", result);
+        c.fifo_push!int(3015, WIDTH_DATA); c.fifo_push!int(25799, WIDTH_DATA); c.fifo_push!int(11465, WIDTH_DATA); c.fifo_push!int(6871, WIDTH_DATA);
+        fout.pop?result; assert(result = 4994, "rep 1 word 79: want 4994, got ", result);
+        c.fifo_push!int(5692, WIDTH_DATA); c.fifo_push!int(24526, WIDTH_DATA); c.fifo_push!int(8263, WIDTH_DATA); c.fifo_push!int(26052, WIDTH_DATA);
+        fout.pop?result; assert(result = 22738, "rep 1 word 80: want 22738, got ", result);
+        c.fifo_push!int(6996, WIDTH_DATA); c.fifo_push!int(3281, WIDTH_DATA); c.fifo_push!int(7351, WIDTH_DATA); c.fifo_push!int(8947, WIDTH_DATA);
+        fout.pop?result; assert(result = 3722, "rep 1 word 81: want 3722, got ", result);
+        c.fifo_push!int(1998, WIDTH_DATA); c.fifo_push!int(5189, WIDTH_DATA); c.fifo_push!int(22467, WIDTH_DATA); c.fifo_push!int(9204, WIDTH_DATA);
+        fout.pop?result; assert(result = 5962, "rep 1 word 82: want 5962, got ", result);
+        c.fifo_push!int(9180, WIDTH_DATA); c.fifo_push!int(7662, WIDTH_DATA); c.fifo_push!int(9326, WIDTH_DATA); c.fifo_push!int(2554, WIDTH_DATA);
+        fout.pop?result; assert(result = 3667, "rep 1 word 83: want 3667, got ", result);
+        c.fifo_push!int(4932, WIDTH_DATA); c.fifo_push!int(7786, WIDTH_DATA); c.fifo_push!int(26083, WIDTH_DATA); c.fifo_push!int(9928, WIDTH_DATA);
+        fout.pop?result; assert(result = 3923, "rep 1 word 84: want 3923, got ", result);
+        c.fifo_push!int(5972, WIDTH_DATA); c.fifo_push!int(5187, WIDTH_DATA); c.fifo_push!int(6722, WIDTH_DATA); c.fifo_push!int(3038, WIDTH_DATA);
+        fout.pop?result; assert(result = 24330, "rep 1 word 85: want 24330, got ", result);
+        c.fifo_push!int(8057, WIDTH_DATA); c.fifo_push!int(24634, WIDTH_DATA); c.fifo_push!int(8289, WIDTH_DATA); c.fifo_push!int(10865, WIDTH_DATA);
+        fout.pop?result; assert(result = 5139, "rep 1 word 86: want 5139, got ", result);
+        c.fifo_push!int(25319, WIDTH_DATA); c.fifo_push!int(18161, WIDTH_DATA); c.fifo_push!int(5963, WIDTH_DATA); c.fifo_push!int(25798, WIDTH_DATA);
+        fout.pop?result; assert(result = 4627, "rep 1 word 87: want 4627, got ", result);
+        c.fifo_push!int(6870, WIDTH_DATA); c.fifo_push!int(25290, WIDTH_DATA); c.fifo_push!int(10604, WIDTH_DATA); c.fifo_push!int(21110, WIDTH_DATA);
+        fout.pop?result; assert(result = 4371, "rep 1 word 88: want 4371, got ", result);
+        c.fifo_push!int(609, WIDTH_DATA); c.fifo_push!int(17019, WIDTH_DATA); c.fifo_push!int(5184, WIDTH_DATA); c.fifo_push!int(20288, WIDTH_DATA);
+        fout.pop?result; assert(result = 4675, "rep 1 word 89: want 4675, got ", result);
+        c.fifo_push!int(5568, WIDTH_DATA); c.fifo_push!int(10213, WIDTH_DATA); c.fifo_push!int(25036, WIDTH_DATA); c.fifo_push!int(18294, WIDTH_DATA);
+        fout.pop?result; assert(result = 4419, "rep 1 word 90: want 4419, got ", result);
+        c.fifo_push!int(23273, WIDTH_DATA); c.fifo_push!int(18403, WIDTH_DATA); c.fifo_push!int(26447, WIDTH_DATA); c.fifo_push!int(22392, WIDTH_DATA);
+        fout.pop?result; assert(result = 4491, "rep 1 word 91: want 4491, got ", result);
+        c.fifo_push!int(9403, WIDTH_DATA); c.fifo_push!int(11171, WIDTH_DATA); c.fifo_push!int(4322, WIDTH_DATA); c.fifo_push!int(5941, WIDTH_DATA);
+        fout.pop?result; assert(result = 4299, "rep 1 word 92: want 4299, got ", result);
+        c.fifo_push!int(5845, WIDTH_DATA); c.fifo_push!int(7350, WIDTH_DATA); c.fifo_push!int(7547, WIDTH_DATA); c.fifo_push!int(2645, WIDTH_DATA);
+        fout.pop?result; assert(result = 4235, "rep 1 word 93: want 4235, got ", result);
+        c.fifo_push!int(2275, WIDTH_DATA); c.fifo_push!int(2812, WIDTH_DATA); c.fifo_push!int(23756, WIDTH_DATA); c.fifo_push!int(25544, WIDTH_DATA);
+        fout.pop?result; assert(result = 4675, "rep 1 word 94: want 4675, got ", result);
+        c.fifo_push!int(9844, WIDTH_DATA); c.fifo_push!int(9337, WIDTH_DATA); c.fifo_push!int(5445, WIDTH_DATA); c.fifo_push!int(24511, WIDTH_DATA);
+        fout.pop?result; assert(result = 4243, "rep 1 word 95: want 4243, got ", result);
+        c.fifo_push!int(5441, WIDTH_DATA); c.fifo_push!int(7621, WIDTH_DATA); c.fifo_push!int(10618, WIDTH_DATA); c.fifo_push!int(2533, WIDTH_DATA);
+        fout.pop?result; assert(result = 5962, "rep 1 word 96: want 5962, got ", result);
+        c.fifo_push!int(3282, WIDTH_DATA); c.fifo_push!int(24809, WIDTH_DATA); c.fifo_push!int(22872, WIDTH_DATA); c.fifo_push!int(5584, WIDTH_DATA);
+        fout.pop?result; assert(result = 23498, "rep 1 word 97: want 23498, got ", result);
+        c.fifo_push!int(4928, WIDTH_DATA); c.fifo_push!int(9969, WIDTH_DATA); c.fifo_push!int(1477, WIDTH_DATA); c.fifo_push!int(26178, WIDTH_DATA);
+        fout.pop?result; assert(result = 5642, "rep 1 word 98: want 5642, got ", result);
+        c.fifo_push!int(20860, WIDTH_DATA); c.fifo_push!int(24657, WIDTH_DATA); c.fifo_push!int(25927, WIDTH_DATA); c.fifo_push!int(26080, WIDTH_DATA);
+        fout.pop?result; assert(result = 5266, "rep 1 word 99: want 5266, got ", result);
+        log("--- loop 1 complete: all 50 status words correct ---");
+
+        // --- rep 2 ---
+        c.fifo_push!int(21489, WIDTH_DATA); c.fifo_push!int(23029, WIDTH_DATA); c.fifo_push!int(7801, WIDTH_DATA); c.fifo_push!int(18299, WIDTH_DATA);
+        fout.pop?result; assert(result = 23627, "rep 2 word 100: want 23627, got ", result);
+        c.fifo_push!int(11516, WIDTH_DATA); c.fifo_push!int(22390, WIDTH_DATA); c.fifo_push!int(11388, WIDTH_DATA); c.fifo_push!int(8186, WIDTH_DATA);
+        fout.pop?result; assert(result = 24139, "rep 2 word 101: want 24139, got ", result);
+        c.fifo_push!int(5093, WIDTH_DATA); c.fifo_push!int(22970, WIDTH_DATA); c.fifo_push!int(1752, WIDTH_DATA); c.fifo_push!int(23146, WIDTH_DATA);
+        fout.pop?result; assert(result = 24395, "rep 2 word 102: want 24395, got ", result);
+        c.fifo_push!int(3426, WIDTH_DATA); c.fifo_push!int(3171, WIDTH_DATA); c.fifo_push!int(9469, WIDTH_DATA); c.fifo_push!int(24021, WIDTH_DATA);
+        fout.pop?result; assert(result = 4419, "rep 2 word 103: want 4419, got ", result);
+        c.fifo_push!int(5565, WIDTH_DATA); c.fifo_push!int(5349, WIDTH_DATA); c.fifo_push!int(2122, WIDTH_DATA); c.fifo_push!int(5945, WIDTH_DATA);
+        fout.pop?result; assert(result = 4681, "rep 2 word 104: want 4681, got ", result);
+        c.fifo_push!int(26057, WIDTH_DATA); c.fifo_push!int(5180, WIDTH_DATA); c.fifo_push!int(13641, WIDTH_DATA); c.fifo_push!int(26829, WIDTH_DATA);
+        fout.pop?result; assert(result = 4425, "rep 2 word 105: want 4425, got ", result);
+        c.fifo_push!int(7649, WIDTH_DATA); c.fifo_push!int(9948, WIDTH_DATA); c.fifo_push!int(2012, WIDTH_DATA); c.fifo_push!int(9031, WIDTH_DATA);
+        fout.pop?result; assert(result = 22610, "rep 2 word 106: want 22610, got ", result);
+        c.fifo_push!int(4558, WIDTH_DATA); c.fifo_push!int(22848, WIDTH_DATA); c.fifo_push!int(9177, WIDTH_DATA); c.fifo_push!int(2773, WIDTH_DATA);
+        fout.pop?result; assert(result = 5202, "rep 2 word 107: want 5202, got ", result);
+        c.fifo_push!int(3910, WIDTH_DATA); c.fifo_push!int(1605, WIDTH_DATA); c.fifo_push!int(3291, WIDTH_DATA); c.fifo_push!int(9077, WIDTH_DATA);
+        fout.pop?result; assert(result = 24258, "rep 2 word 108: want 24258, got ", result);
+        c.fifo_push!int(2653, WIDTH_DATA); c.fifo_push!int(4193, WIDTH_DATA); c.fifo_push!int(22894, WIDTH_DATA); c.fifo_push!int(3806, WIDTH_DATA);
+        fout.pop?result; assert(result = 24450, "rep 2 word 109: want 24450, got ", result);
+        c.fifo_push!int(25272, WIDTH_DATA); c.fifo_push!int(9553, WIDTH_DATA); c.fifo_push!int(10100, WIDTH_DATA); c.fifo_push!int(17273, WIDTH_DATA);
+        fout.pop?result; assert(result = 4034, "rep 2 word 110: want 4034, got ", result);
+        c.fifo_push!int(3173, WIDTH_DATA); c.fifo_push!int(10056, WIDTH_DATA); c.fifo_push!int(21884, WIDTH_DATA); c.fifo_push!int(5062, WIDTH_DATA);
+        fout.pop?result; assert(result = 3474, "rep 2 word 111: want 3474, got ", result);
+        c.fifo_push!int(3804, WIDTH_DATA); c.fifo_push!int(3785, WIDTH_DATA); c.fifo_push!int(6076, WIDTH_DATA); c.fifo_push!int(3032, WIDTH_DATA);
+        fout.pop?result; assert(result = 23554, "rep 2 word 112: want 23554, got ", result);
+        c.fifo_push!int(3180, WIDTH_DATA); c.fifo_push!int(2398, WIDTH_DATA); c.fifo_push!int(8922, WIDTH_DATA); c.fifo_push!int(7920, WIDTH_DATA);
+        fout.pop?result; assert(result = 5634, "rep 2 word 113: want 5634, got ", result);
+        c.fifo_push!int(25532, WIDTH_DATA); c.fifo_push!int(1488, WIDTH_DATA); c.fifo_push!int(23151, WIDTH_DATA); c.fifo_push!int(3410, WIDTH_DATA);
+        fout.pop?result; assert(result = 23298, "rep 2 word 114: want 23298, got ", result);
+        c.fifo_push!int(4302, WIDTH_DATA); c.fifo_push!int(9401, WIDTH_DATA); c.fifo_push!int(23012, WIDTH_DATA); c.fifo_push!int(10734, WIDTH_DATA);
+        fout.pop?result; assert(result = 3851, "rep 2 word 115: want 3851, got ", result);
+        c.fifo_push!int(26183, WIDTH_DATA); c.fifo_push!int(2154, WIDTH_DATA); c.fifo_push!int(1996, WIDTH_DATA); c.fifo_push!int(3413, WIDTH_DATA);
+        fout.pop?result; assert(result = 5826, "rep 2 word 116: want 5826, got ", result);
+        c.fifo_push!int(5317, WIDTH_DATA); c.fifo_push!int(5949, WIDTH_DATA); c.fifo_push!int(7248, WIDTH_DATA); c.fifo_push!int(23275, WIDTH_DATA);
+        fout.pop?result; assert(result = 4682, "rep 2 word 117: want 4682, got ", result);
+        c.fifo_push!int(7751, WIDTH_DATA); c.fifo_push!int(23538, WIDTH_DATA); c.fifo_push!int(25700, WIDTH_DATA); c.fifo_push!int(2662, WIDTH_DATA);
+        fout.pop?result; assert(result = 4426, "rep 2 word 118: want 4426, got ", result);
+        c.fifo_push!int(7605, WIDTH_DATA); c.fifo_push!int(6742, WIDTH_DATA); c.fifo_push!int(26068, WIDTH_DATA); c.fifo_push!int(2262, WIDTH_DATA);
+        fout.pop?result; assert(result = 4298, "rep 2 word 119: want 4298, got ", result);
+        c.fifo_push!int(20301, WIDTH_DATA); c.fifo_push!int(3933, WIDTH_DATA); c.fifo_push!int(3155, WIDTH_DATA); c.fifo_push!int(18281, WIDTH_DATA);
+        fout.pop?result; assert(result = 23938, "rep 2 word 120: want 23938, got ", result);
+        c.fifo_push!int(4432, WIDTH_DATA); c.fifo_push!int(18405, WIDTH_DATA); c.fifo_push!int(11855, WIDTH_DATA); c.fifo_push!int(4070, WIDTH_DATA);
+        fout.pop?result; assert(result = 5507, "rep 2 word 121: want 5507, got ", result);
+        c.fifo_push!int(25446, WIDTH_DATA); c.fifo_push!int(9202, WIDTH_DATA); c.fifo_push!int(13127, WIDTH_DATA); c.fifo_push!int(12499, WIDTH_DATA);
+        fout.pop?result; assert(result = 4307, "rep 2 word 122: want 4307, got ", result);
+        c.fifo_push!int(7754, WIDTH_DATA); c.fifo_push!int(11460, WIDTH_DATA); c.fifo_push!int(24766, WIDTH_DATA); c.fifo_push!int(2646, WIDTH_DATA);
+        fout.pop?result; assert(result = 3010, "rep 2 word 123: want 3010, got ", result);
+        c.fifo_push!int(6211, WIDTH_DATA); c.fifo_push!int(23896, WIDTH_DATA); c.fifo_push!int(3273, WIDTH_DATA); c.fifo_push!int(24885, WIDTH_DATA);
+        fout.pop?result; assert(result = 5578, "rep 2 word 124: want 5578, got ", result);
+        c.fifo_push!int(21492, WIDTH_DATA); c.fifo_push!int(8029, WIDTH_DATA); c.fifo_push!int(23153, WIDTH_DATA); c.fifo_push!int(4935, WIDTH_DATA);
+        fout.pop?result; assert(result = 23306, "rep 2 word 125: want 23306, got ", result);
+        c.fifo_push!int(8181, WIDTH_DATA); c.fifo_push!int(3924, WIDTH_DATA); c.fifo_push!int(10952, WIDTH_DATA); c.fifo_push!int(26082, WIDTH_DATA);
+        fout.pop?result; assert(result = 4171, "rep 2 word 126: want 4171, got ", result);
+        c.fifo_push!int(25574, WIDTH_DATA); c.fifo_push!int(23098, WIDTH_DATA); c.fifo_push!int(22393, WIDTH_DATA); c.fifo_push!int(3418, WIDTH_DATA);
+        fout.pop?result; assert(result = 4171, "rep 2 word 127: want 4171, got ", result);
+        c.fifo_push!int(19926, WIDTH_DATA); c.fifo_push!int(7143, WIDTH_DATA); c.fifo_push!int(2882, WIDTH_DATA); c.fifo_push!int(23020, WIDTH_DATA);
+        fout.pop?result; assert(result = 22603, "rep 2 word 128: want 22603, got ", result);
+        c.fifo_push!int(3015, WIDTH_DATA); c.fifo_push!int(25799, WIDTH_DATA); c.fifo_push!int(11465, WIDTH_DATA); c.fifo_push!int(6871, WIDTH_DATA);
+        fout.pop?result; assert(result = 4994, "rep 2 word 129: want 4994, got ", result);
+        c.fifo_push!int(5692, WIDTH_DATA); c.fifo_push!int(24526, WIDTH_DATA); c.fifo_push!int(8263, WIDTH_DATA); c.fifo_push!int(26052, WIDTH_DATA);
+        fout.pop?result; assert(result = 22738, "rep 2 word 130: want 22738, got ", result);
+        c.fifo_push!int(6996, WIDTH_DATA); c.fifo_push!int(3281, WIDTH_DATA); c.fifo_push!int(7351, WIDTH_DATA); c.fifo_push!int(8947, WIDTH_DATA);
+        fout.pop?result; assert(result = 3722, "rep 2 word 131: want 3722, got ", result);
+        c.fifo_push!int(1998, WIDTH_DATA); c.fifo_push!int(5189, WIDTH_DATA); c.fifo_push!int(22467, WIDTH_DATA); c.fifo_push!int(9204, WIDTH_DATA);
+        fout.pop?result; assert(result = 5962, "rep 2 word 132: want 5962, got ", result);
+        c.fifo_push!int(9180, WIDTH_DATA); c.fifo_push!int(7662, WIDTH_DATA); c.fifo_push!int(9326, WIDTH_DATA); c.fifo_push!int(2554, WIDTH_DATA);
+        fout.pop?result; assert(result = 3667, "rep 2 word 133: want 3667, got ", result);
+        c.fifo_push!int(4932, WIDTH_DATA); c.fifo_push!int(7786, WIDTH_DATA); c.fifo_push!int(26083, WIDTH_DATA); c.fifo_push!int(9928, WIDTH_DATA);
+        fout.pop?result; assert(result = 3923, "rep 2 word 134: want 3923, got ", result);
+        c.fifo_push!int(5972, WIDTH_DATA); c.fifo_push!int(5187, WIDTH_DATA); c.fifo_push!int(6722, WIDTH_DATA); c.fifo_push!int(3038, WIDTH_DATA);
+        fout.pop?result; assert(result = 24330, "rep 2 word 135: want 24330, got ", result);
+        c.fifo_push!int(8057, WIDTH_DATA); c.fifo_push!int(24634, WIDTH_DATA); c.fifo_push!int(8289, WIDTH_DATA); c.fifo_push!int(10865, WIDTH_DATA);
+        fout.pop?result; assert(result = 5139, "rep 2 word 136: want 5139, got ", result);
+        c.fifo_push!int(25319, WIDTH_DATA); c.fifo_push!int(18161, WIDTH_DATA); c.fifo_push!int(5963, WIDTH_DATA); c.fifo_push!int(25798, WIDTH_DATA);
+        fout.pop?result; assert(result = 4627, "rep 2 word 137: want 4627, got ", result);
+        c.fifo_push!int(6870, WIDTH_DATA); c.fifo_push!int(25290, WIDTH_DATA); c.fifo_push!int(10604, WIDTH_DATA); c.fifo_push!int(21110, WIDTH_DATA);
+        fout.pop?result; assert(result = 4371, "rep 2 word 138: want 4371, got ", result);
+        c.fifo_push!int(609, WIDTH_DATA); c.fifo_push!int(17019, WIDTH_DATA); c.fifo_push!int(5184, WIDTH_DATA); c.fifo_push!int(20288, WIDTH_DATA);
+        fout.pop?result; assert(result = 4675, "rep 2 word 139: want 4675, got ", result);
+        c.fifo_push!int(5568, WIDTH_DATA); c.fifo_push!int(10213, WIDTH_DATA); c.fifo_push!int(25036, WIDTH_DATA); c.fifo_push!int(18294, WIDTH_DATA);
+        fout.pop?result; assert(result = 4419, "rep 2 word 140: want 4419, got ", result);
+        c.fifo_push!int(23273, WIDTH_DATA); c.fifo_push!int(18403, WIDTH_DATA); c.fifo_push!int(26447, WIDTH_DATA); c.fifo_push!int(22392, WIDTH_DATA);
+        fout.pop?result; assert(result = 4491, "rep 2 word 141: want 4491, got ", result);
+        c.fifo_push!int(9403, WIDTH_DATA); c.fifo_push!int(11171, WIDTH_DATA); c.fifo_push!int(4322, WIDTH_DATA); c.fifo_push!int(5941, WIDTH_DATA);
+        fout.pop?result; assert(result = 4299, "rep 2 word 142: want 4299, got ", result);
+        c.fifo_push!int(5845, WIDTH_DATA); c.fifo_push!int(7350, WIDTH_DATA); c.fifo_push!int(7547, WIDTH_DATA); c.fifo_push!int(2645, WIDTH_DATA);
+        fout.pop?result; assert(result = 4235, "rep 2 word 143: want 4235, got ", result);
+        c.fifo_push!int(2275, WIDTH_DATA); c.fifo_push!int(2812, WIDTH_DATA); c.fifo_push!int(23756, WIDTH_DATA); c.fifo_push!int(25544, WIDTH_DATA);
+        fout.pop?result; assert(result = 4675, "rep 2 word 144: want 4675, got ", result);
+        c.fifo_push!int(9844, WIDTH_DATA); c.fifo_push!int(9337, WIDTH_DATA); c.fifo_push!int(5445, WIDTH_DATA); c.fifo_push!int(24511, WIDTH_DATA);
+        fout.pop?result; assert(result = 4243, "rep 2 word 145: want 4243, got ", result);
+        c.fifo_push!int(5441, WIDTH_DATA); c.fifo_push!int(7621, WIDTH_DATA); c.fifo_push!int(10618, WIDTH_DATA); c.fifo_push!int(2533, WIDTH_DATA);
+        fout.pop?result; assert(result = 5962, "rep 2 word 146: want 5962, got ", result);
+        c.fifo_push!int(3282, WIDTH_DATA); c.fifo_push!int(24809, WIDTH_DATA); c.fifo_push!int(22872, WIDTH_DATA); c.fifo_push!int(5584, WIDTH_DATA);
+        fout.pop?result; assert(result = 23498, "rep 2 word 147: want 23498, got ", result);
+        c.fifo_push!int(4928, WIDTH_DATA); c.fifo_push!int(9969, WIDTH_DATA); c.fifo_push!int(1477, WIDTH_DATA); c.fifo_push!int(26178, WIDTH_DATA);
+        fout.pop?result; assert(result = 5642, "rep 2 word 148: want 5642, got ", result);
+        c.fifo_push!int(20860, WIDTH_DATA); c.fifo_push!int(24657, WIDTH_DATA); c.fifo_push!int(25927, WIDTH_DATA); c.fifo_push!int(26080, WIDTH_DATA);
+        fout.pop?result; assert(result = 5266, "rep 2 word 149: want 5266, got ", result);
+        log("--- loop 2 complete: all 50 status words correct ---");
+
+        log("======== dvs motion-grid e2e test complete ========")
+    }
+}
+
+e2e_fpga_motion_test e2e;
