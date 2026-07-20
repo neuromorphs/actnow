@@ -36,9 +36,10 @@ import time
 import numpy as np
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-CSV_PATH = os.path.join(os.path.dirname(__file__), "dvs_capture_20260714_151049.csv")
-EVENTS_PATH = os.path.join(os.path.dirname(__file__), "rotate_capture_events.mem")
-RESULTS_PATH = os.path.join(os.path.dirname(__file__), "motion_capture_results.mem")
+DATA_DIR = os.path.join(REPO_ROOT, "chips", "fpga")
+CSV_PATH = os.path.join(DATA_DIR, "dvs_capture_20260714_151049.csv")
+EVENTS_PATH = os.path.join(DATA_DIR, "rotate_capture_events.mem")
+RESULTS_PATH = os.path.join(DATA_DIR, "motion_capture_results.mem")
 
 SX, SY = 126, 112
 CELL_SHIFT = 5  # 32x32-pixel cells -- must match software/dvs_motion/main.c's 4x4 grid

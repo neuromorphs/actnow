@@ -44,8 +44,9 @@ from dvs_motion_blob_live import render_glow, resolve_csv  # reused unchanged
 from dvs_timesurface_live import DEFAULT_CSV, decay_grid, load_les  # same math, same CSV loader
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-EVENTS_PATH = os.path.join(os.path.dirname(__file__), "rotate_capture_events.mem")
-RESULTS_PATH = os.path.join(os.path.dirname(__file__), "denoise_capture_results.mem")
+DATA_DIR = os.path.join(REPO_ROOT, "chips", "fpga")
+EVENTS_PATH = os.path.join(DATA_DIR, "rotate_capture_events.mem")
+RESULTS_PATH = os.path.join(DATA_DIR, "denoise_capture_results.mem")
 
 SX, SY = 126, 112
 GRID_COLS = 32

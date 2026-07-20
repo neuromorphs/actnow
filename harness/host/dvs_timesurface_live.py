@@ -41,9 +41,10 @@ sys.path.insert(0, os.path.dirname(__file__))
 from dvs_motion_blob_live import render_glow, resolve_csv  # reused unchanged
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+DATA_DIR = os.path.join(REPO_ROOT, "chips", "fpga")
 DEFAULT_CSV = "dvs_capture_20260714_151049.csv"
-EVENTS_PATH = os.path.join(os.path.dirname(__file__), "rotate_capture_events.mem")
-RESULTS_PATH = os.path.join(os.path.dirname(__file__), "timesurface_capture_results.mem")
+EVENTS_PATH = os.path.join(DATA_DIR, "rotate_capture_events.mem")
+RESULTS_PATH = os.path.join(DATA_DIR, "timesurface_capture_results.mem")
 
 SX, SY = 126, 112
 GRID_COLS = 32

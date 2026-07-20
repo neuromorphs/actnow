@@ -44,9 +44,10 @@ import time
 import numpy as np
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+DATA_DIR = os.path.join(REPO_ROOT, "chips", "fpga")
 DEFAULT_CSV = "dvs_capture_20260714_151049.csv"
-EVENTS_PATH = os.path.join(os.path.dirname(__file__), "rotate_capture_events.mem")
-RESULTS_PATH = os.path.join(os.path.dirname(__file__), "motion_capture_results.mem")
+EVENTS_PATH = os.path.join(DATA_DIR, "rotate_capture_events.mem")
+RESULTS_PATH = os.path.join(DATA_DIR, "motion_capture_results.mem")
 
 SX, SY = 126, 112
 CELL_SHIFT = 5  # 32x32-pixel cells -- must match software/dvs_motion/main.c's 4x4 grid
@@ -60,12 +61,12 @@ BATCH = 4
 
 
 def resolve_csv(name):
-    """A bare filename (e.g. "phone.csv") resolves alongside this script,
-    same directory as the default capture; an absolute or already-valid
-    relative path is used as given."""
+    """A bare filename (e.g. "phone.csv") resolves against chips/fpga, where
+    the recorded captures live; an absolute or already-valid relative path
+    is used as given."""
     if os.path.isabs(name) or os.path.exists(name):
         return name
-    candidate = os.path.join(os.path.dirname(__file__), name)
+    candidate = os.path.join(DATA_DIR, name)
     return candidate if os.path.exists(candidate) else name
 
 
