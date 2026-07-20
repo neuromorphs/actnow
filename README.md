@@ -38,7 +38,7 @@ reserved/unmapped address should do.
   the reset vector from external ROM ("XIP").
 - **`core/peripherals/demux.act`'s `demux`** is periphery-facing: it never
   talks to the core directly, only to whatever's already off-chip.
-  `chips/bench/harness.act` wires it to soc's `addr_ext` boundary with no
+  `chips/bench/periphery.act` wires it to soc's `addr_ext` boundary with no
   catch-all, splitting into ROM, input FIFO, output FIFO, and GPIO.
 
 A non-on-chip access takes the path: soc's core → `mmu` (falls through its
@@ -125,7 +125,7 @@ hardware needed.
 
 ## `chips/bench/` — the simulation test chip
 
-`chips/bench/harness.act` assembles the off-chip periphery (ROM + `fifo_in`
+`chips/bench/periphery.act` assembles the off-chip periphery (ROM + `fifo_in`
 + `fifo_out` + `gpio`, behind a `demux`) that a chip variant needs.
 `chips/bench/core.act` wires that together with `core/soc.act` into one
 chip, exposing:
@@ -163,7 +163,7 @@ one path end to end. Run any of them with `make <name>` (or all via
 
 `e2e_reset_reload_test` is the one exception that doesn't use
 `chips/bench/core.act`: it needs two independent backing ROMs behind
-`core/peripherals/rom_selector.act`, which `harness.act`'s single-ROM
+`core/peripherals/rom_selector.act`, which `periphery.act`'s single-ROM
 parameterization doesn't accommodate.
 
 ## ROM bank selector (`core/peripherals/rom_selector.act`)
@@ -262,6 +262,25 @@ generates `gen/file_ids.act` and `gen/file_registry.conf` (passed to
 The riscv-tests convention is `WFI` = pass, `EBREAK` = fail (with the
 failing `TESTNUM`/`x28` value logged just above it). A software test passes
 only if it reaches WFI with no EBREAK and no assertion failure.
+
+## Naming & layout conventions
+
+- **`chips/<variant>/periphery.act`** (not `harness.act`) is each chip
+  variant's off-chip periphery assembly — `defproc periphery`, instantiated
+  as `p` in that variant's own `core.act` (e.g. `chips/bench/periphery.act`,
+  `chips/dvs/periphery.act`, `chips/fpga/periphery.act`). Renamed from
+  `harness.act` to stop colliding with the unrelated top-level `harness/`
+  (the physical FPGA/Vivado bring-up flow — `harness/fpga`, `harness/static`,
+  `harness/host`, `harness/dashboard`) — same vocabulary, different concepts;
+  `chips/` and `harness/` (top-level) stay separate and unrenamed.
+- **`chips/fpga/data/`** holds the tracked DVS capture recordings
+  (`dvs_capture_20260714_151049.csv`, `phone.csv`, `stabilize.csv`) that the
+  FPGA e2e rotate/track/motion/timesurface/denoise tests and
+  `harness/host/dvs_*_live.py` replay from — split out from `chips/fpga/`'s
+  source/build files (`core.act`, `periphery.act`, `Makefile`) so recorded
+  fixtures don't sit flat alongside them. The generated `*_capture_*.mem`
+  scratch files those scripts also write stay directly under `chips/fpga/`
+  (gitignored, not fixtures).
 
 ## Toolchain
 

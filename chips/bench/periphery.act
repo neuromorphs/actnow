@@ -19,7 +19,7 @@ import "core/peripherals/demux.act";
 // unconnected is fine as long as it never sends on it -- i.e. as long as
 // fifo_in's trigger_level stays configured unreachable (see fifo_in.act).
 template<pint ROM_IMAGE>
-defproc harness(
+defproc periphery(
     chan?(addr_t) addr_in;
     chan?(mode_mem_t) mode_in;
     chan?(int<WIDTH_DATA>) wdata_in;

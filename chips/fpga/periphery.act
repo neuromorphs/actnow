@@ -26,7 +26,7 @@ import "core/peripherals/demux.act";
 //     chip boundary -- what it binds to off-chip (PS/AXI, PL pins) is decided
 //     one level up / on the Vivado side, not here.
 template<pint FIFO_DEPTH>
-defproc harness(
+defproc periphery(
     chan?(addr_t) addr_in;
     chan?(mode_mem_t) mode_in;
     chan?(int<WIDTH_DATA>) wdata_in;

@@ -1,7 +1,7 @@
 import "core/globals.act";
 
 // SPI programming/data interface: a small, CPU-facing MMIO peripheral --
-// routed by chips/dvs/harness.act's demux exactly like any other
+// routed by chips/dvs/periphery.act's demux exactly like any other
 // peripheral (fifo_in/gpio/spi_boot), not a RAM bus master. This mirrors
 // how real, simple SPI controller IP actually works: the CPU orchestrates
 // data movement between RAM and the peripheral itself via ordinary

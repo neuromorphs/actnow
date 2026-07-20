@@ -5,7 +5,7 @@ import "gen/file_ids.act";
 
 // FPGA-variant "real-life" test: boots software/dvs_rotate/main.c through the
 // bootloader, then replays 200 events taken verbatim from a real recorded
-// capture (chips/fpga/dvs_capture_20260714_151049.csv, packed the same way
+// capture (chips/fpga/data/dvs_capture_20260714_151049.csv, packed the same way
 // evt_pack.v would on real hardware -- each literal below is one event's raw
 // base-5 FIFO word: evt_pack.v's low 15 bits, {pol,y[6:0],x[6:0]} -- this
 // capture has no per-event timestamp, so the top 17 ts bits are 0, which is

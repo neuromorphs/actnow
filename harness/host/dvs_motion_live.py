@@ -37,7 +37,7 @@ import numpy as np
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 DATA_DIR = os.path.join(REPO_ROOT, "chips", "fpga")
-CSV_PATH = os.path.join(DATA_DIR, "dvs_capture_20260714_151049.csv")
+CSV_PATH = os.path.join(DATA_DIR, "data", "dvs_capture_20260714_151049.csv")
 EVENTS_PATH = os.path.join(DATA_DIR, "rotate_capture_events.mem")
 RESULTS_PATH = os.path.join(DATA_DIR, "motion_capture_results.mem")
 

@@ -7,7 +7,7 @@ import "gen/file_ids.act";
 // tracker: boots software/dvs_track/main.c through the bootloader, then
 // replays the same 256 events (64 batches -- exactly one DUMP_INTERVAL)
 // from the real recorded capture that e2e_fpga_denoise_test.act uses
-// (chips/fpga/dvs_capture_20260714_151049.csv), through the input FIFO
+// (chips/fpga/data/dvs_capture_20260714_151049.csv), through the input FIFO
 // (base 5). Each event is packed in the hardware ABI evt_pack.v produces --
 // x in bits [30:24], y in [23:17] -- exactly what dvs_track/main.c decodes,
 // so this exercises the same coordinate path the FPGA does.

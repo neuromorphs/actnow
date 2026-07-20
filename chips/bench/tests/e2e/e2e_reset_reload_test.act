@@ -9,7 +9,7 @@ import "gen/file_ids.act";
 // the *same* image), this proves reset can recover from a genuinely
 // different, broken program by rebooting into a corrected one.
 //
-// Doesn't use chips/bench/core.act: harness.act is parameterized on a
+// Doesn't use chips/bench/core.act: periphery.act is parameterized on a
 // single ROM_IMAGE, but this scenario needs two independent backing ROMs
 // (ROM_IMAGE_HANG/ROM_IMAGE_APPLICATION) behind a rom_selector mux, so this
 // test hand-rolls soc + demux + rom_selector + fifo_in/fifo_out directly.

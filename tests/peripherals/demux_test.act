@@ -27,7 +27,7 @@ defproc addr_source (
     chp {
         log("======== demux test start ========");
 
-        // Bases mirror the real deployment (chips/bench/harness.act):
+        // Bases mirror the real deployment (chips/bench/periphery.act):
         // ROM=4, fifo_in=5, fifo_out=6, no catch-all -- everything here is
         // an exact route, unlike mmu.act's own 2-exact+catch-all shape.
 

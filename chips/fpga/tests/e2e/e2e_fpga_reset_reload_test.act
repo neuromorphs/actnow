@@ -9,10 +9,10 @@ import "gen/file_ids.act";
 // program by rebooting into a corrected one.
 //
 // Unlike the bench version (which hand-rolls soc + demux + rom_selector +
-// fifo_in/fifo_out because harness.act is parameterized on a single ROM_IMAGE),
+// fifo_in/fifo_out because periphery.act is parameterized on a single ROM_IMAGE),
 // the FPGA core already exposes the ROM as a *raw* external route -- so this
 // test just hangs a rom_selector + two backing ROMs off core's rom_* ports, no
-// need to bypass the chip's own harness. The base-6 output is a testbench
+// need to bypass the chip's own periphery assembly. The base-6 output is a testbench
 // fifo_out on the raw io_* route, exactly as in e2e_fpga_fifo_test.
 //
 // software/hang/main.c is deliberately erroneous: a real infinite loop that

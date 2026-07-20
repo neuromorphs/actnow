@@ -6,7 +6,7 @@ import "gen/file_ids.act";
 // FPGA-variant correctness test for the time-surface detector: boots
 // software/dvs_timesurface/main.c through the bootloader, then replays the
 // first 256 events (64 batches -- exactly one DUMP_INTERVAL) taken verbatim
-// from the real recorded capture (chips/fpga/dvs_capture_20260714_151049.csv,
+// from the real recorded capture (chips/fpga/data/dvs_capture_20260714_151049.csv,
 // packed the same way evt_pack.v would on real hardware) through the input
 // FIFO (base 5), same replay-a-capture-file pattern as
 // e2e_fpga_rotate_test.act / e2e_fpga_motion_test.act.

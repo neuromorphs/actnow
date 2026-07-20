@@ -43,16 +43,16 @@ pint ADDR_RESET = 0x40000;
 pint ADDR_INT_CTRL_ENABLE = 64;
 
 // GPIO output register (core/peripherals/gpio.act), routed by
-// chips/bench/harness.act's demux alongside ROM(4)/fifo_in(5)/fifo_out(6),
-// and by chips/dvs/harness.act's demux the same way.
+// chips/bench/periphery.act's demux alongside ROM(4)/fifo_in(5)/fifo_out(6),
+// and by chips/dvs/periphery.act's demux the same way.
 pint ADDR_GPIO = 7;
 
-// AER (address-event) input, routed by chips/dvs/harness.act's demux at
+// AER (address-event) input, routed by chips/dvs/periphery.act's demux at
 // base=5, using fifo_in the same generic buffer chips/bench uses at that
 // base.
 pint ADDR_AER = 5;
 
-// dvs's two SPI peripherals, both routed by chips/dvs/harness.act's demux
+// dvs's two SPI peripherals, both routed by chips/dvs/periphery.act's demux
 // like any other peripheral -- neither is a RAM bus master; the CPU
 // orchestrates data movement via ordinary loads/stores, same as every
 // other peripheral here.

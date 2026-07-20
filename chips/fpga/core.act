@@ -1,8 +1,8 @@
 import "core/globals.act";
 import "core/soc.act";
-import "chips/fpga/harness.act";
+import "chips/fpga/periphery.act";
 
-// chips/fpga's whole chip: soc + its off-chip periphery (harness.act) wired
+// chips/fpga's whole chip: soc + its off-chip periphery (periphery.act) wired
 // together for the FPGA build. Exposes only what this variant uses:
 //   - a single interrupt: the input FIFO's auto-fire (event_out) drives soc's
 //     event_id_0. soc's other 15 event lines are intentionally left
@@ -34,27 +34,27 @@ defproc core(
     chan?(int<WIDTH_DATA>) io_rdata
 ) {
     soc s;
-    harness<FIFO_DEPTH> h;
+    periphery<FIFO_DEPTH> p;
 
-    h.addr_in = s.addr_ext;
-    h.mode_in = s.mode_ext;
-    h.wdata_in = s.wdata_ext;
-    h.rdata_in = s.rdata_ext;
+    p.addr_in = s.addr_ext;
+    p.mode_in = s.mode_ext;
+    p.wdata_in = s.wdata_ext;
+    p.rdata_in = s.rdata_ext;
 
-    h.rom_addr = rom_addr;
-    h.rom_mode = rom_mode;
-    h.rom_rdata = rom_rdata;
+    p.rom_addr = rom_addr;
+    p.rom_mode = rom_mode;
+    p.rom_rdata = rom_rdata;
 
-    h.fifo_push = fifo_push;
+    p.fifo_push = fifo_push;
 
-    h.io_addr = io_addr;
-    h.io_mode = io_mode;
-    h.io_wdata = io_wdata;
-    h.io_rdata = io_rdata;
+    p.io_addr = io_addr;
+    p.io_mode = io_mode;
+    p.io_wdata = io_wdata;
+    p.io_rdata = io_rdata;
 
     // Single interrupt: input FIFO auto-fire -> event_id_0.
     chan(bool) fifo_event;
-    h.fifo_event = fifo_event;
+    p.fifo_event = fifo_event;
     s.event_id_0 = fifo_event;
 
     s.reset_ext = reset_ext;

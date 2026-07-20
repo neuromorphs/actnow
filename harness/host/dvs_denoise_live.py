@@ -9,7 +9,7 @@ neighborhood of cells close together in time, so it passes; an isolated
 background-activity-noise event, with no correlated neighbor, doesn't. See
 software/dvs_denoise/main.c's header for the full filter design and why
 CORRELATION_WINDOW=25 was picked (empirically, against
-chips/fpga/dvs_capture_20260714_151049.csv -- smaller values fragment real
+chips/fpga/data/dvs_capture_20260714_151049.csv -- smaller values fragment real
 motion, larger values let noise back in).
 
 Same live-tailing setup as dvs_timesurface_live.py: launches

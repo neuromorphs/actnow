@@ -22,7 +22,7 @@ import "core/peripherals/gpio.act";
 // independently via a plain busy-wait loop (see spi_boot.act's header
 // comment).
 template<pint AER_DEPTH>
-defproc harness(
+defproc periphery(
     chan?(addr_t) addr_in;
     chan?(mode_mem_t) mode_in;
     chan?(int<WIDTH_DATA>) wdata_in;

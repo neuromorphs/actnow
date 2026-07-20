@@ -7,7 +7,7 @@ import "gen/file_ids.act";
 // *raw* ROM route (base 4), and confirm it reaches WFI cleanly -- the exact
 // boot path chips/bench/tests/e2e/e2e_boot_test.act exercises, but with the ROM
 // modelled *outside* the chip (a file-preloaded mem<true,...> hung off core's
-// raw rom_* ports) instead of living inside the harness.
+// raw rom_* ports) instead of living inside the periphery.
 //
 // boot_only never touches a peripheral this test could otherwise block on, so
 // the only thing this chp body does is the one thing nothing else can do for it:

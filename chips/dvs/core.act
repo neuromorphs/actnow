@@ -1,8 +1,8 @@
 import "core/globals.act";
 import "core/soc.act";
-import "chips/dvs/harness.act";
+import "chips/dvs/periphery.act";
 
-// dvs's whole chip: soc + its off-chip periphery (chips/dvs/harness.act)
+// dvs's whole chip: soc + its off-chip periphery (chips/dvs/periphery.act)
 // wired together. Only 3 of soc's 16 event lines are used:
 //   - event_id_0 is hardwired directly to the AER input's own event_out --
 //     nothing ever needs to fire that line manually, so there's no reason
@@ -15,7 +15,7 @@ import "chips/dvs/harness.act";
 //
 // swd_0/swd_1 are stub input pins reserved for future SWD debug support --
 // declared for interface completeness, genuinely unconnected to any soc
-// functionality today. gpio_out_0..3 pass straight through to harness.act's
+// functionality today. gpio_out_0..3 pass straight through to periphery.act's
 // gpio peripheral pins; software drives them with an MMIO write to
 // base=ADDR_GPIO. Both SPI peripherals' external pins are exposed here
 // since they're real chip-package pins.
@@ -34,26 +34,26 @@ defproc core(
     chan!(bool) gpio_out_2; chan!(bool) gpio_out_3
 ) {
     soc s;
-    harness<AER_DEPTH> h;
+    periphery<AER_DEPTH> p;
 
-    h.addr_in = s.addr_ext;
-    h.mode_in = s.mode_ext;
-    h.wdata_in = s.wdata_ext;
-    h.rdata_in = s.rdata_ext;
-    h.aer_in = aer_in;
+    p.addr_in = s.addr_ext;
+    p.mode_in = s.mode_ext;
+    p.wdata_in = s.wdata_ext;
+    p.rdata_in = s.rdata_ext;
+    p.aer_in = aer_in;
 
-    h.spi_boot_cs = spi_boot_cs; h.spi_boot_sclk = spi_boot_sclk;
-    h.spi_boot_mosi = spi_boot_mosi; h.spi_boot_miso = spi_boot_miso;
-    h.spi_prog_cs = spi_prog_cs; h.spi_prog_sclk = spi_prog_sclk;
-    h.spi_prog_mosi = spi_prog_mosi; h.spi_prog_miso = spi_prog_miso;
+    p.spi_boot_cs = spi_boot_cs; p.spi_boot_sclk = spi_boot_sclk;
+    p.spi_boot_mosi = spi_boot_mosi; p.spi_boot_miso = spi_boot_miso;
+    p.spi_prog_cs = spi_prog_cs; p.spi_prog_sclk = spi_prog_sclk;
+    p.spi_prog_mosi = spi_prog_mosi; p.spi_prog_miso = spi_prog_miso;
 
-    h.gpio_out_0 = gpio_out_0;
-    h.gpio_out_1 = gpio_out_1;
-    h.gpio_out_2 = gpio_out_2;
-    h.gpio_out_3 = gpio_out_3;
+    p.gpio_out_0 = gpio_out_0;
+    p.gpio_out_1 = gpio_out_1;
+    p.gpio_out_2 = gpio_out_2;
+    p.gpio_out_3 = gpio_out_3;
 
     chan(bool) aer_event;
-    h.aer_event = aer_event;
+    p.aer_event = aer_event;
     s.event_id_0 = aer_event;
 
     s.event_id_1 = gpio_in_0;
