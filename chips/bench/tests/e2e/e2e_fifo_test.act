@@ -3,11 +3,21 @@ import "gen/file_ids.act";
 
 // Boots a real compiled program (software/application/main.c) through the
 // bootloader, lets it configure its own interrupt vector and input FIFO
-// trigger level (BATCH=3), then go to sleep. Pushes two separate 3-word
+// trigger level (BATCH=4), then go to sleep. Pushes two separate 4-word
 // batches into the input FIFO (with a delay between them) -- fifo_in fires
 // the interrupt itself once each batch lands, no manual triggering here.
-// Each batch is processed by the program's own ISR and observed as 3
+// Each batch is processed by the program's own ISR and observed as 4
 // results on the output FIFO.
+//
+// Each pushed word is a synthetic event packed per software/application/
+// main.c's "Requirements event ABI" (bits 30:24 x, 23:17 y, 16:1 timestep,
+// bit 0 polarity), polarity always 1 -- transform_event() silently drops
+// any event whose polarity bit isn't 1 (no output word at all), so every
+// word here needs it set to get a 1:1 push:pop correspondence. Expected
+// outputs are transform_event()'s actual math (reflect (x,y) through the
+// sensor center, +5/+3 offset, clamp to [0,125]x[0,111], polarity flipped
+// to 0) computed in Python against that function when this file was
+// written -- see transform_event() itself for the reference.
 //
 // `c.event_id_0 = c.fifo_event` wires fifo_in's auto-fire to event_id_0,
 // matching real chips/bench wiring (unlike e2e_multi_event_test.act, which
@@ -29,39 +39,46 @@ defproc e2e_fifo_test() {
         // until the program has configured its vector and trigger level,
         // and the interrupt fires itself once a batch lands.
 
-        // --- Batch 1: push 41, 42, 43 -- ISR computes +1 on each, expect
-        // 42, 43, 44 out.
-        log("--- batch 1: pushing 41, 42, 43 into the input FIFO ---");
-        c.push!int(41, WIDTH_DATA);
-        c.push!int(42, WIDTH_DATA);
-        c.push!int(43, WIDTH_DATA);
+        // --- Batch 1: 4 synthetic events, (x=10,y=10) (x=63,y=56) (x=0,y=0)
+        // (x=120,y=100), all polarity=1.
+        log("--- batch 1: pushing 4 events into the input FIFO ---");
+        c.push!int(169082881, WIDTH_DATA);  // x=10,  y=10,  ts=0,  p=1
+        c.push!int(1064304643, WIDTH_DATA); // x=63,  y=56,  ts=1,  p=1
+        c.push!int(5, WIDTH_DATA);          // x=0,   y=0,   ts=2,  p=1
+        c.push!int(2026373127, WIDTH_DATA); // x=120, y=100, ts=3,  p=1
 
         c.pop?result;
-        assert(result = 42, "batch 1 result 1: want 42, got ", result);
+        assert(result = 2043543552, "batch 1 result 1: want 2043543552, got ", result);
         c.pop?result;
-        assert(result = 43, "batch 1 result 2: want 43, got ", result);
+        assert(result = 1148321794, "batch 1 result 2: want 1148321794, got ", result);
         c.pop?result;
-        assert(result = 44, "batch 1 result 3: want 44, got ", result);
-        log("batch 1: got 42, 43, 44 back from the output FIFO");
+        assert(result = 2111700996, "batch 1 result 3: want 2111700996, got ", result);
+        c.pop?result;
+        assert(result = 186253318, "batch 1 result 4: want 186253318, got ", result);
+        log("batch 1: got all 4 transformed events back from the output FIFO");
 
         // Model some real-world latency between events.
         delay := 0;
         *[ delay < 3000 -> delay := delay + 1 ];
 
-        // --- Batch 2: push 100, 200, 300, expect 101, 201, 301 out. Same
-        // ISR and config, reused without reconfiguring anything.
-        log("--- batch 2: pushing 100, 200, 300 into the input FIFO ---");
-        c.push!int(100, WIDTH_DATA);
-        c.push!int(200, WIDTH_DATA);
-        c.push!int(300, WIDTH_DATA);
+        // --- Batch 2: 4 more synthetic events, (x=20,y=30) (x=100,y=5)
+        // (x=1,y=111) (x=126,y=0), all polarity=1. Same ISR and config,
+        // reused without reconfiguring anything.
+        log("--- batch 2: pushing 4 events into the input FIFO ---");
+        c.push!int(339476501, WIDTH_DATA);  // x=20,  y=30,  ts=10, p=1
+        c.push!int(1678376983, WIDTH_DATA); // x=100, y=5,   ts=11, p=1
+        c.push!int(31326233, WIDTH_DATA);   // x=1,   y=111, ts=12, p=1
+        c.push!int(2113929243, WIDTH_DATA); // x=126, y=0,   ts=13, p=1
 
         c.pop?result;
-        assert(result = 101, "batch 2 result 1: want 101, got ", result);
+        assert(result = 1873149972, "batch 2 result 1: want 1873149972, got ", result);
         c.pop?result;
-        assert(result = 201, "batch 2 result 2: want 201, got ", result);
+        assert(result = 534249494, "batch 2 result 2: want 534249494, got ", result);
         c.pop?result;
-        assert(result = 301, "batch 2 result 3: want 301, got ", result);
-        log("batch 2: got 101, 201, 301 back from the output FIFO");
+        assert(result = 2097414168, "batch 2 result 3: want 2097414168, got ", result);
+        c.pop?result;
+        assert(result = 98435098, "batch 2 result 4: want 98435098, got ", result);
+        log("batch 2: got all 4 transformed events back from the output FIFO");
 
         log("======== end-to-end interrupt/FIFO test complete ========")
     }

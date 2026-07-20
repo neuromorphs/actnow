@@ -205,13 +205,17 @@ raw-viewer:
 
 # Built once, not force-rebuilt per test like $(ROM_IMAGE) above -- these two
 # are permanent fixtures for e2e_reset_reload_test, not swapped out per run.
-$(ROM_IMAGE_HANG):
+# Each still lists its program's main.c as a prerequisite so a genuinely
+# stale fixture (main.c edited since the last build) gets rebuilt rather
+# than silently reused -- without this, `make` only checks whether the
+# target file exists at all, never whether it matches current source.
+$(ROM_IMAGE_HANG): software/hang/main.c
 	@mkdir -p $(dir $@)
 	@rm -f software/build/rom.mem
 	$(MAKE) -C software PROG=hang CROSS=$(CROSS)
 	sed 's/^/0b/' software/build/rom.mem > $@
 
-$(ROM_IMAGE_APPLICATION):
+$(ROM_IMAGE_APPLICATION): software/application/main.c
 	@mkdir -p $(dir $@)
 	@rm -f software/build/rom.mem
 	$(MAKE) -C software PROG=application CROSS=$(CROSS)

@@ -166,6 +166,39 @@ one path end to end. Run any of them with `make <name>` (or all via
 `core/peripherals/rom_selector.act`, which `periphery.act`'s single-ROM
 parameterization doesn't accommodate.
 
+## Other chip variants' e2e suites (`chips/dvs/`, `chips/fpga/`)
+
+`chips/bench/` above is the generic simulation chip. `chips/dvs/` (AER event
+sensor + SPI boot/programming interface) and `chips/fpga/` (the real
+FPGA-bound variant) are separate chip variants shaped the same way --
+`core.act` + `periphery.act` + their own `tests/e2e/` + their own Makefile --
+but **neither is wired into the root `make test`**. Run them explicitly, from
+the project root same as everything else:
+
+```
+make -C chips/dvs test                     # every chips/dvs e2e test
+make -C chips/fpga test                    # every chips/fpga e2e test
+make -C chips/fpga e2e_fpga_rotate_test    # a single test by name
+```
+
+- **`chips/dvs/tests/e2e/`** — `e2e_boot_test`/`e2e_reset_test`/
+  `e2e_gpio_test` mirror chips/bench's tests of the same name, against
+  `software/dvs_application`'s bootloader+program combination.
+  `e2e_aer_test`/`e2e_aer_stress_test` are the AER-input equivalent of
+  `e2e_fifo_test`/`e2e_fifo_stress_test` above. `e2e_spi_read_test` and
+  `e2e_dvs_probe_all` exercise `spi_prog`'s read direction and raw
+  transaction decoding. `e2e_full_test` chains the whole pipeline: boot XIP
+  out of `spi_boot`, load data via `spi_prog`, then run it.
+- **`chips/fpga/tests/e2e/`** — boot/fifo/reset tests mirroring chips/bench's,
+  plus rotate/track/motion/timesurface/denoise tests that replay real
+  recorded DVS captures (`chips/fpga/data/`, see below) through each
+  program's ISR and assert against reference values. Not every `.act` file
+  here is wired into `make -C chips/fpga test` — the `*_capture` variants in
+  particular are meant to be driven interactively by `harness/host/
+  dvs_*_live.py` (which regenerate the `*_capture_results.mem` scratch files
+  those same scripts visualize), not run as part of the automated suite; see
+  `chips/fpga/Makefile`'s own `test:` target for the current list.
+
 ## ROM bank selector (`core/peripherals/rom_selector.act`)
 
 A 2-way mux between two backing `mem<true,...>` ROM instances, routing

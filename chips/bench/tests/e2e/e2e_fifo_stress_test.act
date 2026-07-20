@@ -11,37 +11,97 @@ import "gen/file_ids.act";
 // Regression for the fifo_in single-batch hang: fired on the exact
 // count==trigger_level push, that only re-arms if the FIFO drains below the
 // level between batches, so a continuous producer that saturates it deadlocks
-// the core after one batch (3 results). The watermark/re-arm fix in
+// the core after one batch. The watermark/re-arm fix in
 // core/peripherals/fifo_in.act makes it service every batch. See the identical
 // scenario for the fpga chip in chips/fpga/tests/e2e/e2e_fpga_fifo_stress.act.
+//
+// 3 full batches (BATCH=4 in software/application): enough to prove the
+// interrupt re-arms past the first batch, small enough to sim fast. Each
+// pushed word is a synthetic event packed per software/application/main.c's
+// "Requirements event ABI", polarity always 1 -- transform_event() silently
+// drops anything else, and this test needs a clean 1:1 push:pop
+// correspondence to keep the parallel producer/consumer in lockstep.
+// Expected outputs are transform_event()'s actual math, computed in Python
+// against that function when this file was written (see e2e_fifo_test.act's
+// header for the same reference). Pushes/pops are unrolled rather than a
+// runtime array + loop: actsim's chp-only simulation (no prs backing this
+// defproc) rejects dynamic array indexing outright ("ERR: Dynamic arrays not
+// supported"), same reason chips/fpga's e2e tests unroll their replayed
+// events too.
 defproc e2e_fifo_stress_test() {
     core<ROM_IMAGE> c;
     c.event_id_0 = c.fifo_event;
 
     int<WIDTH_DATA> result;
-    int<32> icnt, ocnt;
+    int<32> ocnt;
 
-    // 4 full batches (BATCH=3 in software/application): enough to prove the
-    // interrupt re-arms past the first batch, small enough to sim fast.
     chp {
         log("======== fifo stress (continuous push) start ========");
         c.reset_ext!true;
         (
-            ( icnt := 1;
-              *[ icnt <= 12 ->
-                    c.push!int(icnt, WIDTH_DATA);
-                    icnt := icnt + 1
-              ]
+            ( c.push!int(85196801, WIDTH_DATA);    // x=  5, y= 10, ts=0,  p=1
+              c.push!int(254279683, WIDTH_DATA);   // x= 15, y= 20, ts=1,  p=1
+              c.push!int(423362565, WIDTH_DATA);   // x= 25, y= 30, ts=2,  p=1
+              c.push!int(592445447, WIDTH_DATA);   // x= 35, y= 40, ts=3,  p=1
+              c.push!int(761528329, WIDTH_DATA);   // x= 45, y= 50, ts=4,  p=1
+              c.push!int(930611211, WIDTH_DATA);   // x= 55, y= 60, ts=5,  p=1
+              c.push!int(1099694093, WIDTH_DATA);  // x= 65, y= 70, ts=6,  p=1
+              c.push!int(1268776975, WIDTH_DATA);  // x= 75, y= 80, ts=7,  p=1
+              c.push!int(1437859857, WIDTH_DATA);  // x= 85, y= 90, ts=8,  p=1
+              c.push!int(1606942739, WIDTH_DATA);  // x= 95, y=100, ts=9,  p=1
+              c.push!int(1776025621, WIDTH_DATA);  // x=105, y=110, ts=10, p=1
+              c.push!int(1930035223, WIDTH_DATA)   // x=115, y=  5, ts=11, p=1
             )
             ,
             ( ocnt := 0;
-              *[ ocnt < 12 ->
-                    c.pop?result;
-                    log("RESULT #", ocnt, " = ", result);
-                    // the ISR adds 1; inputs are 1..12, popped in order
-                    assert(result = ocnt + 2, "stress: result ", ocnt, " want ", ocnt + 2, " got ", result);
-                    ocnt := ocnt + 1
-              ]
+              c.pop?result;
+              log("RESULT #", ocnt, " = ", result);
+              assert(result = 2110652416, "stress: result 0 want 2110652416 got ", result);
+              ocnt := ocnt + 1;
+              c.pop?result;
+              log("RESULT #", ocnt, " = ", result);
+              assert(result = 1958346754, "stress: result 1 want 1958346754 got ", result);
+              ocnt := ocnt + 1;
+              c.pop?result;
+              log("RESULT #", ocnt, " = ", result);
+              assert(result = 1789263876, "stress: result 2 want 1789263876 got ", result);
+              ocnt := ocnt + 1;
+              c.pop?result;
+              log("RESULT #", ocnt, " = ", result);
+              assert(result = 1620180998, "stress: result 3 want 1620180998 got ", result);
+              ocnt := ocnt + 1;
+              c.pop?result;
+              log("RESULT #", ocnt, " = ", result);
+              assert(result = 1451098120, "stress: result 4 want 1451098120 got ", result);
+              ocnt := ocnt + 1;
+              c.pop?result;
+              log("RESULT #", ocnt, " = ", result);
+              assert(result = 1282015242, "stress: result 5 want 1282015242 got ", result);
+              ocnt := ocnt + 1;
+              c.pop?result;
+              log("RESULT #", ocnt, " = ", result);
+              assert(result = 1112932364, "stress: result 6 want 1112932364 got ", result);
+              ocnt := ocnt + 1;
+              c.pop?result;
+              log("RESULT #", ocnt, " = ", result);
+              assert(result = 943849486, "stress: result 7 want 943849486 got ", result);
+              ocnt := ocnt + 1;
+              c.pop?result;
+              log("RESULT #", ocnt, " = ", result);
+              assert(result = 774766608, "stress: result 8 want 774766608 got ", result);
+              ocnt := ocnt + 1;
+              c.pop?result;
+              log("RESULT #", ocnt, " = ", result);
+              assert(result = 605683730, "stress: result 9 want 605683730 got ", result);
+              ocnt := ocnt + 1;
+              c.pop?result;
+              log("RESULT #", ocnt, " = ", result);
+              assert(result = 436600852, "stress: result 10 want 436600852 got ", result);
+              ocnt := ocnt + 1;
+              c.pop?result;
+              log("RESULT #", ocnt, " = ", result);
+              assert(result = 282591254, "stress: result 11 want 282591254 got ", result);
+              ocnt := ocnt + 1
             )
         );
         log("======== fifo stress complete: all 12 results correct ========")
