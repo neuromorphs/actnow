@@ -77,20 +77,26 @@ defproc e2e_fpga_reset_reload_test() {
         c.reset_ext!true;
         log("--- reset done -- should now be booting the corrected program from bank B ---");
 
-        // Same batch e2e_fpga_fifo_test uses -- only passes if the corrected
-        // program genuinely booted and reconfigured itself from scratch.
-        log("--- pushing 41, 42, 43 into the input FIFO ---");
-        c.fifo_push!int(41, WIDTH_DATA);
-        c.fifo_push!int(42, WIDTH_DATA);
-        c.fifo_push!int(43, WIDTH_DATA);
+        // Same batch e2e_fpga_fifo_test's batch 1 uses -- 4 synthetic events,
+        // (x=10,y=10) (x=63,y=56) (x=0,y=0) (x=120,y=100), all polarity=1
+        // (see that file's header for the packing/transform reference).
+        // Only passes if the corrected program genuinely booted and
+        // reconfigured itself from scratch.
+        log("--- pushing 4 events into the input FIFO ---");
+        c.fifo_push!int(169082881, WIDTH_DATA);  // x=10,  y=10,  ts=0,  p=1
+        c.fifo_push!int(1064304643, WIDTH_DATA); // x=63,  y=56,  ts=1,  p=1
+        c.fifo_push!int(5, WIDTH_DATA);          // x=0,   y=0,   ts=2,  p=1
+        c.fifo_push!int(2026373127, WIDTH_DATA); // x=120, y=100, ts=3,  p=1
 
         fout.pop?result;
-        assert(result = 42, "result 1: want 42, got ", result);
+        assert(result = 2043543552, "result 1: want 2043543552, got ", result);
         fout.pop?result;
-        assert(result = 43, "result 2: want 43, got ", result);
+        assert(result = 1148321794, "result 2: want 1148321794, got ", result);
         fout.pop?result;
-        assert(result = 44, "result 3: want 44, got ", result);
-        log("got 42, 43, 44 back from the base-6 output -- recovery into the corrected program confirmed");
+        assert(result = 2111700996, "result 3: want 2111700996, got ", result);
+        fout.pop?result;
+        assert(result = 186253318, "result 4: want 186253318, got ", result);
+        log("got all 4 transformed events back from the base-6 output -- recovery into the corrected program confirmed");
 
         log("======== reset+reload e2e test complete ========")
     }
