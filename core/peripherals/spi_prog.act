@@ -1,28 +1,16 @@
 import "core/globals.act";
 
-// SPI programming/data interface: a small, CPU-facing MMIO peripheral --
-// routed by chips/dvs/periphery.act's demux exactly like any other
-// peripheral (fifo_in/gpio/spi_boot), not a RAM bus master. This mirrors
-// how real, simple SPI controller IP actually works: the CPU orchestrates
-// data movement between RAM and the peripheral itself via ordinary
-// loads/stores to a couple of staging registers; the peripheral only knows
-// how to shift bits over the external SPI bus, not how to walk memory on
-// its own.
-//
-//   offset 0 (address register): CPU write stages the 20-bit address used
-//     by the next transaction; CPU read returns whatever's currently
-//     staged (no side effect).
-//   offset 4 (data register): CPU write stages a 32-bit value and
-//     immediately triggers an outbound SPI WRITE (R/W=1, staged address,
-//     this data); CPU read triggers an outbound SPI READ (R/W=0, staged
-//     address), blocks until the 32-bit result has shifted back in over
-//     miso, and returns it.
-//
-// spi_prog is still the SPI *master* on its external side (drives cs/
-// sclk/mosi, only listens on miso) -- see spi_boot.act's header comment
-// for why that means self-timing sclk via a plain busy-wait loop
-// (SPI_CLOCK_DELAY_N) rather than pacing it against rendezvous with the
-// external device.
+// SPI programming/data interface, an ordinary CPU-facing MMIO peripheral (not a
+// RAM bus master): the CPU orchestrates data movement via loads/stores to two
+// staging registers; the peripheral only shifts bits over the external SPI bus.
+//   1. offset 0 (address register): write stages the 20-bit address for the next
+//      transaction; read returns whatever's staged (no side effect).
+//   2. offset 4 (data register): write stages a 32-bit value and immediately
+//      triggers an outbound SPI WRITE; read triggers an outbound SPI READ, blocks
+//      until the 32-bit result shifts back in over miso, and returns it.
+//   3. Still the SPI *master* on its external side -- see spi_boot.act's header
+//      for why that means self-timing sclk via a busy-wait loop (SPI_CLOCK_DELAY_N)
+//      rather than pacing it against rendezvous with the external device.
 defproc spi_prog(
     chan?(addr_t) addr; chan?(mode_mem_t) mode;
     chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata;

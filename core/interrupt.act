@@ -1,24 +1,15 @@
 import "core/globals.act";
 
-// 16 maskable event lines, each with its own software-configured vector
-// register (word-addressed at ADDR_INT_CTRL:offset 0, 4, 8, ... 60). When
-// event_id_N fires, pc jumps to whatever address software last wrote to
-// vectors[N] -- since that address is a runtime value, not a constant baked
-// in here, vectoring works the same way whether the program is running XIP
-// from ROM or copied into SRAM by the bootloader.
-//
-// The reset vector itself (pc=ADDR_RESET) isn't dispatched from here at
-// all -- core.act blocks directly on its own reset_ext at boot, before this
-// process (or anything else) has had any chance to configure anything,
-// matching real hardware where the reset vector is fixed in silicon. This
-// process only ever clears its own state in response to a *relayed* reset
-// (reset_int_ctrl, core.act fanning its reset_ext out to both itself and
-// here) -- it never manufactures a boot event of its own.
-//
-// Each event_id_N also has an enable bit (see globals.act). Until software
-// sets it, this process doesn't even offer to receive on that channel, so a
-// device asserting it just blocks until software is ready, rather than
-// being dropped or dispatched to a not-yet-configured vector.
+// Interrupt controller, 16 maskable event lines (event_id_0..15):
+//   1. Each line has a software-written vector register (ADDR_INT_CTRL, offset 4*N)
+//      and an enable bit (ADDR_INT_CTRL_ENABLE) -- see globals.act.
+//   2. Until a line's enable bit is set, this process won't even receive on it, so
+//      an asserting device just blocks rather than firing an unconfigured vector.
+//   3. When an enabled event_id_N fires, event_pc gets vectors[N] -- works the same
+//      whether the program is XIP from ROM or copied into SRAM.
+//   4. The reset vector itself isn't dispatched here: core.act blocks on its own
+//      reset_ext at boot. This process only clears its state on a *relayed* reset
+//      (reset_int_ctrl) -- it never generates a boot event of its own.
 defproc interrupt(
     chan?(bool) event_id_0;
     chan?(bool) event_id_1;

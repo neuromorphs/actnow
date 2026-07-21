@@ -1,33 +1,17 @@
 import "core/globals.act";
 
-// SPI boot loader: what answers core's very first fetch on the dvs chip
-// (ADDR_RESET, base=4, hardcoded in core/core.act for every chip variant),
-// and every fetch/read after that. Unlike chips/bench's ROM
-// (core/peripherals/mem.act's READ_ONLY mode, preloaded from a file at
-// elaboration and backed by real storage), spi_boot holds no image of its
-// own at all -- it's a thin relay: every CPU read is forwarded, address
-// and all, as a live SPI transaction to the external flash, and whatever
-// comes back over miso is what the CPU gets. This is genuine XIP, not
-// "pull everything in once, then serve from a copy" -- dvs reuses
-// software/bootloader/main.c completely unchanged: it runs directly out of
-// spi_boot (each of its own instruction fetches becomes its own SPI
-// transaction), reads the length prefix in front of the real program image,
-// and copies exactly that many bytes into SRAM (base=0) itself, one real
-// LOAD at a time -- spi_boot doesn't need to know anything about image
-// sizes or copying; it only ever relays one word per request.
-//
-// spi_boot is the SPI *master*: it drives cs/sclk/mosi and only listens on
-// miso, exactly like a real MCU reading its own boot flash. A real SPI
-// slave never hands anything back except on miso -- there's no handshake
-// to pace sclk against, so each edge is self-timed via a plain busy-wait
-// loop (SPI_CLOCK_DELAY_N, core/globals.act) rather than paced by
-// rendezvous with the external device.
-//
-// Protocol: one transmission per CPU read, MSB-first -- 1 R/W bit (always
-// 0, read; spi_boot never writes to the flash), 20 address bits (the CPU's
-// own real requested offset, not a counter), then 32 data bits in via
-// miso. A CPU write is rejected via assert, same as chips/bench's
-// READ_ONLY ROM.
+// SPI boot loader: answers core's every fetch/read on the dvs chip via a live SPI
+// transaction to external flash -- genuine XIP, no local image at all:
+//   1. spi_boot is the SPI *master* -- drives cs/sclk/mosi, only listens on miso,
+//      self-timing each edge with a busy-wait loop (SPI_CLOCK_DELAY_N) rather than
+//      a handshake (a real SPI slave never hands anything back except on miso).
+//   2. Protocol per CPU read, MSB-first: 1 R/W bit (always 0), 20 address bits
+//      (the CPU's own requested offset), then 32 data bits in via miso.
+//   3. A CPU write is rejected via assert, same as chips/bench's READ_ONLY ROM.
+//   4. dvs runs software/bootloader/main.c unchanged directly out of spi_boot
+//      (each fetch is its own SPI transaction), which then copies the real program
+//      image into SRAM itself, one LOAD at a time -- spi_boot only ever relays one
+//      word per request, no knowledge of image size/copying needed.
 defproc spi_boot(
     chan?(addr_t) addr; chan?(mode_mem_t) mode;
     chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata;

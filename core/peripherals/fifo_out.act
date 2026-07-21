@@ -2,18 +2,13 @@ import std;
 
 import "core/globals.act";
 
-// Output FIFO: the CPU pushes data on every write (there's only one
-// register, so the address offset is ignored); the testbench pops the
-// oldest entry via `pop` to observe what the CPU produced. CPU reads are
-// rejected via assert -- there's no legitimate way to read an output-only
-// FIFO from the core side.
-//
-// A CPU write to a full FIFO blocks (real backpressure) rather than
-// asserting: fifo_out doesn't accept the transaction at all while
-// count=DEPTH, so the write just stalls until `pop` drains room. This is
-// safe from deadlock because (count<DEPTH)&#addr and (count>0)&#pop are
-// both top-level alternatives, re-evaluated every loop iteration -- neither
-// side can get stuck waiting behind the other.
+// Output FIFO, memory-mapped as a single data register (address offset ignored):
+//   1. CPU writes push; the testbench pops the oldest entry via `pop` to observe
+//      what the CPU produced. CPU reads are rejected via assert (output-only).
+//   2. A write to a full FIFO blocks (real backpressure) rather than asserting --
+//      it just stalls until `pop` drains room.
+//   3. Both sides are top-level alternatives re-evaluated every iteration, so
+//      neither can get stuck waiting behind the other.
 template<pint DEPTH>
 defproc fifo_out(
     chan?(addr_t) addr; chan?(mode_mem_t) mode;

@@ -5,6 +5,16 @@ import "core/utils.act";
 import "core/mmu.act";
 import "core/peripherals/mem.act";
 
+// The RV32I CPU core: fetch/decode/execute pipeline plus its internal peripherals.
+//   1. Cold boot blocks on reset_ext until asserted, then jumps pc to ADDR_RESET --
+//      no implicit power-on-and-go, matching real hardware.
+//   2. Each loop iteration: probe reset_ext (recoverable mid-run), fetch one
+//      instruction through mmu's instr port, decode all fields concurrently, then
+//      dispatch on opcode (WFI/R-type/I-type/LUI/EBREAK/branch/store/AUIPC/...).
+//   3. regfile handles register reads/writes; mmu arbitrates instr vs data access
+//      to internal RAM, the interrupt controller, and anything off-chip.
+//   4. interrupt.act owns the 16 event_id_N lines and their vector table;
+//      reset_ext is relayed to it so a reset also clears pending vectors.
 // TODO: parameterize event count
 defproc core(
     chan?(bool) event_id_0;

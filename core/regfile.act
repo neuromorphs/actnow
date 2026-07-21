@@ -1,3 +1,13 @@
+// 32 architectural registers (RV32I), x0 hardwired to 0. One req/resp pair:
+//   1. reg_req carries rs1/rs2 read addresses (with valid flags) and an rd
+//      write (addr/data/valid) all in one packet.
+//   2. If rs1_valid or rs2_valid, reply with reg_resp -- x0 always reads as 0
+//      without touching regs[].
+//   3. If rd_valid and rd_addr != 0, write rd_data into regs[rd_addr] -- writes
+//      to x0 are silently dropped.
+//   4. Read and write are separate req_pkt transactions from the caller's side
+//      (see core.act), so "read now, write the computed result later" is just
+//      two sends on the same channel.
 deftype reg_req(int<5> rs1_addr; bool rs1_valid;
                  int<5> rs2_addr; bool rs2_valid;
                  int<5> rd_addr; int<32> rd_data; bool rd_valid) { }

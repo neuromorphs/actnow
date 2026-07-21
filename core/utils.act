@@ -1,5 +1,11 @@
 import "core/globals.act";
 
+// Shared pure-function helpers used by core.act's decode/execute stage:
+//   1. alu -- R-type/I-type/shift-immediate ALU, shared by every arithmetic op.
+//   2. branch_taken -- B-type comparison, built on top of alu.
+//   3. compute_addr -- base+imm effective-address computation for loads/stores.
+//   4. mask_data -- BYTE/HALF_WORD/WORD masking, shared by mmu.act and demux.act.
+
 // Single shared ALU for R-type, I-type, and the shift-immediates (SLLI/SRLI/SRAI).
 // Note that b can either be rs2 or the immediate, depending on the instruction type.
 // The caller is responsible for providing the correct value.

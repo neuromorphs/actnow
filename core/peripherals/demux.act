@@ -1,27 +1,14 @@
 import "core/globals.act";
 import "core/utils.act";
 
-/*
-Peripheral-side router -- never talks to the CPU core directly (that's
-core/mmu.act's job). The chain for anything off-chip is: core's fetch/
-load-store logic -> mmu (falls through its catch-all) -> core's own
-addr_ext/mode_ext/wdata_ext/rdata_ext boundary -> this demux -> the actual
-peripheral (ROM, FIFOs, GPIO, ...). See chips/bench/periphery.act, which
-wires this straight to core's addr_ext group and splits it into ROM/
-fifo_in/fifo_out/gpio.
-
-Generic address-routed bus: N_EXACT downstream ports are selected by an
-exact match against EXACT_BASES[k]. One further downstream port,
-addr_out[N_EXACT], catches any address with base >= CATCHALL_MIN_BASE that
-didn't already match. An address matching neither is silently dropped:
-reads leave rdata untouched, writes are absorbed -- matching how a real
-reserved/unmapped address behaves (nothing answers, but nothing hangs
-waiting either).
-
-This template is the same shape as core/mmu.act's ("N exact routes + one
-optional catch-all"), but the two stay separate processes: this one is
-periphery-facing, mmu is core-facing.
-*/
+// Peripheral-side router: core -> mmu -> core's addr_ext boundary -> this demux
+// -> the actual peripheral (ROM, FIFOs, GPIO, ...). Never talks to the CPU directly.
+//   1. N_EXACT downstream ports, selected by an exact match against EXACT_BASES[k].
+//   2. One more downstream port, addr_out[N_EXACT], catches base >= CATCHALL_MIN_BASE.
+//   3. No match -> silently dropped (reads untouched, writes absorbed), same as a
+//      real reserved/unmapped address.
+// Same "N exact + one optional catch-all" shape as core/mmu.act, kept separate:
+// this one is periphery-facing, mmu is core-facing.
 template<pint N_EXACT; pint EXACT_BASES[N_EXACT]; pint CATCHALL_MIN_BASE>
 defproc demux(
     chan?(addr_t) addr_in;

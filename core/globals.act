@@ -1,3 +1,7 @@
+// Shared constants/types for the whole design:
+//   1. Data/address widths and addr_t/mode_mem_t types, used everywhere.
+//   2. ADDR_* base assignments -- the address map every router/peripheral matches on.
+//   3. RV32I opcode and instruction-field-width constants used by core.act's decoder.
 pint WIDTH_DATA = 32,
     WIDTH_ADDR = 20,
     WIDTH_ADDR_BASE = 4,

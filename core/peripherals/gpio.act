@@ -1,17 +1,12 @@
 import "core/globals.act";
 
-// GPIO output peripheral: a single MMIO register (address offset ignored,
-// same convention as fifo_in/fifo_out) whose low 4 bits drive 4 physical
-// output pins. A CPU write updates the register and re-drives all 4 pins
-// with the new bit values in the same transaction; a CPU read returns the
-// last-written value.
-//
-// Pins are 4 individually-named chan!(bool) ports (not an array, matching
-// core.act's event_id_N convention) rather than a continuously-observable
-// signal: CHP has no notion of a persistent, passively-readable wire, so
-// each pin's level is delivered once per write. A watcher (a testbench, or
-// a real downstream pin driver) observes a pin by receiving right after the
-// write that sets it.
+// GPIO output peripheral, a single MMIO register (address offset ignored):
+//   1. A CPU write updates the register and re-drives all 4 pins with the new
+//      bit values in the same transaction; a CPU read returns the last-written value.
+//   2. Pins are 4 individually-named chan!(bool) ports (not an array, matching
+//      core.act's event_id_N convention), each delivered once per write -- CHP has
+//      no persistent, passively-readable wire, so a watcher must receive right
+//      after the write that sets it.
 defproc gpio(
     chan?(addr_t) addr; chan?(mode_mem_t) mode;
     chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata;

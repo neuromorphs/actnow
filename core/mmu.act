@@ -1,42 +1,18 @@
 import "core/globals.act";
 import "core/utils.act";
 
-/*
-Core-facing dual-port PMP (physical memory protection) mmu: sits between
-core's fetch/load-store logic and the chip's on-chip resources (internal
-RAM, interrupt controller). Two independent core-facing port groups share
-one physical-resource-facing port group, so code and data share physical
-memory but a fetch can never write it:
-
-  - instr port (addr_instr/mode_instr/rdata_instr): no wdata channel at
-    all, so a write isn't just rejected, it isn't representable -- the
-    protection holds even if a caller's mode field is wrong. A defensive
-    assert on mode_instr.op catches that mistake too, but isn't what does
-    the actual protecting.
-  - data port (addr_data/mode_data/wdata_data/rdata_data): full R/W/RMW.
-
-Both ports route through the same EXACT_BASES/CATCHALL_MIN_BASE table and
-the same addr_out[]/mode_out[]/wdata_out[]/rdata_out[] downstream array --
-that's what makes them share one physical RAM rather than each having a
-private copy. The instr port also needs the catch-all route, not just the
-RAM route: core always boots by fetching the reset vector from external ROM
-through it, and the default (non-BOOT) mode executes straight from there
-("XIP").
-
-Arbitration is a top-level probed selection between the two ports. The
-core is single-issue and strictly sequential, so in practice they're never
-both pending at once -- the probed selection just makes that safe
-structurally rather than by convention.
-
-Only the low BYTE/HALF_WORD/WORD bits of a transfer are kept, higher bits
-are 0. An address matching neither an exact base nor the catch-all is
-silently dropped (reads never answered, writes absorbed) -- same as a real
-reserved/unmapped address.
-
-This router's dispatch logic is deliberately the same shape as
-core/peripherals/demux.act's, but they stay separate processes: this one is
-core-facing, that one is periphery-facing.
-*/
+// Core-facing dual-port PMP mmu, between the CPU and on-chip resources (RAM, interrupt controller):
+//   1. instr port (addr_instr/mode_instr/rdata_instr) -- read-only, no wdata channel at all.
+//   2. data port (addr_data/mode_data/wdata_data/rdata_data) -- full R/W/RMW.
+//   3. Both route through the same EXACT_BASES/CATCHALL_MIN_BASE table onto one shared
+//      addr_out[]/mode_out[]/wdata_out[]/rdata_out[] array, so instr and data share one RAM.
+//   4. Instr also gets the catch-all route: boot fetches the reset vector from external ROM
+//      through it, and non-BOOT mode executes XIP from there.
+//   5. Arbitration is a top-level probed select between the two ports (core is single-issue,
+//      so they're never both pending -- this just makes it structural).
+//   6. Unmapped addresses are silently dropped; only the low BYTE/HALF_WORD/WORD bits pass through.
+// Same dispatch shape as core/peripherals/demux.act, kept separate: this one is core-facing,
+// that one periphery-facing.
 template<pint N_EXACT; pint EXACT_BASES[N_EXACT]; pint CATCHALL_MIN_BASE>
 defproc mmu(
     chan?(addr_t) addr_instr;

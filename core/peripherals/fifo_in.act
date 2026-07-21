@@ -2,34 +2,19 @@ import std;
 
 import "core/globals.act";
 
-// Input FIFO: the outside world pushes data in via `push`; the CPU pops the
-// oldest entry on every read (there's only one register, so the address
-// offset is ignored). Buffered words are WIDTH bits wide (WIDTH_DATA for a
-// generic 32-bit producer, or narrower for a domain-specific one, e.g. the
-// dvs chip variant instantiates fifo_in<DEPTH, WIDTH_AER> for its AER
-// pixel-address input instead of a separate peripheral) -- rdata always
-// zero-extends into the full 32-bit CPU-facing word.
-//
-// A CPU write instead configures the trigger level: once `count` reaches
-// it, fifo_in fires `event_out` itself -- wire it to one of core's
-// event_id_N ports and pushing enough data becomes what raises the
-// interrupt, with no separate triggering needed. Firing is a watermark: one
-// edge each time count fills up to trigger_level, re-armed only after the ISR
-// drains it back below the level (the `armed` bit below). Firing on the exact
-// count==trigger_level push instead is lost the moment a continuous producer
-// saturates the FIFO, which deadlocks the whole path after one batch.
-//
-// Pushes are gated on the trigger level having been configured at least
-// once -- otherwise a producer pushing before software sets a real level
-// could count against the wrong threshold and never reach it. Gating push
-// acceptance means a push genuinely blocks until software is ready, so
-// ordering is correct by construction.
-//
-// A push blocks until there's room (safe: it's a top-level alternative
-// re-evaluated every loop iteration, not nested inside a committed branch).
-// A CPU read of an empty FIFO can't be handled the same way without risking
-// deadlock, so it's asserted instead: whoever drives the interrupt that
-// wakes the CPU to read this FIFO must push first.
+// Input FIFO, memory-mapped as a single data register (address offset ignored):
+//   1. `push` feeds it from outside; a CPU read pops the oldest entry, zero-extended
+//      to 32 bits (WIDTH/DEPTH let a chip variant narrow it, e.g. dvs's AER input).
+//   2. A CPU write instead sets the trigger level, not a data write.
+//   3. Once `count` reaches trigger_level, fifo_in fires `event_out` itself -- wire
+//      it to one of core's event_id_N ports and filling the FIFO becomes the
+//      interrupt, no separate triggering needed.
+//   4. Firing is a watermark (one edge per batch, re-armed after the ISR drains
+//      trigger_level entries -- see `armed` below), so a continuous producer can't
+//      fire more than once per batch or miss firing once saturated.
+//   5. Pushes are gated on the trigger level having been configured at least once.
+//      A push blocks until there's room; a CPU read of an empty FIFO asserts
+//      instead of blocking (whoever drives the interrupt must push first).
 template<pint DEPTH; pint WIDTH>
 defproc fifo_in(
     chan?(addr_t) addr; chan?(mode_mem_t) mode;
