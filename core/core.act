@@ -6,7 +6,7 @@ import "core/mmu.act";
 import "core/peripherals/mem.act";
 
 // TODO: parameterize event count
-defproc soc(
+defproc core(
     chan?(bool) event_id_0;
     chan?(bool) event_id_1;
     chan?(bool) event_id_2;
@@ -67,7 +67,7 @@ defproc soc(
     chan(int<WIDTH_DATA>) rdata_int_ctrl;
 
     // Relays reset_ext onward to the interrupt controller (a channel send
-    // can only be received once, so soc can't fan reset_ext out to both
+    // can only be received once, so core can't fan reset_ext out to both
     // itself and interrupt.act directly).
     chan(bool) reset_int_ctrl;
 
@@ -97,22 +97,22 @@ defproc soc(
     SOC_MMU_EXACT_BASES = {ADDR_MEM, ADDR_INT_CTRL};
     mmu<SOC_MMU_N_EXACT, SOC_MMU_EXACT_BASES, ADDR_EXT_MIN> mmu;
 
-    mmu.addr_out[0] = ram.addr;
-    mmu.mode_out[0] = ram.mode;
-    mmu.wdata_out[0] = ram.wdata;
-    mmu.rdata_out[0] = ram.rdata;
+    (mmu.addr_out[0] = ram.addr, 
+    mmu.mode_out[0] = ram.mode,
+    mmu.wdata_out[0] = ram.wdata,
+    mmu.rdata_out[0] = ram.rdata,
 
     // Interrupt controller (index 1)
-    mmu.addr_out[1] = addr_int_ctrl;
-    mmu.mode_out[1] = mode_int_ctrl;
-    mmu.wdata_out[1] = wdata_int_ctrl;
-    mmu.rdata_out[1] = rdata_int_ctrl;
+    mmu.addr_out[1] = addr_int_ctrl,
+    mmu.mode_out[1] = mode_int_ctrl,
+    mmu.wdata_out[1] = wdata_int_ctrl,
+    mmu.rdata_out[1] = rdata_int_ctrl,
 
     // External memory interface (the catch-all route, index N_EXACT=2)
-    mmu.addr_out[2] = addr_ext;
-    mmu.mode_out[2] = mode_ext;
-    mmu.wdata_out[2] = wdata_ext;
-    mmu.rdata_out[2] = rdata_ext;
+    mmu.addr_out[2] = addr_ext,
+    mmu.mode_out[2] = mode_ext,
+    mmu.wdata_out[2] = wdata_ext,
+    mmu.rdata_out[2] = rdata_ext);
 
     chp {
         // Cold boot: the CPU does nothing at all until reset_ext is
@@ -120,10 +120,10 @@ defproc soc(
         // implicit "power on and go" path. A plain blocking receive, no
         // select and no state guard: reset_ext is the one and only way to
         // boot, so there is nothing else to race against here.
-        reset_ext?reset_recv;
-        log("external reset: pc ", ADDR_RESET);
-        pc := ADDR_RESET;
-        reset_int_ctrl!true;  // relay onward to clear interrupt.act's own state
+        ( reset_ext?reset_recv,
+        log("external reset: pc ", ADDR_RESET),
+        pc := ADDR_RESET,
+        reset_int_ctrl!true );  // relay onward to clear interrupt.act's own state
 
         *[
             // Already running: reset_ext still races as a flat sibling of
@@ -132,10 +132,10 @@ defproc soc(
             // across the fetch below.
             [
                 #reset_ext ->
-                    reset_ext?reset_recv;
+                    ( reset_ext?reset_recv;
                     log("external reset: pc ", ADDR_RESET);
-                    pc := ADDR_RESET;
-                    reset_int_ctrl!true
+                    pc := ADDR_RESET,
+                    reset_int_ctrl!true)
                 [] ~#reset_ext -> skip
             ];
 

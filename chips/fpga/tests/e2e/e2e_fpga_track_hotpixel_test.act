@@ -1,4 +1,4 @@
-import "chips/fpga/core.act";
+import "chips/fpga/soc.act";
 import "core/peripherals/mem.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
@@ -23,7 +23,7 @@ import "gen/file_ids.act";
 // words are asserted against the same math computed in Python when this file
 // was generated.
 defproc e2e_fpga_track_hotpixel_test() {
-    core<4> c;
+    soc<4> c;
 
     mem<true, ROM_IMAGE> rom;
     rom.addr = c.rom_addr;

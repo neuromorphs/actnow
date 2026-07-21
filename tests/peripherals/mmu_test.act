@@ -135,7 +135,7 @@ defproc stimulus (
         addr_instr!a; mode_instr!md; exp_instr!e;
 
         // XIP test: instr reaches the catch-all too, not just RAM -- this
-        // is what lets soc fetch its reset vector (and, without BOOT=1,
+        // is what lets core fetch its reset vector (and, without BOOT=1,
         // every instruction) from external ROM rather than internal RAM.
         log("--- Instr: WORD read through catch-all (base=4, external) -> expect 0xDEADBEEF (ext_backend echo) ---");
         a.base := 4; a.offset := int(0, WIDTH_ADDR_OFFSET);
@@ -289,7 +289,7 @@ defproc mmu_test() {
     read_sink rsink_data;
     read_sink rsink_instr;
 
-    // Same 2-exact+catch-all shape as soc's own instantiation: internal
+    // Same 2-exact+catch-all shape as core's own instantiation: internal
     // RAM=base0, interrupt controller=base1, catch-all for external
     // (base>=ADDR_EXT_MIN=4) -- see mmu.act's own comment for why bases
     // 2/3 are unreachable by construction rather than needing an explicit

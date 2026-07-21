@@ -1,22 +1,22 @@
 import "core/globals.act";
-import "core/soc.act";
+import "core/core.act";
 import "chips/fpga/periphery.act";
 
-// chips/fpga's whole chip: soc + its off-chip periphery (periphery.act) wired
+// chips/fpga's whole chip: core + its off-chip periphery (periphery.act) wired
 // together for the FPGA build. Exposes only what this variant uses:
-//   - a single interrupt: the input FIFO's auto-fire (event_out) drives soc's
-//     event_id_0. soc's other 15 event lines are intentionally left
+//   - a single interrupt: the input FIFO's auto-fire (event_out) drives core's
+//     event_id_0. core's other 15 event lines are intentionally left
 //     unconnected -- interrupt.act never offers to receive on a line whose
 //     enable bit is clear, and only event_id_0 is ever enabled here, so those
 //     lines are never driven or received on.
 //   - a raw ROM read interface (rom_*) the core boots XIP from (base 4).
 //   - the FIFO's external push port (fifo_push, base 5).
 //   - a raw external read/write interface (io_*, base 6).
-//   - reset_ext, which is how the core boots *and* how it warm-reboots. soc.act
+//   - reset_ext, which is how the core boots *and* how it warm-reboots. core.act
 //     blocks on it before executing anything, so nothing here runs until whoever
 //     owns this chip asserts it once -- there is no implicit power-on-and-go.
 template<pint FIFO_DEPTH>
-defproc core(
+defproc soc(
     chan?(bool) reset_ext;
 
     // raw ROM read interface (XIP boot)
@@ -33,7 +33,7 @@ defproc core(
     chan!(int<WIDTH_DATA>) io_wdata;
     chan?(int<WIDTH_DATA>) io_rdata
 ) {
-    soc s;
+    core s;
     periphery<FIFO_DEPTH> p;
 
     p.addr_in = s.addr_ext;

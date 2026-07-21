@@ -9,7 +9,7 @@
 #
 # Must be run from this directory (actnow/) -- ACT resolves every `import`
 # relative to the working directory the compiler was invoked from, not
-# relative to the importing file, so core/soc.act's own imports only resolve
+# relative to the importing file, so core/core.act's own imports only resolve
 # correctly when this is the cwd. See the README's Toolchain section.
 
 AFLAT  := aflat
@@ -18,10 +18,10 @@ ACTSIM := actsim
 # Tests live under tests/core (CPU/ISA datapath unit tests), tests/peripherals
 # (standalone peripheral/infra unit tests), tests/regression (one-off
 # bug-repro tests, kept separate so tests/peripherals stays one file per
-# peripheral), and tests/sw (the generic real-program-through-soc runner).
+# peripheral), and tests/sw (the generic real-program-through-core runner).
 # e2e tests (full boot + real compiled program + real peripheral
 # interaction) live under chips/bench/tests/e2e/ instead -- they wire
-# through one specific chip variant's harness (chips/bench/core.act), not
+# through one specific chip variant's harness (chips/bench/soc.act), not
 # the chip-agnostic tree here -- and are delegated to chips/bench/Makefile
 # below, since each needs a specific ROM image (a different
 # software/<name>/ program) that the shared
@@ -241,7 +241,7 @@ $(TESTS): $(FILE_REGISTRY_GEN)
 		echo "$@: PASS"; \
 	fi
 
-# e2e tests wire through chips/bench specifically (chips/bench/core.act) and
+# e2e tests wire through chips/bench specifically (chips/bench/soc.act) and
 # are defined + built there -- chips/bench/Makefile owns the ROM_IMAGE
 # rebuild dance each one needs (see its own e2e_fifo_test comment for why),
 # this just delegates by name with the same variables a direct invocation

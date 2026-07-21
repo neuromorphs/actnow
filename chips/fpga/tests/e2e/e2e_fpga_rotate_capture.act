@@ -1,4 +1,4 @@
-import "chips/fpga/core.act";
+import "chips/fpga/soc.act";
 import "core/peripherals/mem.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
@@ -24,7 +24,7 @@ import sim;
 // BATCH words per interrupt, so a partial trailing group would leave it
 // blocked on a 4th word that never arrives.
 defproc e2e_fpga_rotate_capture() {
-    core<4> c;
+    soc<4> c;
 
     mem<true, ROM_IMAGE> rom;
     rom.addr = c.rom_addr;

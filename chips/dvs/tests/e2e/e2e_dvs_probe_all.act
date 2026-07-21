@@ -1,4 +1,4 @@
-import "chips/dvs/core.act";
+import "chips/dvs/soc.act";
 import "chips/dvs/tests/e2e/spi_flash_stub.act";
 import "gen/file_ids.act";
 
@@ -77,7 +77,7 @@ defproc gpio_out_probe(
 }
 
 // REALLY simple probe harness, not a pass/fail test: wires up every one of
-// chips/dvs/core.act's event/data ports and logs every value that crosses
+// chips/dvs/soc.act's event/data ports and logs every value that crosses
 // each one via plain log() lines -- redirect actsim's own output to a file
 // to keep the trace (each log() line is already simulated-time-stamped).
 // Raw material for building an interactive simulation from later, not a
@@ -94,7 +94,7 @@ defproc gpio_out_probe(
 // arrives (core/interrupt.act only services an event line once software's
 // own enable bit for it is set).
 defproc e2e_dvs_probe_all() {
-    core<8> c;
+    soc<8> c;
     spi_flash_stub<ROM_IMAGE> flash;
     spi_prog_probe prog_probe;
     gpio_out_probe gpio_probe;

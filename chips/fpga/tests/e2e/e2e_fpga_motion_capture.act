@@ -1,4 +1,4 @@
-import "chips/fpga/core.act";
+import "chips/fpga/soc.act";
 import "core/peripherals/mem.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
@@ -23,7 +23,7 @@ import sim;
 // capture for the viewer. Relies on the event count being an exact multiple
 // of BATCH=4 (61752 is).
 defproc e2e_fpga_motion_capture() {
-    core<4> c;
+    soc<4> c;
 
     mem<true, ROM_IMAGE> rom;
     rom.addr = c.rom_addr;

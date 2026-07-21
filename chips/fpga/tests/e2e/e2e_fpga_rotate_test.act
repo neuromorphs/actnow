@@ -1,4 +1,4 @@
-import "chips/fpga/core.act";
+import "chips/fpga/soc.act";
 import "core/peripherals/mem.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
@@ -25,7 +25,7 @@ import "gen/file_ids.act";
 // dynamic dereference of pint (parameter-array) literals -- see the FATAL
 // "Dynamic de-reference of parameter arrays not permitted" this replaced.
 defproc e2e_fpga_rotate_test() {
-    core<4> c;
+    soc<4> c;
 
     mem<true, ROM_IMAGE> rom;
     rom.addr = c.rom_addr;
@@ -43,8 +43,8 @@ defproc e2e_fpga_rotate_test() {
     chp {
         log("======== dvs rotate-45 e2e test start (fpga) ========");
 
-        // Cold boot: soc.act blocks on reset_ext before it does anything at
-        // all (core/soc.act:129), so this has to fire once before the first
+        // Cold boot: core.act blocks on reset_ext before it does anything at
+        // all (core/core.act:129), so this has to fire once before the first
         // push -- e2e_fpga_fifo_test's own missing-reset_ext gap is a
         // separate known issue, not one this new test should copy.
         c.reset_ext!true;

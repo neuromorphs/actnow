@@ -1,6 +1,6 @@
-import "core/soc.act";
+import "core/core.act";
 
-// Exercises core/soc.act's external reset (reset_ext): a hand-assembled
+// Exercises core/core.act's external reset (reset_ext): a hand-assembled
 // program hits a deliberate infinite self-loop (never reaching WFI,
 // modeling a genuine hang), external reset recovers it mid-loop, and the
 // post-reset program reads back the interrupt controller's vector table/
@@ -32,12 +32,12 @@ import "core/soc.act";
 //   LW   x5, 0(x3)   -- x5 = vectors[0] -- must now read back 0: this is
 //                       the actual assertion that external reset clears
 //                       the interrupt controller's configured state, not
-//                       just soc's own pc
+//                       just core's own pc
 //   LW   x6, 64(x3)  -- x6 = enable_mask -- must now read back 0
 //   SW   x5, 0x100(x1) -- write x5 out externally so this testbench can
 //                          observe/assert it directly (LOADs from
 //                          base=ADDR_INT_CTRL never reach addr_ext --
-//                          they're serviced entirely inside soc)
+//                          they're serviced entirely inside core)
 //   SW   x6, 0x104(x1) -- ditto for x6
 //   WFI              -- done
 defproc fetch_answerer(
@@ -135,7 +135,7 @@ defproc fetch_answerer(
 }
 
 defproc reset_test() {
-    soc s;
+    core s;
     fetch_answerer fa;
     chan(bool) done;
 
@@ -151,7 +151,7 @@ defproc reset_test() {
     chp {
         log("======== reset_test start ========");
 
-        // soc boots from a cold reset -- assert reset_ext once to kick it off
+        // core boots from a cold reset -- assert reset_ext once to kick it off
         // (distinct from the mid-test reset_ext below, which is the actual
         // hang-recovery this test proves).
         s.reset_ext!true;

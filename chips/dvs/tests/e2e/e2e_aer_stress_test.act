@@ -1,4 +1,4 @@
-import "chips/dvs/core.act";
+import "chips/dvs/soc.act";
 import "chips/dvs/tests/e2e/spi_flash_stub.act";
 import "gen/file_ids.act";
 
@@ -65,7 +65,7 @@ defproc spi_sink_stress(
 }
 
 defproc e2e_aer_stress_test() {
-    core<8> c;
+    soc<8> c;
     spi_flash_stub<ROM_IMAGE> flash;
     spi_sink_stress sink;
     chan(bool) sink_done;

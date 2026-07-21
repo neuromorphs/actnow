@@ -4,7 +4,7 @@ import "core/peripherals/demux.act";
 
 // chips/fpga's off-chip periphery: an input event FIFO plus two *raw*
 // pass-through routes -- a read-only ROM and a read/write external interface --
-// behind a 3-way demux (base=4/5/6, no catch-all), wired to whatever soc
+// behind a 3-way demux (base=4/5/6, no catch-all), wired to whatever core
 // instance's addr_ext/mode_ext/wdata_ext/rdata_ext boundary is connected to
 // addr_in/mode_in/wdata_in/rdata_in below.
 //
@@ -13,14 +13,14 @@ import "core/peripherals/demux.act";
 //   - base 4: a *raw* read-only ROM interface. Instead of a file-preloaded
 //     mem<true,...>, the demux's route-0 addr/mode/rdata channels are exposed
 //     straight to the chip boundary, so the actual ROM lives outside the chip
-//     (a BRAM on the FPGA side). soc still boots XIP from base 4 exactly like
+//     (a BRAM on the FPGA side). core still boots XIP from base 4 exactly like
 //     chips/bench -- ADDR_RESET's base nibble is 4, so the first fetch lands
 //     here. demux.wdata_out[0] is deliberately left unconnected: the ROM is
-//     read-only and soc never issues a base-4 write, so that send never fires
+//     read-only and core never issues a base-4 write, so that send never fires
 //     (same way the bench demux leaves its disabled catch-all slot unwired).
 //   - base 5: the input event FIFO (fifo_in), a generic 32-bit producer. Its
-//     event_out auto-fire is exposed as `fifo_event`; chips/fpga/core.act
-//     wires it to soc's single used interrupt line (event_id_0).
+//     event_out auto-fire is exposed as `fifo_event`; chips/fpga/soc.act
+//     wires it to core's single used interrupt line (event_id_0).
 //   - base 6: a *raw* read/write external interface. Replaces bench's
 //     fifo_out with a plain pass-through of the demux's route-2 quad to the
 //     chip boundary -- what it binds to off-chip (PS/AXI, PL pins) is decided

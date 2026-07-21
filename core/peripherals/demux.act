@@ -3,11 +3,11 @@ import "core/utils.act";
 
 /*
 Peripheral-side router -- never talks to the CPU core directly (that's
-core/mmu.act's job). The chain for anything off-chip is: soc's fetch/
-load-store logic -> mmu (falls through its catch-all) -> soc's own
+core/mmu.act's job). The chain for anything off-chip is: core's fetch/
+load-store logic -> mmu (falls through its catch-all) -> core's own
 addr_ext/mode_ext/wdata_ext/rdata_ext boundary -> this demux -> the actual
 peripheral (ROM, FIFOs, GPIO, ...). See chips/bench/periphery.act, which
-wires this straight to soc's addr_ext group and splits it into ROM/
+wires this straight to core's addr_ext group and splits it into ROM/
 fifo_in/fifo_out/gpio.
 
 Generic address-routed bus: N_EXACT downstream ports are selected by an

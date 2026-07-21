@@ -1,4 +1,4 @@
-import "chips/dvs/core.act";
+import "chips/dvs/soc.act";
 import "chips/dvs/tests/e2e/spi_flash_stub.act";
 import "gen/file_ids.act";
 
@@ -54,7 +54,7 @@ defproc external_source(
 }
 
 defproc e2e_spi_read_test() {
-    core<8> c;
+    soc<8> c;
     spi_flash_stub<ROM_IMAGE> flash;
     external_source src;
 

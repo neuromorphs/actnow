@@ -3,7 +3,7 @@ import "core/utils.act";
 
 /*
 Core-facing dual-port PMP (physical memory protection) mmu: sits between
-soc's fetch/load-store logic and the chip's on-chip resources (internal
+core's fetch/load-store logic and the chip's on-chip resources (internal
 RAM, interrupt controller). Two independent core-facing port groups share
 one physical-resource-facing port group, so code and data share physical
 memory but a fetch can never write it:
@@ -19,11 +19,11 @@ Both ports route through the same EXACT_BASES/CATCHALL_MIN_BASE table and
 the same addr_out[]/mode_out[]/wdata_out[]/rdata_out[] downstream array --
 that's what makes them share one physical RAM rather than each having a
 private copy. The instr port also needs the catch-all route, not just the
-RAM route: soc always boots by fetching the reset vector from external ROM
+RAM route: core always boots by fetching the reset vector from external ROM
 through it, and the default (non-BOOT) mode executes straight from there
 ("XIP").
 
-Arbitration is a top-level probed selection between the two ports. soc's
+Arbitration is a top-level probed selection between the two ports. The
 core is single-issue and strictly sequential, so in practice they're never
 both pending at once -- the probed selection just makes that safe
 structurally rather than by convention.

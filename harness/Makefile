@@ -1,10 +1,10 @@
 # Verilog/Vivado harness for the converted fpga core: RTL simulation of
-# chips/fpga/core<4>, and the Vivado project-to-XSA flow around it.
+# chips/fpga/soc<4>, and the Vivado project-to-XSA flow around it.
 #
 #   make            - run every simulation scenario
 #   make sim        - same
 #   make boot       - run one scenario, e.g. make fifo / make reset / make reset_reload
-#   make rtl        - regenerate gen/*.v from chips/fpga/core.act (chp2fpga)
+#   make rtl        - regenerate gen/*.v from chips/fpga/soc.act (chp2fpga)
 #   make project    - create the Vivado project (fpga/vivado/actnow_proj.xpr)
 #   make synth      - synthesize
 #   make impl       - place & route
@@ -98,7 +98,7 @@ sim test: boot fifo reset reset_reload pl pl_stress
 	@echo "=== all fpga RTL sim scenarios passed ==="
 
 help:
-	@echo "actnow -- Verilog/Vivado harness for the converted fpga core (chips/fpga/core<4>)"
+	@echo "actnow -- Verilog/Vivado harness for the converted fpga core (chips/fpga/soc<4>)"
 	@echo ""
 	@echo "Usage: make [target] [VAR=value ...]"
 	@echo ""
@@ -112,7 +112,7 @@ help:
 	@echo "  make pl_stress        continuous AER burst through the same PL datapath"
 	@echo ""
 	@echo "RTL generation:"
-	@echo "  make rtl              regenerate gen/*.v from chips/fpga/core.act (convert_verilog.sh)"
+	@echo "  make rtl              regenerate gen/*.v from chips/fpga/soc.act (convert_verilog.sh)"
 	@echo ""
 	@echo "Vivado flow (KR260/ZynqMP, part xck26-sfvc784-2LV-c):"
 	@echo "  make project          create $(XPR) (static/ + gen/ + block design)"

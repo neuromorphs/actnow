@@ -4,7 +4,7 @@ import "core/utils.act";
 // support: real rs1/rs2 register values (R-type), and the resolved-by-decode
 // second operand for I-type -- a sign-extended immediate for the normal
 // OP-IMM instructions, or the raw shamt (+ real funct7 bits) for
-// SLLI/SRLI/SRAI, exactly as soc.act's OP-IMM branch builds them.
+// SLLI/SRLI/SRAI, exactly as core.act's OP-IMM branch builds them.
 defproc alu_test() {
 
     int<32> r;

@@ -2,7 +2,7 @@
 
 /* Interrupt-driven AER application: runs from SRAM after the bootloader
    copies it there. main() registers isr_handler on event_id_0 (already
-   wired to the AER input's own event_out in chips/dvs/core.act), sets the
+   wired to the AER input's own event_out in chips/dvs/soc.act), sets the
    AER input's trigger level to BATCH, then enables event_id_0 and returns
    -- crt0.S puts the core to sleep with WFI until the AER input fires the
    interrupt.

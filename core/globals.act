@@ -70,7 +70,7 @@ pint SPI_CLOCK_DELAY_N = 20;
 pint SIZE_MEM_WORDS = 8 * 1024;
 
 // RV32I instruction field widths (bit positions themselves are fixed by the
-// ISA -- see soc.act's field extraction -- these are just the widths of the
+// ISA -- see core.act's field extraction -- these are just the widths of the
 // variables that hold each field).
 pint WIDTH_OPCODE = 7,
     WIDTH_REG = 5,      // rd, rs1, rs2 -- 32 architectural registers

@@ -1,14 +1,14 @@
-import "core/soc.act";
+import "core/core.act";
 
 defproc lui_test() {
 
-    soc s;
+    core s;
     addr_t addr;
     mode_mem_t mode;
     int<32> insn, off;
 
     chp {
-        // soc boots from a cold reset -- assert reset_ext once to kick it off.
+        // core boots from a cold reset -- assert reset_ext once to kick it off.
         s.reset_ext!true;
 
         // LUI x5, 0x12345  (the instruction actually under test)

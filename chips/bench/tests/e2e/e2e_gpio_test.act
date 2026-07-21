@@ -1,10 +1,10 @@
-import "chips/bench/core.act";
+import "chips/bench/soc.act";
 import "gen/file_ids.act";
 
 // End-to-end test for GPIO, exercising both directions in one real
 // compiled program (software/gpio_demo/main.c):
-//   - input: firing one of core's two GPIO input pins (gpio_in_0/
-//     gpio_in_1 -- pure wiring onto soc's event_id_14/event_id_15) wakes
+//   - input: firing one of soc's two GPIO input pins (gpio_in_0/
+//     gpio_in_1 -- pure wiring onto core's event_id_14/event_id_15) wakes
 //     the CPU through the existing interrupt-controller vectoring, exactly
 //     like any other event line.
 //   - output: each ISR responds with a real MMIO store to the GPIO output
@@ -16,7 +16,7 @@ import "gen/file_ids.act";
 // push/pop/fifo_event/swd_0/swd_1 are left unconnected -- this test never
 // touches the FIFOs, and SWD is unimplemented.
 defproc e2e_gpio_test() {
-    core<ROM_IMAGE> c;
+    soc<ROM_IMAGE> c;
 
     bool p0, p1, p2, p3;
 

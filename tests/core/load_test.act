@@ -1,26 +1,26 @@
-import "core/soc.act";
+import "core/core.act";
 
-// Drives soc through LUI (to build a base address in x1) followed by all
+// Drives core through LUI (to build a base address in x1) followed by all
 // five LOAD variants (LW, LB, LBU, LH, LHU) against that base, then WFI.
 //
 // LOAD's data address is deliberately kept in the external region (base=4)
-// rather than internal ram, which is private to soc and only reachable
+// rather than internal ram, which is private to core and only reachable
 // through mmu -- targeting addr_ext lets this test supply known data
 // directly and check both the computed address (rs1+imm) and the selected
 // transfer size on the observable addr_ext/mode_ext channels.
 //
 // Sign/zero-extension of the loaded value (LB/LH vs LBU/LHU) isn't
-// observable from outside soc -- rd write-back only shows up in regfile's
+// observable from outside core -- rd write-back only shows up in regfile's
 // own internal log line.
 defproc load_test() {
 
-    soc s;
+    core s;
     addr_t addr;
     mode_mem_t mode;
     int<32> insn;
 
     chp {
-        // soc boots from a cold reset -- assert reset_ext once to kick it off.
+        // core boots from a cold reset -- assert reset_ext once to kick it off.
         s.reset_ext!true;
 
         // pc=ADDR_RESET+0: LUI x1, 0x40  -->  x1 = 0x40000 (base address)

@@ -1,9 +1,9 @@
-import "core/soc.act";
+import "core/core.act";
 
-// Drives soc through two wake/sleep cycles via event_id_1 then event_id_0.
+// Drives core through two wake/sleep cycles via event_id_1 then event_id_0.
 //
 // The interrupt controller's vector table is real, software-configured
-// state -- there's no hardcoded address soc jumps to on a given event, so
+// state -- there's no hardcoded address core jumps to on a given event, so
 // before the core can sleep and expect a wake-up to land somewhere sane,
 // boot code stores an ISR address into the controller's per-event vector
 // register (MMIO at base=ADDR_INT_CTRL, offset 4*N for event_id_N).
@@ -19,18 +19,18 @@ import "core/soc.act";
 //                       since interrupt.act won't even accept event_id_N
 //                       until its bit here is set
 //   WFI              -- go to sleep
-// The SW instructions are serviced entirely inside soc -- this test only
+// The SW instructions are serviced entirely inside core -- this test only
 // needs to keep answering instruction fetches on addr_ext.
 defproc wfi_test() {
 
-    soc s;
+    core s;
     addr_t addr;
     mode_mem_t mode;
     int<32> delay;
     int<32> insn, off;
 
     chp {
-        // soc boots from a cold reset -- assert reset_ext once to kick it off.
+        // core boots from a cold reset -- assert reset_ext once to kick it off.
         s.reset_ext!true;
 
         // LUI x1, 0x41

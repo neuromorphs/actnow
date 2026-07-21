@@ -7,14 +7,14 @@ import "core/peripherals/demux.act";
 
 // chips/bench's off-chip periphery: ROM + input FIFO + output FIFO + GPIO
 // output register behind a 4-way demux (base=4/5/6/ADDR_GPIO, no
-// catch-all), wired to whatever soc instance's addr_ext/mode_ext/wdata_ext/
+// catch-all), wired to whatever core instance's addr_ext/mode_ext/wdata_ext/
 // rdata_ext boundary is connected to addr_in/mode_in/wdata_in/rdata_in
 // below.
 //
 // fifo_in's auto-fire (event_out) is exposed as `fifo_event` rather than
-// hardwired to a specific soc event line: real hardware wires it directly
-// to one of soc's event_id_N ports, but which one (or whether it's used at
-// all) is a wiring decision made one level up in chips/bench/core.act, not
+// hardwired to a specific core event line: real hardware wires it directly
+// to one of core's event_id_N ports, but which one (or whether it's used at
+// all) is a wiring decision made one level up in chips/bench/soc.act, not
 // something this process should bake in. A caller that leaves fifo_event
 // unconnected is fine as long as it never sends on it -- i.e. as long as
 // fifo_in's trigger_level stays configured unreachable (see fifo_in.act).

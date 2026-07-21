@@ -8,11 +8,11 @@ import "core/globals.act";
 // from ROM or copied into SRAM by the bootloader.
 //
 // The reset vector itself (pc=ADDR_RESET) isn't dispatched from here at
-// all -- soc.act blocks directly on its own reset_ext at boot, before this
+// all -- core.act blocks directly on its own reset_ext at boot, before this
 // process (or anything else) has had any chance to configure anything,
 // matching real hardware where the reset vector is fixed in silicon. This
 // process only ever clears its own state in response to a *relayed* reset
-// (reset_int_ctrl, soc.act fanning its reset_ext out to both itself and
+// (reset_int_ctrl, core.act fanning its reset_ext out to both itself and
 // here) -- it never manufactures a boot event of its own.
 //
 // Each event_id_N also has an enable bit (see globals.act). Until software
@@ -36,7 +36,7 @@ defproc interrupt(
     chan?(bool) event_id_13;
     chan?(bool) event_id_14;
     chan?(bool) event_id_15;
-    // Relayed from soc's external reset_ext: clears the vector table and
+    // Relayed from core's external reset_ext: clears the vector table and
     // enable mask, unconditionally, same as a cold boot.
     chan?(bool) reset_int_ctrl;
     // CPU-facing port group (base=ADDR_INT_CTRL) -- configures and reads

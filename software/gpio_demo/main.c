@@ -1,7 +1,7 @@
 #include <stdint.h>
 
 /* Exercises GPIO end to end, both directions in one program:
-     - Input: an external device pulses one of core.act's two GPIO input
+     - Input: an external device pulses one of soc.act's two GPIO input
        pins (gpio_in_0/gpio_in_1, wired to event_id_14/event_id_15) -- an
        interrupt-controller event like any other, dispatched through a
        distinct ISR per line.

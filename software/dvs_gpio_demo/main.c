@@ -1,7 +1,7 @@
 #include <stdint.h>
 
 /* Exercises GPIO end to end, both directions:
-     - Input: an external device pulses one of chips/dvs/core.act's two
+     - Input: an external device pulses one of chips/dvs/soc.act's two
        GPIO input pins (gpio_in_0/gpio_in_1, wired to event_id_1/
        event_id_2), dispatched through a distinct ISR per line.
      - Output: each ISR writes a distinct 4-bit pattern to the GPIO output

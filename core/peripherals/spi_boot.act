@@ -1,7 +1,7 @@
 import "core/globals.act";
 
-// SPI boot loader: what answers soc's very first fetch on the dvs chip
-// (ADDR_RESET, base=4, hardcoded in core/soc.act for every chip variant),
+// SPI boot loader: what answers core's very first fetch on the dvs chip
+// (ADDR_RESET, base=4, hardcoded in core/core.act for every chip variant),
 // and every fetch/read after that. Unlike chips/bench's ROM
 // (core/peripherals/mem.act's READ_ONLY mode, preloaded from a file at
 // elaboration and backed by real storage), spi_boot holds no image of its

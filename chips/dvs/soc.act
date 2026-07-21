@@ -1,12 +1,12 @@
 import "core/globals.act";
-import "core/soc.act";
+import "core/core.act";
 import "chips/dvs/periphery.act";
 
-// dvs's whole chip: soc + its off-chip periphery (chips/dvs/periphery.act)
-// wired together. Only 3 of soc's 16 event lines are used:
+// dvs's whole chip: core + its off-chip periphery (chips/dvs/periphery.act)
+// wired together. Only 3 of core's 16 event lines are used:
 //   - event_id_0 is hardwired directly to the AER input's own event_out --
 //     nothing ever needs to fire that line manually, so there's no reason
-//     to expose the wiring as a choice (contrast chips/bench/core.act's
+//     to expose the wiring as a choice (contrast chips/bench/soc.act's
 //     fifo_event, left as an independent, optionally-connected port).
 //   - event_id_1/event_id_2 carry dvs's two GPIO input pins (gpio_in_0/
 //     gpio_in_1): a physical pin jumps to a program-associated pc through
@@ -20,7 +20,7 @@ import "chips/dvs/periphery.act";
 // base=ADDR_GPIO. Both SPI peripherals' external pins are exposed here
 // since they're real chip-package pins.
 template<pint AER_DEPTH>
-defproc core(
+defproc soc(
     chan?(bool) gpio_in_0; chan?(bool) gpio_in_1;
     chan?(bool) swd_0; chan?(bool) swd_1;
     chan?(bool) reset_ext;
@@ -33,7 +33,7 @@ defproc core(
     chan!(bool) gpio_out_0; chan!(bool) gpio_out_1;
     chan!(bool) gpio_out_2; chan!(bool) gpio_out_3
 ) {
-    soc s;
+    core s;
     periphery<AER_DEPTH> p;
 
     p.addr_in = s.addr_ext;

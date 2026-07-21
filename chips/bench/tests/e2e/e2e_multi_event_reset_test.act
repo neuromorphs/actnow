@@ -1,4 +1,4 @@
-import "chips/bench/core.act";
+import "chips/bench/soc.act";
 import "gen/file_ids.act";
 
 // Extends e2e_multi_event_test.act's full-width interrupt-controller
@@ -19,7 +19,7 @@ import "gen/file_ids.act";
 //     table and enable mask -- not just event_id_0, the only line
 //     e2e_reset_test.act re-proves -- survive a reset+reboot cycle intact.
 defproc e2e_multi_event_reset_test() {
-    core<ROM_IMAGE> c;
+    soc<ROM_IMAGE> c;
 
     chan(bool) event_ch[16];
     event_ch[0] = c.event_id_0;

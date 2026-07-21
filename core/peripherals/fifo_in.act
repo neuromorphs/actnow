@@ -11,7 +11,7 @@ import "core/globals.act";
 // zero-extends into the full 32-bit CPU-facing word.
 //
 // A CPU write instead configures the trigger level: once `count` reaches
-// it, fifo_in fires `event_out` itself -- wire it to one of soc's
+// it, fifo_in fires `event_out` itself -- wire it to one of core's
 // event_id_N ports and pushing enough data becomes what raises the
 // interrupt, with no separate triggering needed. Firing is a watermark: one
 // edge each time count fills up to trigger_level, re-armed only after the ISR

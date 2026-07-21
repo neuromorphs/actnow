@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 
 // Standalone functional testbench for the converted fpga core (harness/gen/
-// core4.v = chp2fpga of chips/fpga/core<4>). No block design: this drives the
+// soc4.v = chp2fpga of chips/fpga/soc<4>). No block design: this drives the
 // clock/reset directly and models the external world the core boots against.
 //
 // It is the RTL analogue of the four ACT e2e tests under chips/fpga/tests/e2e/:
@@ -170,7 +170,7 @@ module tb_core;
     end
 
     // ---- DUT ----
-    \core4 uut (
+    \soc4 uut (
          .\clock (clk)
         ,.\reset (rst)
 
@@ -214,11 +214,11 @@ module tb_core;
     // ---- completion detection: the core's own decode signal ----
     // \is_wfi pulses high the cycle the WFI (or EBREAK) is decoded. boot_only has
     // no peripheral interaction to observe, so -- exactly like e2e_fpga_boot_test,
-    // which greps soc's "decoded wfi" log line -- WFI *is* the pass condition
+    // which greps core's "decoded wfi" log line -- WFI *is* the pass condition
     // there. The application scenarios hit WFI on every ISR exit, so they judge
     // from the base-6 results instead.
     //
-    // (soc's \running bool is gone as of the core-dvs merge: reset_ext is now the
+    // (core's \running bool is gone as of the core-dvs merge: reset_ext is now the
     // only way to boot, so there is no "am I running yet" state left to track.)
     wire dut_is_wfi = uut.\s .\is_wfi ;
 
@@ -367,7 +367,7 @@ module tb_core;
         rst = 1'b0;
         $display("[%0t] reset released", $time);
 
-        // Cold boot. soc.act blocks on reset_ext before executing anything -- there
+        // Cold boot. core.act blocks on reset_ext before executing anything -- there
         // is no implicit power-on-and-go -- so every scenario must assert it once
         // to boot the core at all, exactly as the ACT e2e tests now do. (In the
         // real KR260 build this is the PS pulsing gpio_ctrl bit 0; see

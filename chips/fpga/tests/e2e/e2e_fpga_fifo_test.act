@@ -1,4 +1,4 @@
-import "chips/fpga/core.act";
+import "chips/fpga/soc.act";
 import "core/peripherals/mem.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
@@ -23,14 +23,14 @@ import "gen/file_ids.act";
 // The differences from the bench version are purely structural, and are exactly
 // the three things this chip variant changes:
 //   - the single interrupt (fifo_in.event_out -> event_id_0) is wired *inside*
-//     chips/fpga/core.act, so there's no `c.event_id_0 = c.fifo_event` here;
+//     chips/fpga/soc.act, so there's no `c.event_id_0 = c.fifo_event` here;
 //   - the ROM is external -- modelled by a file-preloaded mem<true,...> on the
 //     raw rom_* route (base 4) rather than living in the periphery;
 //   - there is no output FIFO peripheral -- base 6 is the raw io_* route, and
 //     the program's writes there are captured by a fifo_out modelled *in the
 //     testbench* as the observable "outside".
 defproc e2e_fpga_fifo_test() {
-    core<4> c;
+    soc<4> c;
 
     mem<true, ROM_IMAGE> rom;
     rom.addr = c.rom_addr;

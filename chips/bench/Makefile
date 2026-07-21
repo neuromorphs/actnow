@@ -113,7 +113,7 @@ e2e_multi_event_test:
 		echo "e2e_multi_event_test: PASS"; \
 	fi
 
-# Exercises core/soc.act's reset_ext port with a real compiled program
+# Exercises core/core.act's reset_ext port with a real compiled program
 # through the real bootloader (unlike tests/core/reset_test.act, which
 # hand-assembles instructions directly): boots software/application/main.c,
 # runs one batch through it, fires external reset, then confirms the exact

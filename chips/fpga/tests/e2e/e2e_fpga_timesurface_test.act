@@ -1,4 +1,4 @@
-import "chips/fpga/core.act";
+import "chips/fpga/soc.act";
 import "core/peripherals/mem.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
@@ -21,7 +21,7 @@ import "gen/file_ids.act";
 // the reference model bit-for-bit -- including the 719 cells no event ever
 // landed in, which must still read back exactly 0.
 defproc e2e_fpga_timesurface_test() {
-    core<4> c;
+    soc<4> c;
 
     mem<true, ROM_IMAGE> rom;
     rom.addr = c.rom_addr;

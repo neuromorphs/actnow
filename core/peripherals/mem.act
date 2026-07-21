@@ -5,7 +5,7 @@ import "core/globals.act";
 
 // Unified backing memory, same std::ram bank layout either way.
 //   READ_ONLY=false -> plain read/write RAM, no preload (std::ram starts
-//     uninitialized/zero on its own) -- e.g. soc's internal SRAM.
+//     uninitialized/zero on its own) -- e.g. core's internal SRAM.
 //   READ_ONLY=true  -> ROM preloaded from file_id at startup; any write is
 //     rejected via assert rather than silently discarded, since there's no
 //     legitimate way to write to it. file_id is ignored when READ_ONLY is

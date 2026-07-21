@@ -1,24 +1,24 @@
-import "core/soc.act";
+import "core/core.act";
 
-// Drives soc through JAL followed by JALR in one continuous run. Uses a
+// Drives core through JAL followed by JALR in one continuous run. Uses a
 // negative JAL offset, which exercises the immediate's sign-extension (the
 // sign bit only shows up as a problem when it's actually set). JALR's
 // target then depends on JAL's link register, so a wrong JALR mask or JAL
 // return-address value would show up as a wrong final fetch address too.
 //
-// soc boots at ADDR_RESET (0x40000, base=4); everything below 0x40000 is
+// core boots at ADDR_RESET (0x40000, base=4); everything below 0x40000 is
 // outside the external region (mmu.act silently drops reads there), so a
 // leading NOP advances pc to 0x40004 first, and JAL jumps back by -4 so the
 // target stays inside the external region.
 defproc jal_test() {
 
-    soc s;
+    core s;
     addr_t addr;
     mode_mem_t mode;
     int<32> insn, off;
 
     chp {
-        // soc boots from a cold reset -- assert reset_ext once to kick it off.
+        // core boots from a cold reset -- assert reset_ext once to kick it off.
         s.reset_ext!true;
 
         // pc=ADDR_RESET+0: NOP (FENCE) -- just advances pc so the backward

@@ -1,4 +1,4 @@
-import "chips/fpga/core.act";
+import "chips/fpga/soc.act";
 import "core/peripherals/mem.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
@@ -25,7 +25,7 @@ import "gen/file_ids.act";
 // scattered events, so count=40 (of 256) and the median/MAD box is a robust,
 // tight box around the moving object, not the whole frame.
 defproc e2e_fpga_track_test() {
-    core<4> c;
+    soc<4> c;
 
     mem<true, ROM_IMAGE> rom;
     rom.addr = c.rom_addr;

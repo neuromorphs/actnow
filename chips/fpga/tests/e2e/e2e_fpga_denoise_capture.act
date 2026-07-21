@@ -1,4 +1,4 @@
-import "chips/fpga/core.act";
+import "chips/fpga/soc.act";
 import "core/peripherals/mem.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
@@ -13,7 +13,7 @@ import sim;
 // Every dump's 897 words (now + GRID_CELLS=896 signal_seen cells) are
 // appended to denoise_capture_results.mem, one value per line.
 defproc e2e_fpga_denoise_capture() {
-    core<4> c;
+    soc<4> c;
 
     mem<true, ROM_IMAGE> rom;
     rom.addr = c.rom_addr;

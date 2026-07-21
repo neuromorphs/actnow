@@ -7,7 +7,7 @@ returns to waiting.
 
 ## Implemented ISA
 
-Full RV32I base integer set, in `core/soc.act`: loads (LB/LH/LW/LBU/LHU) and
+Full RV32I base integer set, in `core/core.act`: loads (LB/LH/LW/LBU/LHU) and
 stores (SB/SH/SW), routed through the MMU's (`core/mmu.act`) data port to
 either internal RAM (`core/peripherals/mem.act`) or external memory.
 Instruction fetch goes through the MMU's separate instr port, which can read
@@ -32,17 +32,18 @@ reserved/unmapped address should do.
   R/W/RMW), both routed by the same table onto one shared downstream array,
   so instruction and data genuinely share one physical RAM. A write is
   structurally impossible through the instr port. Instantiated inside
-  `core/soc.act` with 2 exact routes (internal RAM, interrupt controller)
-  plus a catch-all that passes anything off-chip straight through to soc's
-  own `addr_ext`/etc boundary — needed since soc always boots by fetching
+  `core/core.act` with 2 exact routes (internal RAM, interrupt controller)
+  plus a catch-all that passes anything off-chip straight through to core's
+  own `addr_ext`/etc boundary — needed since core always boots by fetching
   the reset vector from external ROM ("XIP").
 - **`core/peripherals/demux.act`'s `demux`** is periphery-facing: it never
   talks to the core directly, only to whatever's already off-chip.
-  `chips/bench/periphery.act` wires it to soc's `addr_ext` boundary with no
+  `chips/bench/periphery.act` wires it to core's `addr_ext` boundary with no
   catch-all, splitting into ROM, input FIFO, output FIFO, and GPIO.
 
-A non-on-chip access takes the path: soc's core → `mmu` (falls through its
-catch-all) → soc's `addr_ext` boundary → `demux` → the actual peripheral.
+A non-on-chip access takes the path: core's fetch/load-store logic → `mmu`
+(falls through its catch-all) → core's `addr_ext` boundary → `demux` → the
+actual peripheral.
 
 ## Interrupt controller (`core/interrupt.act`)
 
@@ -66,7 +67,7 @@ before software has had any chance to configure anything.
 
 ## External reset (`reset_ext`)
 
-`core/soc.act` exposes a `chan?(bool) reset_ext` port that puts the core back
+`core/core.act` exposes a `chan?(bool) reset_ext` port that puts the core back
 into its boot state on demand, without restarting the simulation. The main
 `chp` loop races `#reset_ext` as a flat sibling of "keep running" and "idle,
 waiting for a wake-up" — not nested inside a catch-all — which is what lets
@@ -76,7 +77,7 @@ an instruction already in flight, only between instructions.
 
 Reset also clears `core/interrupt.act`'s vector table and enable mask,
 relayed via a second internal channel (a channel send can only be received
-once, so `soc.act` can't fan `reset_ext` out to both itself and
+once, so `core.act` can't fan `reset_ext` out to both itself and
 `interrupt.act` directly). Register file contents are *not* cleared, matching
 real RISC-V semantics.
 
@@ -94,7 +95,7 @@ per word — `WIDTH_DATA` for a generic 32-bit producer, or narrower for a
 domain-specific one); the CPU pops the oldest entry on every read, always
 zero-extended to the full 32-bit CPU-facing word. CPU writes configure a
 **trigger level** instead of being rejected: once `count` reaches it,
-`fifo_in` fires its own `event_out` port, wired to one of soc's `event_id_N`
+`fifo_in` fires its own `event_out` port, wired to one of core's `event_id_N`
 inputs — so filling the FIFO to the configured level *is* what raises the
 interrupt. Pushes are gated on the trigger level having been explicitly
 configured at least once.
@@ -115,10 +116,10 @@ A single MMIO output register (address offset ignored) whose low 4 bits
 drive 4 physical output pins. A CPU write updates the register and re-drives
 all 4 pins in the same transaction; a CPU read returns the last-written
 value. Pins are 4 individually-named `chan!(bool)` ports rather than an
-array, matching `soc.act`'s `event_id_N` convention.
+array, matching `core.act`'s `event_id_N` convention.
 
-GPIO *input* has no dedicated peripheral — `chips/bench/core.act` wires two
-of soc's 16 event lines (`event_id_14`/`event_id_15`) straight out as
+GPIO *input* has no dedicated peripheral — `chips/bench/soc.act` wires two
+of core's 16 event lines (`event_id_14`/`event_id_15`) straight out as
 `gpio_in_0`/`gpio_in_1`. An input pin going high is exactly an
 interrupt-controller event: it uses the existing vector table, no separate
 hardware needed.
@@ -127,7 +128,7 @@ hardware needed.
 
 `chips/bench/periphery.act` assembles the off-chip periphery (ROM + `fifo_in`
 + `fifo_out` + `gpio`, behind a `demux`) that a chip variant needs.
-`chips/bench/core.act` wires that together with `core/soc.act` into one
+`chips/bench/soc.act` wires that together with `core/core.act` into one
 chip, exposing:
 
 - `event_id_0`..`event_id_13`: generic pass-through event lines.
@@ -162,7 +163,7 @@ one path end to end. Run any of them with `make <name>` (or all via
   checks the resulting pattern on the GPIO output pins.
 
 `e2e_reset_reload_test` is the one exception that doesn't use
-`chips/bench/core.act`: it needs two independent backing ROMs behind
+`chips/bench/soc.act`: it needs two independent backing ROMs behind
 `core/peripherals/rom_selector.act`, which `periphery.act`'s single-ROM
 parameterization doesn't accommodate.
 
@@ -171,7 +172,7 @@ parameterization doesn't accommodate.
 `chips/bench/` above is the generic simulation chip. `chips/dvs/` (AER event
 sensor + SPI boot/programming interface) and `chips/fpga/` (the real
 FPGA-bound variant) are separate chip variants shaped the same way --
-`core.act` + `periphery.act` + their own `tests/e2e/` + their own Makefile --
+`soc.act` + `periphery.act` + their own `tests/e2e/` + their own Makefile --
 but **neither is wired into the root `make test`**. Run them explicitly, from
 the project root same as everything else:
 
@@ -217,7 +218,7 @@ Everything is driven by `make` from the project root (`actnow/`).
 
 Split by kind: `tests/core/` (CPU/ISA datapath), `tests/peripherals/`
 (standalone peripheral/infra unit tests), `tests/regression/` (one-off
-bug-repro tests), `tests/sw/` (real-program-through-soc runner), and
+bug-repro tests), `tests/sw/` (real-program-through-core runner), and
 `chips/bench/tests/e2e/` (full boot + real compiled program + real
 peripheral interaction, delegated to via `chips/bench/Makefile`). Each
 reports `<name>: PASS` or `FAIL`; `make` finds a test by name regardless of
@@ -229,10 +230,10 @@ make alu_test        # run a single testbench by name
 make list             # list the discovered testbench names
 ```
 
-### RV32I software tests (real programs through soc)
+### RV32I software tests (real programs through core)
 
 `tests/sw/rom_program_test.act` runs a *compiled* RV32I program through
-`soc`'s real fetch/decode/execute pipeline, serving the program image as
+`core`'s real fetch/decode/execute pipeline, serving the program image as
 external memory. Programs live in two places:
 
 - `software/tests/unit/` — the official RISC-V suite (picorv32 riscv-tests),
@@ -268,7 +269,7 @@ make BOOT=1 software-tests
 ```
 
 **`rom_program_test` only works for programs with no real MMIO** — it wires
-soc's entire external bus to one read-only ROM instance, no demux. Programs
+core's entire external bus to one read-only ROM instance, no demux. Programs
 that do real FIFO/GPIO writes (`application`, `multi_event`, `gpio_demo`,
 `boot_only`, `hang`) run through `chips/bench/`'s e2e tests instead, always
 bootloader-loaded regardless of `BOOT`.
@@ -300,7 +301,7 @@ only if it reaches WFI with no EBREAK and no assertion failure.
 
 - **`chips/<variant>/periphery.act`** (not `harness.act`) is each chip
   variant's off-chip periphery assembly — `defproc periphery`, instantiated
-  as `p` in that variant's own `core.act` (e.g. `chips/bench/periphery.act`,
+  as `p` in that variant's own `soc.act` (e.g. `chips/bench/periphery.act`,
   `chips/dvs/periphery.act`, `chips/fpga/periphery.act`). Renamed from
   `harness.act` to stop colliding with the unrelated top-level `harness/`
   (the physical FPGA/Vivado bring-up flow — `harness/fpga`, `harness/static`,
@@ -310,7 +311,7 @@ only if it reaches WFI with no EBREAK and no assertion failure.
   (`dvs_capture_20260714_151049.csv`, `phone.csv`, `stabilize.csv`) that the
   FPGA e2e rotate/track/motion/timesurface/denoise tests and
   `harness/host/dvs_*_live.py` replay from — split out from `chips/fpga/`'s
-  source/build files (`core.act`, `periphery.act`, `Makefile`) so recorded
+  source/build files (`soc.act`, `periphery.act`, `Makefile`) so recorded
   fixtures don't sit flat alongside them. The generated `*_capture_*.mem`
   scratch files those scripts also write stay directly under `chips/fpga/`
   (gitignored, not fixtures).

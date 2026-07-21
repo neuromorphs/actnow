@@ -1,6 +1,6 @@
-import "core/soc.act";
+import "core/core.act";
 
-// Drives soc through a sequence of branches in one continuous run, checking
+// Drives core through a sequence of branches in one continuous run, checking
 // the resulting fetch address after each one (taken -> pc+offset, not taken
 // -> pc+4). x1/x2 start at 0, so BEQ/BNE need no setup; BLT/BLTU reuse the
 // same operands (x3 = -1, x0 = 0) to prove the signed/unsigned distinction
@@ -8,13 +8,13 @@ import "core/soc.act";
 // pattern should not.
 defproc branch_test() {
 
-    soc s;
+    core s;
     addr_t addr;
     mode_mem_t mode;
     int<32> insn, off;
 
     chp {
-        // soc boots from a cold reset -- assert reset_ext once to kick it off.
+        // core boots from a cold reset -- assert reset_ext once to kick it off.
         s.reset_ext!true;
 
         // pc=ADDR_RESET+0: BEQ x1, x2, +8  (x1=x2=0 -> equal -> taken)

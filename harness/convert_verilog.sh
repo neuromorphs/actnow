@@ -7,7 +7,7 @@
 #
 #   -p  top-level process name to expand (default: soc)
 #   -f  ACT source file containing the process, relative to the repo root
-#       (default: core/soc.act)
+#       (default: core/core.act)
 #   -o  directory to write the generated Verilog into, relative to this
 #       script's directory (default: gen)
 set -euo pipefail
@@ -15,8 +15,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-PROCESS="core<4>"
-ACT_FILE="chips/fpga/core.act"
+PROCESS="soc<4>"
+ACT_FILE="chips/fpga/soc.act"
 OUT_DIR="$SCRIPT_DIR/gen"
 
 usage() {
@@ -59,10 +59,10 @@ fi
 # directory) and segfaults if given an absolute -o path, so both the ACT
 # file and the output dir must be passed as relative paths. Every .act file
 # in this repo writes its own imports relative to the repo root (e.g.
-# core/soc.act's "import core/globals.act" -- see the top-level Makefile's
+# core/core.act's "import core/globals.act" -- see the top-level Makefile's
 # own comment on this), so chp2fpga must be run with cwd=REPO_ROOT, not the
 # ACT file's own directory -- cd'ing into core/ instead would make
-# core/soc.act's "core/globals.act" import resolve to core/core/globals.act.
+# core/core.act's "core/globals.act" import resolve to core/core/globals.act.
 REL_ACT_FILE="$(realpath --relative-to="$REPO_ROOT" "$ACT_FILE")"
 REL_OUT_DIR="$(realpath --relative-to="$REPO_ROOT" "$OUT_DIR")"
 
@@ -82,13 +82,13 @@ echo "convert_verilog.sh: (cd \"$REPO_ROOT\" && \"$CHP2FPGA\" -a -p \"$PROCESS\"
 (cd "$REPO_ROOT" && "$CHP2FPGA" -a -p "$PROCESS" "$REL_ACT_FILE" -o "$REL_OUT_DIR/")
 
 # Post-generation fix for a chp2fpga naming bug (present in both the stock and
-# patched builds): the internal `event_pc` channel probe in soc's main loop is
+# patched builds): the internal `event_pc` channel probe in core's main loop is
 # emitted as the bare name `\event_pc_valid`, but the channel is aliased to the
 # `inter` subinstance port and only declared as `\inter.event_pc_valid`. Left
-# unfixed, soc.v fails to compile ("event_pc_valid is not declared"). Only the
+# unfixed, core.v fails to compile ("event_pc_valid is not declared"). Only the
 # guard expression uses the bare name; the port connection below it is correct.
-if [[ -f "$OUT_DIR/soc.v" ]]; then
-    sed -i 's/(\\event_pc_valid )/(\\inter.event_pc_valid )/' "$OUT_DIR/soc.v"
+if [[ -f "$OUT_DIR/core.v" ]]; then
+    sed -i 's/(\\event_pc_valid )/(\\inter.event_pc_valid )/' "$OUT_DIR/core.v"
 fi
 
 # chp2fpga derives module/file names from template array params, e.g.

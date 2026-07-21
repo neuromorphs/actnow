@@ -3,7 +3,7 @@ import "core/globals.act";
 // A 2-way ROM bank selector: routes the CPU-facing ROM port to whichever of
 // two backing mem<true,...> instances is currently "active". Which bank is
 // active is picked by `flip_bank`, entirely independent of
-// core/soc.act's reset_ext -- reset always just reboots from whatever's
+// core/core.act's reset_ext -- reset always just reboots from whatever's
 // currently mapped at ADDR_RESET, exactly like a real dual-bank-boot flash:
 // something else (an operator, an OTA update) decides which bank is live.
 //
@@ -11,7 +11,7 @@ import "core/globals.act";
 // flip-flop this process owns rather than an address match. flip_bank is a
 // flat sibling of the routing branch, not nested inside it, so a flip can
 // land the instant it's asserted rather than waiting for the mux to finish
-// committing to whichever bank was already selected (see soc.act's
+// committing to whichever bank was already selected (see core.act's
 // reset_ext selection for the same pattern).
 defproc rom_selector(
     chan?(addr_t) addr_in;

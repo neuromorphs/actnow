@@ -1,7 +1,7 @@
-import "chips/bench/core.act";
+import "chips/bench/soc.act";
 import "gen/file_ids.act";
 
-// End-to-end test for core/soc.act's reset_ext, using a real compiled
+// End-to-end test for core/core.act's reset_ext, using a real compiled
 // program through the real bootloader -- complements
 // tests/core/reset_test.act, which proves the same mechanism with
 // hand-assembled instructions and checks hang recovery/vector-clearing in
@@ -16,7 +16,7 @@ import "gen/file_ids.act";
 // fifo_in's trigger level, and re-enables event_id_0. If any of that didn't
 // genuinely reset and reconfigure, the second batch would hang or misbehave.
 defproc e2e_reset_test() {
-    core<ROM_IMAGE> c;
+    soc<ROM_IMAGE> c;
     c.event_id_0 = c.fifo_event;
 
     int<WIDTH_DATA> result;

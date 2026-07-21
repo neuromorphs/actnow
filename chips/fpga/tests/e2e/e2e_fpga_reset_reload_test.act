@@ -1,4 +1,4 @@
-import "chips/fpga/core.act";
+import "chips/fpga/soc.act";
 import "core/peripherals/mem.act";
 import "core/peripherals/fifo_out.act";
 import "core/peripherals/rom_selector.act";
@@ -8,10 +8,10 @@ import "gen/file_ids.act";
 // "wrong firmware" scenario -- reset recovers from a genuinely different, broken
 // program by rebooting into a corrected one.
 //
-// Unlike the bench version (which hand-rolls soc + demux + rom_selector +
+// Unlike the bench version (which hand-rolls core + demux + rom_selector +
 // fifo_in/fifo_out because periphery.act is parameterized on a single ROM_IMAGE),
-// the FPGA core already exposes the ROM as a *raw* external route -- so this
-// test just hangs a rom_selector + two backing ROMs off core's rom_* ports, no
+// the FPGA soc already exposes the ROM as a *raw* external route -- so this
+// test just hangs a rom_selector + two backing ROMs off soc's rom_* ports, no
 // need to bypass the chip's own periphery assembly. The base-6 output is a testbench
 // fifo_out on the raw io_* route, exactly as in e2e_fpga_fifo_test.
 //
@@ -26,7 +26,7 @@ import "gen/file_ids.act";
 // rom_selector to bank B (application) and assert reset_ext, and run the same
 // batch e2e_fpga_fifo_test uses, proving the corrected program boots and runs.
 defproc e2e_fpga_reset_reload_test() {
-    core<4> c;
+    soc<4> c;
 
     // dual-bank external ROM behind rom_selector, feeding the raw ROM route.
     // rom_selector.wdata_in is left unconnected: the ROM route is read-only, so

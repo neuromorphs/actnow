@@ -1,16 +1,16 @@
-import "core/soc.act";
+import "core/core.act";
 
-// Drives soc through a single AUIPC instruction, checking that x3 receives
+// Drives core through a single AUIPC instruction, checking that x3 receives
 // pc+imm -- not the immediate alone, and not written to the wrong register.
 defproc auipc_test() {
 
-    soc s;
+    core s;
     addr_t addr;
     mode_mem_t mode;
     int<32> insn;
 
     chp {
-        // soc boots from a cold reset -- assert reset_ext once to kick it off.
+        // core boots from a cold reset -- assert reset_ext once to kick it off.
         s.reset_ext!true;
 
         // AUIPC x3, 0x1  -->  rd := pc + (1 << 12) = ADDR_RESET + 4096

@@ -1,4 +1,4 @@
-import "chips/bench/core.act";
+import "chips/bench/soc.act";
 import "gen/file_ids.act";
 
 // Boots a real compiled program (software/application/main.c) through the
@@ -23,7 +23,7 @@ import "gen/file_ids.act";
 // matching real chips/bench wiring (unlike e2e_multi_event_test.act, which
 // drives all 16 event lines manually and leaves fifo_event disconnected).
 defproc e2e_fifo_test() {
-    core<ROM_IMAGE> c;
+    soc<ROM_IMAGE> c;
     c.event_id_0 = c.fifo_event;
 
     int<WIDTH_DATA> result;

@@ -1,4 +1,4 @@
-import "chips/bench/core.act";
+import "chips/bench/soc.act";
 import "gen/file_ids.act";
 
 // Continuous-push variant of e2e_fifo_test. That test pushes exactly BATCH,
@@ -29,7 +29,7 @@ import "gen/file_ids.act";
 // supported"), same reason chips/fpga's e2e tests unroll their replayed
 // events too.
 defproc e2e_fifo_stress_test() {
-    core<ROM_IMAGE> c;
+    soc<ROM_IMAGE> c;
     c.event_id_0 = c.fifo_event;
 
     int<WIDTH_DATA> result;

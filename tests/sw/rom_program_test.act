@@ -1,15 +1,15 @@
-import "core/soc.act";
+import "core/core.act";
 import "gen/file_ids.act";
 
 // Loads a real compiled RV32I program image and runs it through the actual
-// soc pipeline (fetch/decode/execute), instead of hand-crafted instruction
+// core pipeline (fetch/decode/execute), instead of hand-crafted instruction
 // words like the other tests. The image comes from
 // software/tests/build/rom_image.mem (see software/tests/Makefile),
 // registered as ROM_IMAGE in tests/files/file_registry.txt.
 //
 // mem<true, ROM_IMAGE> serves it: a read-only instance of the same
-// std::ram-backed memory soc uses internally, rejecting any write -- fine
-// here, since .data/.bss writes go to internal RAM via soc's own
+// std::ram-backed memory core uses internally, rejecting any write -- fine
+// here, since .data/.bss writes go to internal RAM via core's own
 // mem<false,.>, never to addr_ext.
 //
 // ROM_TEST defaults to software/tests/simple.S, riscv-tests' basic
@@ -17,8 +17,7 @@ import "gen/file_ids.act";
 // with this project's own WFI opcode. Reaching "decoded wfi" in the log
 // below with no crash or hang is what "passing" means here.
 defproc rom_program_test() {
-    soc s;
-
+    core s;
     mem<true, ROM_IMAGE> fm;
     fm.addr = s.addr_ext;
     fm.mode = s.mode_ext;
@@ -26,11 +25,11 @@ defproc rom_program_test() {
     fm.rdata = s.rdata_ext;
 
     chp {
-        // Nothing else to drive by hand -- soc blocks until reset_ext is
-        // asserted (see core/soc.act's header comment), so the only thing
+        // Nothing else to drive by hand -- core blocks until reset_ext is
+        // asserted (see core/core.act's header comment), so the only thing
         // this needs to do is assert it once; fm services every fetch after
         // that from the preloaded image. Simulation reaches quiescence once
-        // soc decodes WFI and goes idle (both soc and fm end up blocked
+        // core decodes WFI and goes idle (both core and fm end up blocked
         // waiting for input nobody sends).
         s.reset_ext!true
     }

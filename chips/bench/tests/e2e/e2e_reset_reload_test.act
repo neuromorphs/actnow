@@ -1,4 +1,4 @@
-import "core/soc.act";
+import "core/core.act";
 import "core/peripherals/fifo_in.act";
 import "core/peripherals/fifo_out.act";
 import "core/peripherals/demux.act";
@@ -9,13 +9,13 @@ import "gen/file_ids.act";
 // the *same* image), this proves reset can recover from a genuinely
 // different, broken program by rebooting into a corrected one.
 //
-// Doesn't use chips/bench/core.act: periphery.act is parameterized on a
+// Doesn't use chips/bench/soc.act: periphery.act is parameterized on a
 // single ROM_IMAGE, but this scenario needs two independent backing ROMs
 // (ROM_IMAGE_HANG/ROM_IMAGE_APPLICATION) behind a rom_selector mux, so this
-// test hand-rolls soc + demux + rom_selector + fifo_in/fifo_out directly.
+// test hand-rolls core + demux + rom_selector + fifo_in/fifo_out directly.
 //
 // software/hang/main.c is deliberately erroneous: a real infinite loop that
-// never configures or services any peripheral. rom_selector routes soc's
+// never configures or services any peripheral. rom_selector routes core's
 // ROM port to whichever bank is selected by `flip_bank`, entirely
 // independent of reset_ext -- exactly like a real dual-bank-boot flash,
 // where something else decides which bank is live and reset just reboots
@@ -30,8 +30,7 @@ import "gen/file_ids.act";
 // program -- and run the same batch e2e_fifo_test.act uses, proving the
 // corrected program genuinely boots and runs.
 defproc e2e_reset_reload_test() {
-    soc s;
-
+    core s;
     pint DEMUX_N = 3;
     pint DEMUX_BASES[DEMUX_N];
     DEMUX_BASES = {4, 5, 6};
@@ -79,7 +78,7 @@ defproc e2e_reset_reload_test() {
     chp {
         log("======== reset+reload e2e test start ========");
 
-        // soc boots from a cold reset -- assert reset_ext once to kick it off
+        // core boots from a cold reset -- assert reset_ext once to kick it off
         // (distinct from the mid-test reset_ext below, which is the actual
         // recovery-into-bank-B this test proves).
         s.reset_ext!true;

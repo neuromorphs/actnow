@@ -970,7 +970,7 @@ actionable tasks until these are answered:
 
 - [ ] Reset is a channel communication
 
-- [ ] SOC is everything, core is SOC
+- [x] SOC is everything, core is SOC
 
 - [ ] Use namespaces (import actnow; actnow::soc)
 

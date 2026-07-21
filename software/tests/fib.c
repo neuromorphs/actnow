@@ -38,7 +38,7 @@ static noinline int fib_rec(int n)
 }
 
 /* Fail path: record the test number in x28 (TESTNUM, as the .S harness does)
-   and trap via EBREAK. soc logs "EBREAK -- test FAILED (see TESTNUM/x28)". */
+   and trap via EBREAK. core logs "EBREAK -- test FAILED (see TESTNUM/x28)". */
 static noinline void fail(int testnum)
 {
     register int tn asm("x28") = testnum;

@@ -1,10 +1,10 @@
-import "chips/fpga/core.act";
+import "chips/fpga/soc.act";
 import "core/peripherals/mem.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 
 // FPGA-variant port of chips/bench/tests/e2e/e2e_reset_test.act: exercises
-// core/soc.act's reset_ext through the real bootloader + software/application.
+// core/core.act's reset_ext through the real bootloader + software/application.
 //
 // Sequence: boot, run one batch through the program's real ISR (same as
 // e2e_fpga_fifo_test's batch 1), fire external reset, then run the identical
@@ -16,10 +16,10 @@ import "gen/file_ids.act";
 // genuinely reset, the second batch would hang or misbehave.
 //
 // Same structural adaptations as e2e_fpga_fifo_test: interrupt wired inside
-// core, ROM modelled externally on the raw route, base-6 output captured by a
+// soc, ROM modelled externally on the raw route, base-6 output captured by a
 // testbench fifo_out.
 defproc e2e_fpga_reset_test() {
-    core<4> c;
+    soc<4> c;
 
     mem<true, ROM_IMAGE> rom;
     rom.addr = c.rom_addr;

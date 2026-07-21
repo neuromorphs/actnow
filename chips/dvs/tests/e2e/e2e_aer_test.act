@@ -1,4 +1,4 @@
-import "chips/dvs/core.act";
+import "chips/dvs/soc.act";
 import "chips/dvs/tests/e2e/spi_flash_stub.act";
 import "gen/file_ids.act";
 
@@ -10,7 +10,7 @@ import "gen/file_ids.act";
 // input (fifo_in<AER_DEPTH, WIDTH_AER>) fires the interrupt itself once
 // each batch lands, exactly like chips/bench's fifo_in, no manual
 // triggering here. event_id_0 is already hardwired to the AER input's own
-// event_out in chips/dvs/core.act, unlike chips/bench where the testbench
+// event_out in chips/dvs/soc.act, unlike chips/bench where the testbench
 // wires fifo_event itself.
 //
 // Each batch is processed by the program's own ISR and observed here as 3
@@ -68,7 +68,7 @@ defproc spi_sink(
 }
 
 defproc e2e_aer_test() {
-    core<8> c;
+    soc<8> c;
     spi_flash_stub<ROM_IMAGE> flash;
     spi_sink sink;
     chan(bool) sink_done;

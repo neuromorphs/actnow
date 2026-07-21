@@ -1,4 +1,4 @@
-import "chips/dvs/core.act";
+import "chips/dvs/soc.act";
 import "chips/dvs/tests/e2e/spi_flash_stub.act";
 import "gen/file_ids.act";
 
@@ -12,20 +12,20 @@ import "gen/file_ids.act";
 // SRAM and continuing there.
 //
 // spi_boot's 4 pins are the only ones connected -- everything else on
-// core (spi_prog's pins, gpio_in_0/1, swd_0/1, gpio_out_0..3, reset_ext,
+// soc (spi_prog's pins, gpio_in_0/1, swd_0/1, gpio_out_0..3, reset_ext,
 // aer_in) is left genuinely unconnected, same as chips/bench's own
-// e2e_boot_test.act leaves every one of chips/bench/core.act's ports
+// e2e_boot_test.act leaves every one of chips/bench/soc.act's ports
 // unconnected: fine as long as nothing tries to use them, and nothing does
 // here.
 //
 // Same reason as chips/bench's own e2e_boot_test: nothing else here to
 // synchronize against, so the only thing this chp body does is assert
-// reset_ext once to actually boot soc (soc.act blocks until reset_ext is
+// reset_ext once to actually boot core (core.act blocks until reset_ext is
 // asserted -- see its header comment). chips/dvs/Makefile's rule checks
-// soc's own "decoded wfi" log line directly instead of a "test complete"
+// core's own "decoded wfi" log line directly instead of a "test complete"
 // line.
 defproc e2e_boot_test() {
-    core<8> c;
+    soc<8> c;
     spi_flash_stub<ROM_IMAGE> flash;
 
     bool spi_boot_cs, spi_boot_sclk, spi_boot_mosi, spi_boot_miso;

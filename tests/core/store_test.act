@@ -1,16 +1,16 @@
-import "core/soc.act";
+import "core/core.act";
 
-// Drives soc through LUI (base address in x1), ADDI (all-ones value in x2),
+// Drives core through LUI (base address in x1), ADDI (all-ones value in x2),
 // then all three STORE variants (SW, SB, SH) against that base, then WFI.
 //
 // Unlike LOAD, STORE's result (the masked write value on wdata_ext) is
-// directly observable from outside soc -- mmu.act masks wdata down to the
+// directly observable from outside core -- mmu.act masks wdata down to the
 // requested size before forwarding it to the peripheral -- so this test can
 // fully assert the actual stored value, not just the fetch address, without
 // needing to eyeball regfile's internal log line.
 defproc store_test() {
 
-    soc s;
+    core s;
     addr_t addr;
     mode_mem_t mode;
     int<32> wdata;
@@ -18,7 +18,7 @@ defproc store_test() {
     int<32> off;
 
     chp {
-        // soc boots from a cold reset -- assert reset_ext once to kick it off.
+        // core boots from a cold reset -- assert reset_ext once to kick it off.
         s.reset_ext!true;
 
         // pc=ADDR_RESET+0: LUI x1, 0x40  -->  x1 = 0x40000 (base address)

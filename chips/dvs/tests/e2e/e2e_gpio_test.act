@@ -1,4 +1,4 @@
-import "chips/dvs/core.act";
+import "chips/dvs/soc.act";
 import "chips/dvs/tests/e2e/spi_flash_stub.act";
 import "gen/file_ids.act";
 
@@ -6,8 +6,8 @@ import "gen/file_ids.act";
 // test for GPIO, exercising both directions in one real compiled program
 // (software/dvs_gpio_demo/main.c), booted genuinely XIP out of spi_boot
 // (no ROM):
-//   - input: firing one of core's two GPIO input pins (gpio_in_0/
-//     gpio_in_1 -- pure wiring onto soc's event_id_1/event_id_2, dvs's two
+//   - input: firing one of soc's two GPIO input pins (gpio_in_0/
+//     gpio_in_1 -- pure wiring onto core's event_id_1/event_id_2, dvs's two
 //     spare lines, unlike chips/bench's event_id_14/event_id_15) wakes the
 //     CPU through the existing interrupt-controller vectoring, exactly
 //     like any other event line.
@@ -18,7 +18,7 @@ import "gen/file_ids.act";
 // spi_prog's pins and aer_in are left unconnected -- this test never
 // touches either.
 defproc e2e_gpio_test() {
-    core<8> c;
+    soc<8> c;
     spi_flash_stub<ROM_IMAGE> flash;
 
     bool spi_boot_cs, spi_boot_sclk, spi_boot_mosi, spi_boot_miso;

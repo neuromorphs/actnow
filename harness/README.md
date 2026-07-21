@@ -1,11 +1,11 @@
 # ACTNow FPGA Harness
 
 Verilog/Vivado harness for putting the generated ActNow
-`core4` on a KR260, fed by a SciDVS camera over asynchronous AER.
+`soc4` on a KR260, fed by a SciDVS camera over asynchronous AER.
 
 ```
-SciDVS -> ECP3 -> KR260 PL -> aer_rx -> evt_pack +-> evt_stream -> core4.fifo_push
-                                                   |              core4.io_* -> result DMA -> UDP :3334
+SciDVS -> ECP3 -> KR260 PL -> aer_rx -> evt_pack +-> evt_stream -> soc4.fifo_push
+                                                   |              soc4.io_* -> result DMA -> UDP :3334
                                                    +-> raw FIFO -> raw DMA --------> UDP :3336
 ```
 
@@ -35,8 +35,8 @@ Everything is driven by the `Makefile` here; run it from `harness/`.
 | `evt_pack.v` | packs decoded AER events into the required 32-bit ABI |
 | `evt_stream.v` | independent elastic FIFOs for core and raw DMA; each drops locally when full |
 | `axis_pack_fifo.v` | packetizes streams with `tlast` for DMA completion |
-| `rom_bram_adapter.v` | serves `core4.rom_*` from PS-written firmware BRAM |
-| `io_axis_adapter.v` | converts `core4.io_*` writes to the result AXI stream |
+| `rom_bram_adapter.v` | serves `soc4.rom_*` from PS-written firmware BRAM |
+| `io_axis_adapter.v` | converts `soc4.io_*` writes to the result AXI stream |
 | `reset_ext_send.v` | turns GPIO bit 0 into one `reset_ext` send |
 | `actnow_core_wrap.v` | generated core plus ROM/reset/output adapters |
 | `actnow_pl.v` | full simulable PL excluding the Vivado block design |

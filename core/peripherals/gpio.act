@@ -7,7 +7,7 @@ import "core/globals.act";
 // last-written value.
 //
 // Pins are 4 individually-named chan!(bool) ports (not an array, matching
-// soc.act's event_id_N convention) rather than a continuously-observable
+// core.act's event_id_N convention) rather than a continuously-observable
 // signal: CHP has no notion of a persistent, passively-readable wire, so
 // each pin's level is delivered once per write. A watcher (a testbench, or
 // a real downstream pin driver) observes a pin by receiving right after the
