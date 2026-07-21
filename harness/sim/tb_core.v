@@ -279,22 +279,44 @@ module tb_core;
         end
     endfunction
 
-    function [31:0] rotate_req_word(input [31:0] word);
-        integer x, y, tx, ty, rx, ry, nx, ny;
+    // Mirrors software/application/main.c's transform_event() exactly
+    // (X_SHIFT=24, Y_SHIFT=17, SX=126, SY=112, CX=63, CY=56): a 180-degree
+    // flip with a (+5,+3) offset, plus the polarity filter -- an event
+    // whose bit 0 isn't 1 produces no output at all (see transform_valid).
+    localparam integer X_SHIFT = 24, Y_SHIFT = 17;
+    localparam integer SX = 126, SY = 112, CX = 63, CY = 56;
+    localparam [31:0] XY_MASK = (32'h7F << Y_SHIFT) | (32'h7F << X_SHIFT);
+
+    function transform_valid(input [31:0] word);
         begin
-            x = word[30:24];
-            y = word[23:17];
-            tx = x - 63;
-            ty = y - 56;
-            rx = (tx - ty) >>> 1;
-            ry = (tx + ty) >>> 1;
-            nx = rx + 63;
-            ny = ry + 56;
-            if (nx < 0) nx = 0;
-            if (nx > 125) nx = 125;
-            if (ny < 0) ny = 0;
-            if (ny > 111) ny = 111;
-            rotate_req_word = (word & 32'h80_01_FF_FF) | (nx[6:0] << 24) | (ny[6:0] << 17);
+            transform_valid = (word[0] == 1'b1);
+        end
+    endfunction
+
+    function [31:0] transform_event_word(input [31:0] word);
+        integer x, y, tx, ty, rx, ry;
+        integer p;
+        begin
+            x = (word >> X_SHIFT) & 7'h7F;
+            y = (word >> Y_SHIFT) & 7'h7F;
+            p = word & 1;
+            y = (SY - 1) - y;
+            tx = x - CX;
+            ty = y - CY;
+            rx = -tx;
+            ry = -ty;
+            x = rx + CX;
+            y = ry + CY;
+            y = (SY - 1) - y;
+            y = y + 3;
+            x = x + 5;
+            p = p ^ 1;
+            if (x < 0) x = 0;
+            if (x > SX - 1) x = SX - 1;
+            if (y < 0) y = 0;
+            if (y > SY - 1) y = SY - 1;
+            transform_event_word = (word & ~(XY_MASK | 32'h1))
+                                  | (x[6:0] << X_SHIFT) | (y[6:0] << Y_SHIFT) | p[0];
         end
     endfunction
 
@@ -310,8 +332,9 @@ module tb_core;
         end
     endtask
 
-    // One batch of the application's ISR contract: push BATCH=4 event words,
-    // get each of them back with its requirements-ABI x/y coordinate rotated.
+    // One batch of the application's ISR contract: push BATCH=4 event words;
+    // only those with polarity=1 come back transformed on the output FIFO
+    // (isr_handler's transform_event() silently drops the rest).
     task run_batch(input [31:0] a, input [31:0] b, input [31:0] c, input [31:0] d);
         begin
             $display("[%0t] --- batch: pushing 0x%08h, 0x%08h, 0x%08h, 0x%08h into the input FIFO ---",
@@ -320,11 +343,11 @@ module tb_core;
             send_push(b);
             send_push(c);
             send_push(d);
-            expect_result(rotate_req_word(a));
-            expect_result(rotate_req_word(b));
-            expect_result(rotate_req_word(c));
-            expect_result(rotate_req_word(d));
-            $display("[%0t] batch ok: rotated results returned from the base-6 output", $time);
+            if (transform_valid(a)) expect_result(transform_event_word(a));
+            if (transform_valid(b)) expect_result(transform_event_word(b));
+            if (transform_valid(c)) expect_result(transform_event_word(c));
+            if (transform_valid(d)) expect_result(transform_event_word(d));
+            $display("[%0t] batch ok: transformed results returned from the base-6 output", $time);
         end
     endtask
 

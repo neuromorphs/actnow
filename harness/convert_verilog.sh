@@ -5,9 +5,9 @@
 # Usage:
 #   ./convert_verilog.sh [-p process] [-f act_file] [-o output_dir]
 #
-#   -p  top-level process name to expand (default: soc)
+#   -p  top-level process name to expand (default: soc<4>)
 #   -f  ACT source file containing the process, relative to the repo root
-#       (default: core/core.act)
+#       (default: chips/fpga/soc.act)
 #   -o  directory to write the generated Verilog into, relative to this
 #       script's directory (default: gen)
 set -euo pipefail
@@ -63,8 +63,15 @@ fi
 # own comment on this), so chp2fpga must be run with cwd=REPO_ROOT, not the
 # ACT file's own directory -- cd'ing into core/ instead would make
 # core/core.act's "core/globals.act" import resolve to core/core/globals.act.
-REL_ACT_FILE="$(realpath --relative-to="$REPO_ROOT" "$ACT_FILE")"
-REL_OUT_DIR="$(realpath --relative-to="$REPO_ROOT" "$OUT_DIR")"
+# realpath --relative-to is a GNU coreutils extension, not available in
+# macOS's BSD realpath (and this repo can't assume grealpath is installed),
+# so compute the relative path with python3 instead -- present everywhere
+# this script otherwise needs to run.
+relative_to() {
+    python3 -c 'import os, sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$1" "$2"
+}
+REL_ACT_FILE="$(relative_to "$ACT_FILE" "$REPO_ROOT")"
+REL_OUT_DIR="$(relative_to "$OUT_DIR" "$REPO_ROOT")"
 
 # Use the patched chp2fpga build by default: the stock /usr/local/cad build
 # drops the data of channels whose payload is an enum/struct-of-enum (e.g.
@@ -78,18 +85,33 @@ CHP2FPGA="${CHP2FPGA:-/share/fpga_proto/chp/chp2fpga.x86_64_linux6_17_0}"
 # only needed for non-deterministic selection, but the generated processes
 # instantiate rr unconditionally, so pass it always to avoid a missing-module
 # error at synth/sim time. arbiter.v must be added to the downstream file list.
-echo "convert_verilog.sh: (cd \"$REPO_ROOT\" && \"$CHP2FPGA\" -a -p \"$PROCESS\" \"$REL_ACT_FILE\" -o \"$REL_OUT_DIR/\")"
-(cd "$REPO_ROOT" && "$CHP2FPGA" -a -p "$PROCESS" "$REL_ACT_FILE" -o "$REL_OUT_DIR/")
+#
+# chp2fpga's own argument parser isn't a real getopt -- it stops reading
+# flags at the first non-option argument (the .act file), so any flag placed
+# after it (e.g. -o) is silently missed and it falls back to "no act file
+# given". All flags must come before the positional .act file.
+echo "convert_verilog.sh: (cd \"$REPO_ROOT\" && \"$CHP2FPGA\" -a -p \"$PROCESS\" -o \"$REL_OUT_DIR/\" \"$REL_ACT_FILE\")"
+(cd "$REPO_ROOT" && "$CHP2FPGA" -a -p "$PROCESS" -o "$REL_OUT_DIR/" "$REL_ACT_FILE")
 
 # Post-generation fix for a chp2fpga naming bug (present in both the stock and
 # patched builds): the internal `event_pc` channel probe in core's main loop is
 # emitted as the bare name `\event_pc_valid`, but the channel is aliased to the
 # `inter` subinstance port and only declared as `\inter.event_pc_valid`. Left
-# unfixed, core.v fails to compile ("event_pc_valid is not declared"). Only the
-# guard expression uses the bare name; the port connection below it is correct.
-if [[ -f "$OUT_DIR/core.v" ]]; then
-    sed -i 's/(\\event_pc_valid )/(\\inter.event_pc_valid )/' "$OUT_DIR/core.v"
-fi
+# unfixed, core*.v fails to compile ("event_pc_valid is not declared"). Only
+# the guard expression uses the bare name; the port connection below it is
+# correct. core is templated on N_EVENTS, so chp2fpga names its output after
+# the process + template args (e.g. core1.v for core<1>), never a literal
+# core.v -- match any coreN.v instead of assuming the untemplated name.
+#
+# sed -i's argument is a GNU/BSD portability landmine: GNU takes the suffix
+# attached with no space (or none at all), BSD *requires* one (even empty).
+# `-i.bak` + cleanup is the one form both accept identically.
+shopt -s nullglob
+for f in "$OUT_DIR"/core[0-9]*.v; do
+    sed -i.bak 's/(\\event_pc_valid )/(\\inter.event_pc_valid )/' "$f"
+    rm -f "$f.bak"
+done
+shopt -u nullglob
 
 # chp2fpga derives module/file names from template array params, e.g.
 # demux<3,{4,5,6},16> -> module \demux3{456}16 in demux3{456}16.v. Vivado's Tcl
@@ -103,7 +125,10 @@ shopt -s nullglob
 for f in "$OUT_DIR"/*'{'*.v; do
     base="$(basename "$f" .v)"                 # e.g. demux3{456}16
     safe="$(printf '%s' "$base" | tr '{}' '__')"   # e.g. demux3_456_16
-    sed -i "s/$base/$safe/g" "$OUT_DIR"/*.v
+    for vf in "$OUT_DIR"/*.v; do
+        sed -i.bak "s/$base/$safe/g" "$vf"
+        rm -f "$vf.bak"
+    done
     mv "$f" "$OUT_DIR/$safe.v"
 done
 shopt -u nullglob
