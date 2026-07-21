@@ -107,22 +107,22 @@ defproc core(
     SOC_MMU_EXACT_BASES = {ADDR_MEM, ADDR_INT_CTRL};
     mmu<SOC_MMU_N_EXACT, SOC_MMU_EXACT_BASES, ADDR_EXT_MIN> mmu;
 
-    (mmu.addr_out[0] = ram.addr, 
-    mmu.mode_out[0] = ram.mode,
-    mmu.wdata_out[0] = ram.wdata,
-    mmu.rdata_out[0] = ram.rdata,
+    mmu.addr_out[0] = ram.addr; 
+    mmu.mode_out[0] = ram.mode;
+    mmu.wdata_out[0] = ram.wdata;
+    mmu.rdata_out[0] = ram.rdata;
 
     // Interrupt controller (index 1)
-    mmu.addr_out[1] = addr_int_ctrl,
-    mmu.mode_out[1] = mode_int_ctrl,
-    mmu.wdata_out[1] = wdata_int_ctrl,
-    mmu.rdata_out[1] = rdata_int_ctrl,
+    mmu.addr_out[1] = addr_int_ctrl;
+    mmu.mode_out[1] = mode_int_ctrl;
+    mmu.wdata_out[1] = wdata_int_ctrl;
+    mmu.rdata_out[1] = rdata_int_ctrl;
 
     // External memory interface (the catch-all route, index N_EXACT=2)
-    mmu.addr_out[2] = addr_ext,
-    mmu.mode_out[2] = mode_ext,
-    mmu.wdata_out[2] = wdata_ext,
-    mmu.rdata_out[2] = rdata_ext);
+    mmu.addr_out[2] = addr_ext;
+    mmu.mode_out[2] = mode_ext;
+    mmu.wdata_out[2] = wdata_ext;
+    mmu.rdata_out[2] = rdata_ext;
 
     chp {
         // Cold boot: the CPU does nothing at all until reset_ext is
@@ -153,7 +153,7 @@ defproc core(
             addr_core.base := pc{19..16}, addr_core.offset := pc{15..0},
             mode_core.op := op_mem_t.R, mode_core.size := size_mem_t.WORD;
 
-            mmu.addr_instr!addr_core; mmu.mode_instr!mode_core;
+            mmu.addr_instr!addr_core, mmu.mode_instr!mode_core;
             mmu.rdata_instr?instr;
 
             // all six fields are independent slices of the same already-resolved
@@ -162,8 +162,8 @@ defproc core(
             rs1 := instr{19..15}, rs2 := instr{24..20}, funct7 := instr{31..25};
 
             // defaults
-            imm := 0;
-            is_wfi := false;
+            imm := 0,
+            is_wfi := false,
             next_pc := alu(pc, int(4,32), 0b000, 0b0000000); // pc + 4, via the shared ALU
 
             [   // WFI

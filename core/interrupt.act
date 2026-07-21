@@ -56,7 +56,7 @@ defproc interrupt(
     chp {
 
         // never         
-        ( ;i:16:vectors[i] := 0);
+        ( ;i:16:vectors[i] := 0),
         enable_mask := 0;
 
         *[
@@ -67,7 +67,7 @@ defproc interrupt(
 
                 // 
                
-                ( ;i:16:vectors[i] := 0);
+                ( ;i:16:vectors[i] := 0),
                 enable_mask := 0
             [] #addr ->
                 addr?a; mode?md;

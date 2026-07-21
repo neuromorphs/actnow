@@ -78,7 +78,7 @@ defproc fifo_in(
                             // otherwise a batch that filled during servicing is
                             // stranded until the next arrival (unbounded latency
                             // if the stream pauses, and never at all if it stops).
-                            [ armed & (count >= trigger_level) -> event_out!true; armed := false; reads_since_fire := 0
+                            [ armed & (count >= trigger_level) -> event_out!true; armed := false, reads_since_fire := 0
                               [] else -> skip
                             ]
                         [] else ->
@@ -98,7 +98,7 @@ defproc fifo_in(
                     // that fires events manually instead (not wiring event_out)
                     // must set trigger_level unreachable -- see
                     // software/multi_event/main.c.
-                    [ armed & (count >= trigger_level) -> event_out!true; armed := false; reads_since_fire := 0
+                    [ armed & (count >= trigger_level) -> event_out!true; armed := false, reads_since_fire := 0
                       [] else -> skip
                     ]
             |]
