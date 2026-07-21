@@ -14,7 +14,7 @@ import "core/core.act";
 // own internal log line.
 defproc load_test() {
 
-    core s;
+    core<1> s;
     addr_t addr;
     mode_mem_t mode;
     int<32> insn;

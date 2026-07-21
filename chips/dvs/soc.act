@@ -3,15 +3,15 @@ import "core/core.act";
 import "chips/dvs/periphery.act";
 
 // dvs's whole chip: core + its off-chip periphery (chips/dvs/periphery.act)
-// wired together. Only 3 of core's 16 event lines are used:
-//   - event_id_0 is hardwired directly to the AER input's own event_out --
+// wired together. dvs only needs 3 event lines, so core is instantiated
+// core<3> rather than carrying bench's full 16:
+//   - event_id[0] is hardwired directly to the AER input's own event_out --
 //     nothing ever needs to fire that line manually, so there's no reason
 //     to expose the wiring as a choice (contrast chips/bench/soc.act's
 //     fifo_event, left as an independent, optionally-connected port).
-//   - event_id_1/event_id_2 carry dvs's two GPIO input pins (gpio_in_0/
+//   - event_id[1]/event_id[2] carry dvs's two GPIO input pins (gpio_in_0/
 //     gpio_in_1): a physical pin jumps to a program-associated pc through
 //     the interrupt-controller vector table, same as any other event line.
-// event_id_3..15 are simply never connected -- dvs has no use for them.
 //
 // swd_0/swd_1 are stub input pins reserved for future SWD debug support --
 // declared for interface completeness, genuinely unconnected to any soc
@@ -33,7 +33,7 @@ defproc soc(
     chan!(bool) gpio_out_0; chan!(bool) gpio_out_1;
     chan!(bool) gpio_out_2; chan!(bool) gpio_out_3
 ) {
-    core s;
+    core<3> s;
     periphery<AER_DEPTH> p;
 
     p.addr_in = s.addr_ext;
@@ -54,9 +54,9 @@ defproc soc(
 
     chan(bool) aer_event;
     p.aer_event = aer_event;
-    s.event_id_0 = aer_event;
+    s.event_id[0] = aer_event;
 
-    s.event_id_1 = gpio_in_0;
-    s.event_id_2 = gpio_in_1;
+    s.event_id[1] = gpio_in_0;
+    s.event_id[2] = gpio_in_1;
     s.reset_ext = reset_ext;
 }

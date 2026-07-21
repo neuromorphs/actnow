@@ -31,7 +31,7 @@ import "gen/file_ids.act";
 // program -- and run the same batch e2e_fifo_test.act uses, proving the
 // corrected program genuinely boots and runs.
 defproc e2e_reset_reload_test() {
-    core s;
+    core<1> s;
     pint DEMUX_N = 3;
     pint DEMUX_BASES[DEMUX_N];
     DEMUX_BASES = {4, 5, 6};
@@ -65,7 +65,7 @@ defproc e2e_reset_reload_test() {
     demux.mode_out[1] = fin.mode;
     demux.wdata_out[1] = fin.wdata;
     demux.rdata_out[1] = fin.rdata;
-    fin.event_out = s.event_id_0;
+    fin.event_out = s.event_id[0];
 
     fifo_out<4> fout;
     demux.addr_out[2] = fout.addr;

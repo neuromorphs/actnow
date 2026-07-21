@@ -2,7 +2,7 @@ import "core/core.act";
 
 defproc lui_test() {
 
-    core s;
+    core<1> s;
     addr_t addr;
     mode_mem_t mode;
     int<32> insn, off;
@@ -68,12 +68,12 @@ defproc lui_test() {
         assert(addr.offset = 24, "fetch addr: want 24, got ", addr.offset);
         s.rdata_ext!(11);
 
-        // now idle -- wake it again via event_id_0 and confirm it re-vectors
+        // now idle -- wake it again via event_id[0] and confirm it re-vectors
         // to the address we configured (0x41000)
-        s.event_id_0!(true);
+        s.event_id[0]!(true);
         s.addr_ext?addr; s.mode_ext?mode;
-        assert(addr.base = 4, "event_id_0 fetch addr base: want 4, got ", addr.base);
-        assert(addr.offset = 0x1000, "event_id_0 fetch addr offset: want 0x1000, got ", addr.offset);
+        assert(addr.base = 4, "event_id[0] fetch addr base: want 4, got ", addr.base);
+        assert(addr.offset = 0x1000, "event_id[0] fetch addr offset: want 0x1000, got ", addr.offset);
         s.rdata_ext!(11);
 
         log("lui_test: all assertions passed")

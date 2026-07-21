@@ -1,32 +1,21 @@
 import "core/globals.act";
 
-// Interrupt controller, 16 maskable event lines (event_id_0..15):
-//   1. Each line has a software-written vector register (ADDR_INT_CTRL, offset 4*N)
-//      and an enable bit (ADDR_INT_CTRL_ENABLE) -- see globals.act.
+// Interrupt controller. The vector table/enable register are a fixed
+// 16-slot map (ADDR_INT_CTRL, offset 4*N per vector; ADDR_INT_CTRL_ENABLE
+// for the mask -- see globals.act) regardless of N_EVENTS, so the
+// software-visible register layout never changes across chips; only the
+// number of physically wired event_id lines does:
+//   1. Each line has a software-written vector register and an enable bit.
 //   2. Until a line's enable bit is set, this process won't even receive on it, so
 //      an asserting device just blocks rather than firing an unconfigured vector.
-//   3. When an enabled event_id_N fires, event_pc gets vectors[N] -- works the same
+//   3. When an enabled event_id[N] fires, event_pc gets vectors[N] -- works the same
 //      whether the program is XIP from ROM or copied into SRAM.
 //   4. The reset vector itself isn't dispatched here: core.act blocks on its own
 //      reset_ext at boot. This process only clears its state on a *relayed* reset
 //      (reset_int_ctrl) -- it never generates a boot event of its own.
+template<pint N_EVENTS>
 defproc interrupt(
-    chan?(bool) event_id_0;
-    chan?(bool) event_id_1;
-    chan?(bool) event_id_2;
-    chan?(bool) event_id_3;
-    chan?(bool) event_id_4;
-    chan?(bool) event_id_5;
-    chan?(bool) event_id_6;
-    chan?(bool) event_id_7;
-    chan?(bool) event_id_8;
-    chan?(bool) event_id_9;
-    chan?(bool) event_id_10;
-    chan?(bool) event_id_11;
-    chan?(bool) event_id_12;
-    chan?(bool) event_id_13;
-    chan?(bool) event_id_14;
-    chan?(bool) event_id_15;
+    chan?(bool) event_id[N_EVENTS];
     // Relayed from core's external reset_ext: clears the vector table and
     // enable mask, unconditionally, same as a cold boot.
     chan?(bool) reset_int_ctrl;
@@ -48,14 +37,8 @@ defproc interrupt(
     mode_mem_t md;
     int<WIDTH_DATA> w;
     int<4> vidx;
-    int<5> init_i;
-    // interrupt (mask, priority, id)
-    // interrupt mode hi, lo, rise, fall (external)
-    // but if it is hi (or lo) , you have to sample it once, write to register, fig out when to resample
-    // AVR interrupts 
-    chp {
 
-        // never         
+    chp {
         ( ;i:16:vectors[i] := 0),
         enable_mask := 0;
 
@@ -65,8 +48,6 @@ defproc interrupt(
                 reset_int_ctrl?event_id_recv;
                 log("interrupt controller: cleared by external reset");
 
-                // 
-               
                 ( ;i:16:vectors[i] := 0),
                 enable_mask := 0
             [] #addr ->
@@ -88,32 +69,8 @@ defproc interrupt(
                                 rdata!w
                         ]
                 ]
-            // paramereterize this
-            // template
-            // [] ([] i : 16 : enable_mask{i} & #event_id[i] -> event_id[i]?; event_pc!vectors[i])
-            [] (enable_mask{0} = 1) & #event_id_0 -> event_id_0?event_id_recv; event_pc!vectors[0]
-            [] (enable_mask{1} = 1) & #event_id_1 -> event_id_1?event_id_recv; event_pc!vectors[1]
-            [] (enable_mask{2} = 1) & #event_id_2 -> event_id_2?event_id_recv; event_pc!vectors[2]
-            [] (enable_mask{3} = 1) & #event_id_3 -> event_id_3?event_id_recv; event_pc!vectors[3]
-            [] (enable_mask{4} = 1) & #event_id_4 -> event_id_4?event_id_recv; event_pc!vectors[4]
-            [] (enable_mask{5} = 1) & #event_id_5 -> event_id_5?event_id_recv; event_pc!vectors[5]
-            [] (enable_mask{6} = 1) & #event_id_6 -> event_id_6?event_id_recv; event_pc!vectors[6]
-            [] (enable_mask{7} = 1) & #event_id_7 -> event_id_7?event_id_recv; event_pc!vectors[7]
-            [] (enable_mask{8} = 1) & #event_id_8 -> event_id_8?event_id_recv; event_pc!vectors[8]
-            [] (enable_mask{9} = 1) & #event_id_9 -> event_id_9?event_id_recv; event_pc!vectors[9]
-            [] (enable_mask{10} = 1) & #event_id_10 -> event_id_10?event_id_recv; event_pc!vectors[10]
-            [] (enable_mask{11} = 1) & #event_id_11 -> event_id_11?event_id_recv; event_pc!vectors[11]
-            [] (enable_mask{12} = 1) & #event_id_12 -> event_id_12?event_id_recv; event_pc!vectors[12]
-            [] (enable_mask{13} = 1) & #event_id_13 -> event_id_13?event_id_recv; event_pc!vectors[13]
-            [] (enable_mask{14} = 1) & #event_id_14 -> event_id_14?event_id_recv; event_pc!vectors[14]
-            [] (enable_mask{15} = 1) & #event_id_15 -> event_id_15?event_id_recv; event_pc!vectors[15]
+            [] ([]i:N_EVENTS: (enable_mask{i} = 1) & #event_id[i] -> event_id[i]?; event_pc!vectors[i])
             |]
-
-            /* 1 bit process
-                *[[| #mask -> mask?m;
-                    m & #event -> event! ; event?
-                |]]
-            */
         ]
     }
 }

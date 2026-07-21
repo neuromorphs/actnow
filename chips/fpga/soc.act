@@ -5,10 +5,8 @@ import "chips/fpga/periphery.act";
 // chips/fpga's whole chip: core + its off-chip periphery (periphery.act) wired
 // together for the FPGA build. Exposes only what this variant uses:
 //   - a single interrupt: the input FIFO's auto-fire (event_out) drives core's
-//     event_id_0. core's other 15 event lines are intentionally left
-//     unconnected -- interrupt.act never offers to receive on a line whose
-//     enable bit is clear, and only event_id_0 is ever enabled here, so those
-//     lines are never driven or received on.
+//     event_id[0] -- fpga only needs one event line, so core is instantiated
+//     core<1> rather than carrying bench's full 16.
 //   - a raw ROM read interface (rom_*) the core boots XIP from (base 4).
 //   - the FIFO's external push port (fifo_push, base 5).
 //   - a raw external read/write interface (io_*, base 6).
@@ -33,7 +31,7 @@ defproc soc(
     chan!(int<WIDTH_DATA>) io_wdata;
     chan?(int<WIDTH_DATA>) io_rdata
 ) {
-    core s;
+    core<1> s;
     periphery<FIFO_DEPTH> p;
 
     p.addr_in = s.addr_ext;
@@ -52,10 +50,10 @@ defproc soc(
     p.io_wdata = io_wdata;
     p.io_rdata = io_rdata;
 
-    // Single interrupt: input FIFO auto-fire -> event_id_0.
+    // Single interrupt: input FIFO auto-fire -> event_id[0].
     chan(bool) fifo_event;
     p.fifo_event = fifo_event;
-    s.event_id_0 = fifo_event;
+    s.event_id[0] = fifo_event;
 
     s.reset_ext = reset_ext;
 }

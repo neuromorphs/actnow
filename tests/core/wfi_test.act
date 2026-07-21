@@ -1,6 +1,6 @@
 import "core/core.act";
 
-// Drives core through two wake/sleep cycles via event_id_1 then event_id_0.
+// Drives core through two wake/sleep cycles via event_id[1] then event_id[0].
 //
 // The interrupt controller's vector table is real, software-configured
 // state -- there's no hardcoded address core jumps to on a given event, so
@@ -23,7 +23,7 @@ import "core/core.act";
 // needs to keep answering instruction fetches on addr_ext.
 defproc wfi_test() {
 
-    core s;
+    core<2> s;
     addr_t addr;
     mode_mem_t mode;
     int<32> delay;
@@ -87,19 +87,19 @@ defproc wfi_test() {
         delay := 200;
         *[ delay > 0 -> delay := delay - 1];
 
-        s.event_id_1!(true);
+        s.event_id[1]!(true);
 
         s.addr_ext?addr; s.mode_ext?mode;
-        assert(addr.offset = 0x2000, "event_id_1 fetch addr offset: want 0x2000, got ", addr.offset);
+        assert(addr.offset = 0x2000, "event_id[1] fetch addr offset: want 0x2000, got ", addr.offset);
         s.rdata_ext!(11);
 
         delay := 200;
         *[ delay > 0 -> delay := delay - 1];
 
-        s.event_id_0!(true);
+        s.event_id[0]!(true);
 
         s.addr_ext?addr; s.mode_ext?mode;
-        assert(addr.offset = 0x1000, "event_id_0 fetch addr offset: want 0x1000, got ", addr.offset);
+        assert(addr.offset = 0x1000, "event_id[0] fetch addr offset: want 0x1000, got ", addr.offset);
         s.rdata_ext!(11);
 
         log("wfi_test: all assertions passed")

@@ -135,7 +135,7 @@ defproc fetch_answerer(
 }
 
 defproc reset_test() {
-    core s;
+    core<1> s;
     fetch_answerer fa;
     chan(bool) done;
 

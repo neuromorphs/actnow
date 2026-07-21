@@ -10,7 +10,7 @@ import "chips/bench/periphery.act";
 //   - reset_ext, fifo_event, and the FIFOs' push/pop ports.
 //   - 8 GPIO pins:
 //       - `gpio_in_0`/`gpio_in_1` are pure wiring onto core's own
-//         event_id_14/event_id_15 -- physical pins that jump to a
+//         event_id[14]/event_id[15] -- physical pins that jump to a
 //         program-associated pc through the existing interrupt-controller
 //         vector table, exactly like any other event line. Reserving these
 //         two (rather than any other two of the 16) keeps event_id_0..13
@@ -51,7 +51,7 @@ defproc soc(
     chan!(bool) gpio_out_0; chan!(bool) gpio_out_1;
     chan!(bool) gpio_out_2; chan!(bool) gpio_out_3
 ) {
-    core s;
+    core<16> s;
     periphery<ROM_IMAGE> p;
 
     p.addr_in = s.addr_ext;
@@ -66,21 +66,21 @@ defproc soc(
     p.gpio_out_2 = gpio_out_2;
     p.gpio_out_3 = gpio_out_3;
 
-    s.event_id_0 = event_id_0;
-    s.event_id_1 = event_id_1;
-    s.event_id_2 = event_id_2;
-    s.event_id_3 = event_id_3;
-    s.event_id_4 = event_id_4;
-    s.event_id_5 = event_id_5;
-    s.event_id_6 = event_id_6;
-    s.event_id_7 = event_id_7;
-    s.event_id_8 = event_id_8;
-    s.event_id_9 = event_id_9;
-    s.event_id_10 = event_id_10;
-    s.event_id_11 = event_id_11;
-    s.event_id_12 = event_id_12;
-    s.event_id_13 = event_id_13;
-    s.event_id_14 = gpio_in_0;
-    s.event_id_15 = gpio_in_1;
+    s.event_id[0] = event_id_0;
+    s.event_id[1] = event_id_1;
+    s.event_id[2] = event_id_2;
+    s.event_id[3] = event_id_3;
+    s.event_id[4] = event_id_4;
+    s.event_id[5] = event_id_5;
+    s.event_id[6] = event_id_6;
+    s.event_id[7] = event_id_7;
+    s.event_id[8] = event_id_8;
+    s.event_id[9] = event_id_9;
+    s.event_id[10] = event_id_10;
+    s.event_id[11] = event_id_11;
+    s.event_id[12] = event_id_12;
+    s.event_id[13] = event_id_13;
+    s.event_id[14] = gpio_in_0;
+    s.event_id[15] = gpio_in_1;
     s.reset_ext = reset_ext;
 }

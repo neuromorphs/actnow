@@ -4,7 +4,7 @@ import "core/core.act";
 // pc+imm -- not the immediate alone, and not written to the wrong register.
 defproc auipc_test() {
 
-    core s;
+    core<1> s;
     addr_t addr;
     mode_mem_t mode;
     int<32> insn;

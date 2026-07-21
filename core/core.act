@@ -13,30 +13,14 @@ import "core/mem.act";
 //      dispatch on opcode (WFI/R-type/I-type/LUI/EBREAK/branch/store/AUIPC/...).
 //   3. regfile handles register reads/writes; mmu arbitrates instr vs data access
 //      to internal RAM, the interrupt controller, and anything off-chip.
-//   4. interrupt.act owns the 16 event_id_N lines and their vector table;
-//      reset_ext is relayed to it so a reset also clears pending vectors.
-// TODO: parameterize event count
+//   4. interrupt.act owns the event_id[N_EVENTS] lines and their (fixed
+//      16-slot) vector table; reset_ext is relayed to it so a reset also
+//      clears pending vectors.
+template<pint N_EVENTS>
 defproc core(
-    chan?(bool) event_id_0;
-    chan?(bool) event_id_1;
-    chan?(bool) event_id_2;
-    chan?(bool) event_id_3;
-    chan?(bool) event_id_4;
-    chan?(bool) event_id_5;
-    chan?(bool) event_id_6;
-    chan?(bool) event_id_7;
-    chan?(bool) event_id_8;
-    chan?(bool) event_id_9;
-    chan?(bool) event_id_10;
-    chan?(bool) event_id_11;
-    chan?(bool) event_id_12;
-    chan?(bool) event_id_13;
-    chan?(bool) event_id_14;
-    chan?(bool) event_id_15;
+    chan?(bool) event_id[N_EVENTS];
     // Puts the core back into its boot state (pc=ADDR_RESET) and clears the
     // interrupt controller's vector table/enable mask, same as a cold boot.
-
-    
     chan?(bool) reset_ext;
     chan!(addr_t) addr_ext;
     chan!(mode_mem_t) mode_ext;
@@ -81,10 +65,7 @@ defproc core(
     // itself and interrupt.act directly).
     chan(bool) reset_int_ctrl;
 
-    interrupt inter(event_id_0, event_id_1, event_id_2, event_id_3, event_id_4, event_id_5,
-                     event_id_6, event_id_7, event_id_8, event_id_9, event_id_10, event_id_11,
-                     event_id_12, event_id_13, event_id_14, event_id_15,
-                     reset_int_ctrl,
+    interrupt<N_EVENTS> inter(event_id, reset_int_ctrl,
                      addr_int_ctrl, mode_int_ctrl, wdata_int_ctrl, rdata_int_ctrl, event_pc);
 
     regfile rf;

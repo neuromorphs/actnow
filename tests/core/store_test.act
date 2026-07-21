@@ -10,7 +10,7 @@ import "core/core.act";
 // needing to eyeball regfile's internal log line.
 defproc store_test() {
 
-    core s;
+    core<1> s;
     addr_t addr;
     mode_mem_t mode;
     int<32> wdata;
