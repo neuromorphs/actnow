@@ -9,7 +9,7 @@ returns to waiting.
 
 Full RV32I base integer set, in `core/core.act`: loads (LB/LH/LW/LBU/LHU) and
 stores (SB/SH/SW), routed through the MMU's (`core/mmu.act`) data port to
-either internal RAM (`core/peripherals/mem.act`) or external memory.
+either internal RAM (`core/mem.act`) or external memory.
 Instruction fetch goes through the MMU's separate instr port, which can read
 the same RAM/external memory but can never write either. The M-extension
 (multiply/divide) is not implemented.
@@ -47,13 +47,22 @@ actual peripheral.
 
 ## Interrupt controller (`core/interrupt.act`)
 
-16 maskable event lines (`event_id_0`..`15`), each with its own
-software-configured vector register: a memory-mapped table at
+`core<N_EVENTS>` and `interrupt<N_EVENTS>` are templated on the number of
+physically wired event lines (`event_id[0]`..`event_id[N_EVENTS-1]`), each
+with its own software-configured vector register: a memory-mapped table at
 `base=ADDR_INT_CTRL`, word-addressed (offset `4*N` → the vector for
-`event_id_N`). Software writes its own ISR address into `vectors[N]` once,
-and when `event_id_N` fires, `pc` jumps to whatever was last written there —
+`event_id[N]`). Software writes its own ISR address into `vectors[N]` once,
+and when `event_id[N]` fires, `pc` jumps to whatever was last written there —
 works the same whether the program is running XIP from ROM or copied into
 internal SRAM by the bootloader.
+
+The vector table/enable register are always a fixed 16-slot map regardless of
+`N_EVENTS` — the software-visible register layout never changes across chip
+variants, only the number of physically wired lines does. Each chip variant
+picks its own width: `chips/bench/soc.act` instantiates `core<16>` (the full
+width), `chips/dvs/soc.act` uses `core<3>` (AER input + 2 GPIO lines), and
+`chips/fpga/soc.act` uses `core<1>` (a single FIFO interrupt) — unused
+vector-table slots just sit there unreferenced.
 
 Each event line also has an **enable bit** (32-bit mask register at
 `ADDR_INT_CTRL_ENABLE`, offset 64). Until software sets it, `interrupt.act`
@@ -95,7 +104,7 @@ per word — `WIDTH_DATA` for a generic 32-bit producer, or narrower for a
 domain-specific one); the CPU pops the oldest entry on every read, always
 zero-extended to the full 32-bit CPU-facing word. CPU writes configure a
 **trigger level** instead of being rejected: once `count` reaches it,
-`fifo_in` fires its own `event_out` port, wired to one of core's `event_id_N`
+`fifo_in` fires its own `event_out` port, wired to one of core's `event_id[N]`
 inputs — so filling the FIFO to the configured level *is* what raises the
 interrupt. Pushes are gated on the trigger level having been explicitly
 configured at least once.
@@ -116,10 +125,11 @@ A single MMIO output register (address offset ignored) whose low 4 bits
 drive 4 physical output pins. A CPU write updates the register and re-drives
 all 4 pins in the same transaction; a CPU read returns the last-written
 value. Pins are 4 individually-named `chan!(bool)` ports rather than an
-array, matching `core.act`'s `event_id_N` convention.
+array — each one is a genuinely distinct physical wire, unlike core's own
+`event_id[N]` array port.
 
-GPIO *input* has no dedicated peripheral — `chips/bench/soc.act` wires two
-of core's 16 event lines (`event_id_14`/`event_id_15`) straight out as
+GPIO *input* has no dedicated peripheral — `chips/bench/soc.act` wires two of
+`core<16>`'s event lines (`event_id[14]`/`event_id[15]`) straight out as
 `gpio_in_0`/`gpio_in_1`. An input pin going high is exactly an
 interrupt-controller event: it uses the existing vector table, no separate
 hardware needed.
@@ -134,8 +144,9 @@ chip, exposing:
 - `event_id_0`..`event_id_13`: generic pass-through event lines.
 - `reset_ext`, `fifo_event` (fifo_in's auto-fire, left for the caller to
   route or ignore), `push`/`pop` (the FIFOs).
-- 8 GPIO pins: `gpio_in_0`/`gpio_in_1` (event_id_14/15), `swd_0`/`swd_1`
-  (reserved for future debug support, unimplemented), `gpio_out_0`..`gpio_out_3`.
+- 8 GPIO pins: `gpio_in_0`/`gpio_in_1` (`event_id[14]`/`event_id[15]`),
+  `swd_0`/`swd_1` (reserved for future debug support, unimplemented),
+  `gpio_out_0`..`gpio_out_3`.
 
 ## End-to-end tests (`chips/bench/tests/e2e/`)
 
@@ -202,9 +213,10 @@ make -C chips/fpga e2e_fpga_rotate_test    # a single test by name
 
 ## ROM bank selector (`core/peripherals/rom_selector.act`)
 
-A 2-way mux between two backing `mem<true,...>` ROM instances, routing
-whichever is "active" to a single CPU-facing ROM port. Which bank is active
-is chosen by `flip_bank`, entirely independent of `reset_ext` — reset never
+A 2-way mux between two backing `core/peripherals/rom.act` (`rom<file_id>`)
+instances, routing whichever is "active" to a single CPU-facing ROM port.
+Which bank is active is chosen by `flip_bank`, entirely independent of
+`reset_ext` — reset never
 carries a target address or program identity; it always just reboots from
 whatever's currently mapped at `ADDR_RESET`. Models a real dual-bank-boot
 flash: something else (an operator, an OTA update) flips the bank, and reset
@@ -315,6 +327,14 @@ only if it reaches WFI with no EBREAK and no assertion failure.
   fixtures don't sit flat alongside them. The generated `*_capture_*.mem`
   scratch files those scripts also write stay directly under `chips/fpga/`
   (gitignored, not fixtures).
+- **`core/mem.act`** (untemplated `mem`, internal read/write RAM) vs.
+  **`core/peripherals/rom.act`** (`rom<file_id>`, file-preloaded and
+  read-only) used to be one templated `defproc mem<READ_ONLY; file_id>` in
+  `core/peripherals/mem.act`. Split so core's own internal SRAM (always
+  read/write, no file) isn't carrying ROM-only template parameters it never
+  uses; `core/mem.act` lives alongside `core/core.act` rather than under
+  `peripherals/` since it's core's own internal memory, not an off-chip
+  peripheral.
 
 ## Toolchain
 
