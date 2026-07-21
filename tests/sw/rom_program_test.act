@@ -1,4 +1,5 @@
 import "core/core.act";
+import "core/peripherals/rom.act";
 import "gen/file_ids.act";
 
 // Loads a real compiled RV32I program image and runs it through the actual
@@ -7,10 +8,10 @@ import "gen/file_ids.act";
 // software/tests/build/rom_image.mem (see software/tests/Makefile),
 // registered as ROM_IMAGE in tests/files/file_registry.txt.
 //
-// mem<true, ROM_IMAGE> serves it: a read-only instance of the same
-// std::ram-backed memory core uses internally, rejecting any write -- fine
-// here, since .data/.bss writes go to internal RAM via core's own
-// mem<false,.>, never to addr_ext.
+// rom<ROM_IMAGE> serves it: a read-only instance of the same std::ram-backed
+// memory layout core's internal RAM uses, rejecting any write -- fine here,
+// since .data/.bss writes go to internal RAM via core's own core/mem.act
+// instance, never to addr_ext.
 //
 // ROM_TEST defaults to software/tests/simple.S, riscv-tests' basic
 // self-checking test: straight-line code with one backward jump, finishing
@@ -18,7 +19,7 @@ import "gen/file_ids.act";
 // below with no crash or hang is what "passing" means here.
 defproc rom_program_test() {
     core s;
-    mem<true, ROM_IMAGE> fm;
+    rom<ROM_IMAGE> fm;
     fm.addr = s.addr_ext;
     fm.mode = s.mode_ext;
     fm.wdata = s.wdata_ext;

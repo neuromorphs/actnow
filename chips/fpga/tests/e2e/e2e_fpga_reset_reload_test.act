@@ -1,5 +1,5 @@
 import "chips/fpga/soc.act";
-import "core/peripherals/mem.act";
+import "core/peripherals/rom.act";
 import "core/peripherals/fifo_out.act";
 import "core/peripherals/rom_selector.act";
 import "gen/file_ids.act";
@@ -36,13 +36,13 @@ defproc e2e_fpga_reset_reload_test() {
     rs.mode_in = c.rom_mode;
     rs.rdata_in = c.rom_rdata;
 
-    mem<true, ROM_IMAGE_HANG> rom_a;
+    rom<ROM_IMAGE_HANG> rom_a;
     rs.addr_a = rom_a.addr;
     rs.mode_a = rom_a.mode;
     rs.wdata_a = rom_a.wdata;
     rs.rdata_a = rom_a.rdata;
 
-    mem<true, ROM_IMAGE_APPLICATION> rom_b;
+    rom<ROM_IMAGE_APPLICATION> rom_b;
     rs.addr_b = rom_b.addr;
     rs.mode_b = rom_b.mode;
     rs.wdata_b = rom_b.wdata;

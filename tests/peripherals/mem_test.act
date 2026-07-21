@@ -1,9 +1,9 @@
 import std;
 
 import "core/globals.act";
-import "core/peripherals/mem.act";
+import "core/mem.act";
 
-// Testbench for core/peripherals/mem.act: a byte-addressable, 32-bit-word
+// Testbench for core/mem.act: a byte-addressable, 32-bit-word
 // memory built from 4 byte-wide std::ram banks. A byte at address A lives
 // in bank = A mod 4 (from offset{1..0}), word index = A div 4 (from
 // offset>>2); the low byte of a word is lane 0. Sized transfers only touch
@@ -18,7 +18,7 @@ import "core/peripherals/mem.act";
 // read/RMW transactions, self-checking every read against the expected
 // (post-mask) value.
 defproc mem_test() {
-    mem<false, 0> m;
+    mem m;
 
     // Local channels wired to the memory under test.
     chan(addr_t)            addr;

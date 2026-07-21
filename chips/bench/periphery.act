@@ -1,5 +1,5 @@
 import "core/globals.act";
-import "core/peripherals/mem.act";
+import "core/peripherals/rom.act";
 import "core/peripherals/fifo_in.act";
 import "core/peripherals/fifo_out.act";
 import "core/peripherals/gpio.act";
@@ -43,7 +43,7 @@ defproc periphery(
     demux.wdata_in = wdata_in;
     demux.rdata_in = rdata_in;
 
-    mem<true, ROM_IMAGE> rom;
+    rom<ROM_IMAGE> rom;
     demux.addr_out[0] = rom.addr;
     demux.mode_out[0] = rom.mode;
     demux.wdata_out[0] = rom.wdata;

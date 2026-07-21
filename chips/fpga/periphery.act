@@ -11,7 +11,7 @@ import "core/peripherals/demux.act";
 // Unlike chips/bench (ROM + fifo_in + fifo_out + gpio) or chips/dvs
 // (AER-only), the FPGA variant keeps just what the FPGA build needs:
 //   - base 4: a *raw* read-only ROM interface. Instead of a file-preloaded
-//     mem<true,...>, the demux's route-0 addr/mode/rdata channels are exposed
+//     rom<...>, the demux's route-0 addr/mode/rdata channels are exposed
 //     straight to the chip boundary, so the actual ROM lives outside the chip
 //     (a BRAM on the FPGA side). core still boots XIP from base 4 exactly like
 //     chips/bench -- ADDR_RESET's base nibble is 4, so the first fetch lands

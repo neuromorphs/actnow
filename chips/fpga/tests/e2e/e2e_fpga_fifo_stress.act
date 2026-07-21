@@ -1,5 +1,5 @@
 import "chips/fpga/soc.act";
-import "core/peripherals/mem.act";
+import "core/peripherals/rom.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 
@@ -31,7 +31,7 @@ import "gen/file_ids.act";
 defproc e2e_fpga_fifo_stress() {
     soc<4> c;
 
-    mem<true, ROM_IMAGE> rom;
+    rom<ROM_IMAGE> rom;
     rom.addr = c.rom_addr;
     rom.mode = c.rom_mode;
     rom.rdata = c.rom_rdata;

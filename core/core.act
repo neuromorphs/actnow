@@ -3,7 +3,7 @@ import "core/interrupt.act";
 import "core/regfile.act";
 import "core/utils.act";
 import "core/mmu.act";
-import "core/peripherals/mem.act";
+import "core/mem.act";
 
 // The RV32I CPU core: fetch/decode/execute pipeline plus its internal peripherals.
 //   1. Cold boot blocks on reset_ext until asserted, then jumps pc to ADDR_RESET --
@@ -95,7 +95,7 @@ defproc core(
     int<WIDTH_DATA> wdata_core;
     int<WIDTH_DATA> rdata_core;
 
-    mem<false, 0> ram; // read/write, no file preload (file_id unused)
+    mem ram;
 
     // 2 exact routes (internal RAM, interrupt controller) + 1 catch-all for
     // anything off-chip (base>=ADDR_EXT_MIN), which passes straight through

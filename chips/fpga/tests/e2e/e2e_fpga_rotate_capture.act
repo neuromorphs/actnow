@@ -1,5 +1,5 @@
 import "chips/fpga/soc.act";
-import "core/peripherals/mem.act";
+import "core/peripherals/rom.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 import sim;
@@ -8,7 +8,7 @@ import sim;
 // Streams chips/fpga/rotate_capture_events.mem (one decimal packed AER word
 // per line) through the real simulated core running software/dvs_rotate/
 // main.c's actual ISR, using actsim's runtime file I/O (sim::file::*, the
-// same mechanism core/peripherals/mem.act uses to preload ROM images) rather
+// same mechanism core/peripherals/rom.act uses to preload ROM images) rather
 // than unrolling one CHP statement per event -- this loop body is a fixed
 // handful of statements regardless of event count, so it scales to the full
 // 61752-event recording without generating a huge program.
@@ -26,7 +26,7 @@ import sim;
 defproc e2e_fpga_rotate_capture() {
     soc<4> c;
 
-    mem<true, ROM_IMAGE> rom;
+    rom<ROM_IMAGE> rom;
     rom.addr = c.rom_addr;
     rom.mode = c.rom_mode;
     rom.rdata = c.rom_rdata;

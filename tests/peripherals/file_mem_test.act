@@ -1,9 +1,9 @@
 import "core/globals.act";
 import "gen/file_ids.act";
-import "core/peripherals/mem.act";
+import "core/peripherals/rom.act";
 
 defproc file_mem_test() {
-    mem<true, FILE_MEM_TEST_IMAGE> m;
+    rom<FILE_MEM_TEST_IMAGE> m;
 
     chan(addr_t) addr;
     chan(mode_mem_t) mode;

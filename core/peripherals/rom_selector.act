@@ -1,7 +1,7 @@
 import "core/globals.act";
 
 // 2-way ROM bank selector, routing the CPU-facing ROM port to whichever of two
-// backing mem<true,...> instances is currently "active":
+// backing rom<...> instances is currently "active":
 //   1. `flip_bank` picks the active bank -- independent of core.act's reset_ext,
 //      which always just reboots from whatever's mapped at ADDR_RESET (like a
 //      real dual-bank-boot flash: something else decides which bank is live).

@@ -5,8 +5,8 @@ import "core/globals.act";
 
 // Plays spi_boot's external flash role for dvs e2e tests, using a real
 // compiled program image already in .mem word format -- the exact same
-// file format/reader core/peripherals/mem.act's own READ_ONLY mode uses
-// (sim::file::openr/read), reused directly. spi_boot itself has no
+// file format/reader core/peripherals/rom.act uses (sim::file::openr/read),
+// reused directly. spi_boot itself has no
 // backing store: every CPU access becomes its own live SPI transaction
 // carrying the real requested address. A real flash chip supports genuine
 // random access, and so does the software running out of it -- a
@@ -16,7 +16,7 @@ import "core/globals.act";
 // so this preloads the whole file into an array up front and answers by
 // address, not by file position. MAX_WORDS is a generous fixed bound
 // (1024), not the real image size -- addresses beyond EOF read as 0,
-// matching core/peripherals/mem.act's own READ_ONLY zero-fill convention.
+// matching core/peripherals/rom.act's own zero-fill convention.
 //
 // A real slave, gated purely by observing cs/sclk/mosi, never
 // rendezvousing with spi_boot -- same as tests/peripherals/
