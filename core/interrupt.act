@@ -58,11 +58,14 @@ defproc interrupt(
     int<WIDTH_DATA> w;
     int<4> vidx;
     int<5> init_i;
-
+    // interrupt (mask, priority, id)
+    // interrupt mode hi, lo, rise, fall (external)
+    // but if it is hi (or lo) , you have to sample it once, write to register, fig out when to resample
+    // AVR interrupts 
     chp {
 
-        init_i := 0;
-        *[ init_i < 16 -> vectors[int(init_i,4)] := 0; init_i := init_i + 1 ];
+        // never         
+        ( ;i:16:vectors[i] := 0);
         enable_mask := 0;
 
         *[
@@ -70,15 +73,17 @@ defproc interrupt(
             #reset_int_ctrl ->
                 reset_int_ctrl?event_id_recv;
                 log("interrupt controller: cleared by external reset");
-                init_i := 0;
-                *[ init_i < 16 -> vectors[int(init_i,4)] := 0; init_i := init_i + 1 ];
+
+                // 
+               
+                ( ;i:16:vectors[i] := 0);
                 enable_mask := 0
             [] #addr ->
                 addr?a; mode?md;
                 [
                     a.offset = ADDR_INT_CTRL_ENABLE ->
                         [
-                            md.op = op_mem_t.W -> wdata?w; enable_mask := w
+                            md.op = op_mem_t.W -> wdata?w; enable_mask := w // send the mask update to each 1-bit process
                             [] else -> rdata!enable_mask
                         ]
                     [] else ->
@@ -86,11 +91,15 @@ defproc interrupt(
                         [
                             md.op = op_mem_t.W ->
                                 wdata?w;
-                                vectors[vidx] := w
+                                [([]i:16: vidx = i -> vectors[i] := w)]
                             [] else ->
-                                rdata!vectors[vidx]
+                               [([]i:16: vidx = i -> w := vectors[i])];
+                                rdata!w
                         ]
                 ]
+            // paramereterize this
+            // template
+            // [] ([] i : 16 : enable_mask{i} & #event_id[i] -> event_id[i]?; event_pc!vectors[i])
             [] (enable_mask{0} = 1) & #event_id_0 -> event_id_0?event_id_recv; event_pc!vectors[0]
             [] (enable_mask{1} = 1) & #event_id_1 -> event_id_1?event_id_recv; event_pc!vectors[1]
             [] (enable_mask{2} = 1) & #event_id_2 -> event_id_2?event_id_recv; event_pc!vectors[2]
@@ -108,6 +117,12 @@ defproc interrupt(
             [] (enable_mask{14} = 1) & #event_id_14 -> event_id_14?event_id_recv; event_pc!vectors[14]
             [] (enable_mask{15} = 1) & #event_id_15 -> event_id_15?event_id_recv; event_pc!vectors[15]
             |]
+
+            /* 1 bit process
+                *[[| #mask -> mask?m;
+                    m & #event -> event! ; event?
+                |]]
+            */
         ]
     }
 }

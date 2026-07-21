@@ -5,6 +5,7 @@ import "core/utils.act";
 import "core/mmu.act";
 import "core/peripherals/mem.act";
 
+// TODO: parameterize event count
 defproc soc(
     chan?(bool) event_id_0;
     chan?(bool) event_id_1;
@@ -24,6 +25,8 @@ defproc soc(
     chan?(bool) event_id_15;
     // Puts the core back into its boot state (pc=ADDR_RESET) and clears the
     // interrupt controller's vector table/enable mask, same as a cold boot.
+
+    
     chan?(bool) reset_ext;
     chan!(addr_t) addr_ext;
     chan!(mode_mem_t) mode_ext;

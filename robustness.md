@@ -945,7 +945,7 @@ actionable tasks until these are answered:
 
 - [ ] Configuring the SPI protocol with registers
 
-- [ ] Implement UART equivalent implementation in place of SPI
+- [ ] Implement UART equivalent implementation in place of SPI (?)
 
 - [ ] Make the number of events templated in core
 
@@ -969,6 +969,26 @@ actionable tasks until these are answered:
 - [x] SPI boot and SPI prog share the same clk instance. We have to find a way to test this reliably and safely. (using explicit delays )
 
 - [ ] Reset is a channel communication
+
+- [ ] SOC is everything, core is SOC
+
+- [ ] Use namespaces (import actnow; actnow::soc)
+
+- [ ] What are the I/O standards I need to accomodate?
+
+- [ ] Some sort of template act of how to add an I/O peripheral
+
+      - [ ] Use that to implement a SPI interface
+
+      - [ ] Implement an AXI Lite stream (Moritz)
+
+- [ ] AVR datasheet 
+
+## Back back log
+
+- [ ] debugging
+
+
 
 Once these are answered, expand this section into the same
 checkbox/Gate structure as Stages 1 and 2 before starting implementation.
