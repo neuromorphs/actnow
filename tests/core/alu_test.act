@@ -1,5 +1,7 @@
 import "core/utils.act";
 
+open actnow::core;
+
 // Probes the merged `alu` function with both operand shapes it needs to
 // support: real rs1/rs2 register values (R-type), and the resolved-by-decode
 // second operand for I-type -- a sign-extended immediate for the normal

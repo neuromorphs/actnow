@@ -1,5 +1,9 @@
 import "core/globals.act";
 
+namespace actnow {
+export namespace core {
+export namespace peripherals {
+
 // SPI boot loader: answers core's every fetch/read on the dvs chip via a live SPI
 // transaction to external flash -- genuine XIP, no local image at all:
 //   1. spi_boot is the SPI *master* -- drives cs/sclk/mosi, only listens on miso,
@@ -12,7 +16,7 @@ import "core/globals.act";
 //      (each fetch is its own SPI transaction), which then copies the real program
 //      image into SRAM itself, one LOAD at a time -- spi_boot only ever relays one
 //      word per request, no knowledge of image size/copying needed.
-defproc spi_boot(
+export defproc spi_boot(
     chan?(addr_t) addr; chan?(mode_mem_t) mode;
     chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata;
 
@@ -58,4 +62,8 @@ defproc spi_boot(
             rdata!shift
         ]
     }
+}
+
+}
+}
 }

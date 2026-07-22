@@ -2,6 +2,8 @@ import "chips/dvs/soc.act";
 import "chips/dvs/tests/e2e/spi_flash_stub.act";
 import "gen/file_ids.act";
 
+open actnow::chips::dvs;
+
 // The full pipeline in one test: boot XIP out of spi_boot, load a data
 // blob into memory via spi_prog's read direction (not XIP -- explicit,
 // one-word-at-a-time SPI transactions), push AER events, let the interrupt

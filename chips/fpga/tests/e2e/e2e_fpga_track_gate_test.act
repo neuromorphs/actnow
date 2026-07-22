@@ -3,6 +3,9 @@ import "core/peripherals/rom.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 
+open actnow::chips::fpga;
+open actnow::core::peripherals;
+
 // FPGA-variant correctness test for software/dvs_track/main.c's tracking
 // gate: proves a locked-on window's bounding box stays tight around the
 // real object instead of ballooning out to include unrelated activity

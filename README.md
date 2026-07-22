@@ -336,6 +336,58 @@ only if it reaches WFI with no EBREAK and no assertion failure.
   `peripherals/` since it's core's own internal memory, not an off-chip
   peripheral.
 
+## ACT namespaces
+
+Every `defproc`/`deftype`/`defenum`/`function` in this repo lives in one of
+four namespaces (mirroring the directory layout the rest of this doc refers
+to by file path):
+
+```
+actnow::core                -- core.act, mmu.act, regfile.act, interrupt.act,
+                                utils.act, mem.act
+actnow::core::peripherals    -- demux, fifo_in, fifo_out, gpio, rom,
+                                rom_selector, spi_boot, spi_prog
+actnow::chips::bench         -- chips/bench/{soc,periphery}.act
+actnow::chips::dvs           -- chips/dvs/{soc,periphery}.act
+actnow::chips::fpga          -- chips/fpga/{soc,periphery}.act
+```
+
+So the process this README calls `core` is really `actnow::core::core`, the
+`soc` in `chips/fpga/soc.act` is `actnow::chips::fpga::soc`, and so on — this
+doc keeps using the short names throughout since the file path already
+disambiguates which one is meant.
+
+**Why:** before namespaces, `chips/bench/soc.act`, `chips/dvs/soc.act`, and
+`chips/fpga/soc.act` each declared a global `defproc soc(...)` with a
+different signature — same for `periphery`. That only worked because no
+single build ever imported more than one chip variant at once; the first
+time something needed two side by side, it would have been a duplicate-name
+compile error. Each chip variant now gets its own namespace instead.
+
+**Mechanics, if you're adding a new file:**
+- `export` is required at *every* level of the namespace path for something
+  to be usable outside the file that defines it — including a plain
+  top-level `deftype`/`defenum` with no enclosing `namespace` block at all
+  (see `core/globals.act`'s `addr_t`/`mode_mem_t`/etc, all `export`ed even
+  though they're not wrapped in any namespace). Forgetting `export` at any
+  level fails with `Type is not exported up the namespace hierarchy: ...`.
+  `pint` constants (`WIDTH_DATA`, `ADDR_*`, ...) are the one exception —
+  they're visible everywhere unconditionally, no `export` needed.
+- A namespace automatically sees its *parent's* exported names with no
+  `open` needed (e.g. `core/peripherals/demux.act`, in
+  `actnow::core::peripherals`, calls `utils.act`'s `mask_data` — declared in
+  the enclosing `actnow::core` — directly). Anything else needs
+  `open actnow::core;` / `open actnow::core::peripherals;` etc. at the top
+  of the file, after the `import`s — see any file under `chips/*/` or
+  `tests/` for the pattern.
+- `chp2fpga` (the RTL generator — see `harness/`) handles namespaced process
+  names fine: it flattens `::` to `_` in both the generated module name and
+  filename (e.g. `actnow::chips::fpga::soc<4>` → module/file
+  `actnow_chips_fpga_soc4`), so no special-casing is needed there.
+- `tests/` and each chip's own `tests/e2e/` stay un-namespaced — nothing
+  else ever imports them, so there's no collision to solve and namespacing
+  them would only add ceremony.
+
 ## Toolchain
 
 Built and simulated against the `act`/`actsim` toolchain (`asyncvlsi/act`).

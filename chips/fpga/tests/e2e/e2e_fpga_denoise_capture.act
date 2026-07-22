@@ -4,6 +4,9 @@ import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 import sim;
 
+open actnow::chips::fpga;
+open actnow::core::peripherals;
+
 // Not a pass/fail test -- a capture generator for a live denoised-timesurface
 // viewer, mirroring e2e_fpga_timesurface_capture.act's structure exactly
 // (same DUMP_INTERVAL=64 cadence, same 897-word dump layout), just against

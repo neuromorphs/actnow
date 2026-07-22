@@ -5,6 +5,9 @@ import "core/utils.act";
 import "core/mmu.act";
 import "core/mem.act";
 
+namespace actnow {
+export namespace core {
+
 // The RV32I CPU core: fetch/decode/execute pipeline plus its internal peripherals.
 //   1. Cold boot blocks on reset_ext until asserted, then jumps pc to ADDR_RESET --
 //      no implicit power-on-and-go, matching real hardware.
@@ -16,7 +19,7 @@ import "core/mem.act";
 //   4. interrupt.act owns the event_id[N_EVENTS] lines and their (fixed
 //      16-slot) vector table; reset_ext is relayed to it so a reset also
 //      clears pending vectors.
-template<pint N_EVENTS>
+export template<pint N_EVENTS>
 defproc core(
     chan?(bool) event_id[N_EVENTS];
     // Puts the core back into its boot state (pc=ADDR_RESET) and clears the
@@ -407,4 +410,7 @@ defproc core(
         ]
     }
 
+}
+
+}
 }

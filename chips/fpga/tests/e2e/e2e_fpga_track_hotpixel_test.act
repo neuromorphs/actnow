@@ -3,6 +3,9 @@ import "core/peripherals/rom.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 
+open actnow::chips::fpga;
+open actnow::core::peripherals;
+
 // FPGA-variant test for the hot-pixel rejection of software/dvs_track/
 // main.c's spatio-temporal correlation filter: replays 40 copies of one
 // synthetic "stuck pixel" event (x=10, y=10, ts=0 -> packed word 169082880,

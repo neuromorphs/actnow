@@ -1,5 +1,8 @@
 import "core/globals.act";
 
+namespace actnow {
+export namespace core {
+
 // Shared pure-function helpers used by core.act's decode/execute stage:
 //   1. alu -- R-type/I-type/shift-immediate ALU, shared by every arithmetic op.
 //   2. branch_taken -- B-type comparison, built on top of alu.
@@ -60,4 +63,7 @@ export function mask_data (int<WIDTH_DATA> data; size_mem_t size) : int<WIDTH_DA
         [] else                        -> self := data
         ]
     }
+}
+
+}
 }

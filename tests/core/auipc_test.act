@@ -1,5 +1,7 @@
 import "core/core.act";
 
+open actnow::core;
+
 // Drives core through a single AUIPC instruction, checking that x3 receives
 // pc+imm -- not the immediate alone, and not written to the wrong register.
 defproc auipc_test() {

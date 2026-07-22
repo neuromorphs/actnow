@@ -1,6 +1,9 @@
 import "core/globals.act";
 import "core/utils.act";
 
+namespace actnow {
+export namespace core {
+
 // Core-facing dual-port PMP mmu, between the CPU and on-chip resources (RAM, interrupt controller):
 //   1. instr port (addr_instr/mode_instr/rdata_instr) -- read-only, no wdata channel at all.
 //   2. data port (addr_data/mode_data/wdata_data/rdata_data) -- full R/W/RMW.
@@ -13,7 +16,7 @@ import "core/utils.act";
 //   6. Unmapped addresses are silently dropped; only the low BYTE/HALF_WORD/WORD bits pass through.
 // Same dispatch shape as core/peripherals/demux.act, kept separate: this one is core-facing,
 // that one periphery-facing.
-template<pint N_EXACT; pint EXACT_BASES[N_EXACT]; pint CATCHALL_MIN_BASE>
+export template<pint N_EXACT; pint EXACT_BASES[N_EXACT]; pint CATCHALL_MIN_BASE>
 defproc mmu(
     chan?(addr_t) addr_instr;
     chan?(mode_mem_t) mode_instr;
@@ -100,4 +103,7 @@ defproc mmu(
             |]
         ]
     }
+}
+
+}
 }

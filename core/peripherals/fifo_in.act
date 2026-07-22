@@ -2,6 +2,10 @@ import std;
 
 import "core/globals.act";
 
+namespace actnow {
+export namespace core {
+export namespace peripherals {
+
 // Input FIFO, memory-mapped as a single data register (address offset ignored):
 //   1. `push` feeds it from outside; a CPU read pops the oldest entry, zero-extended
 //      to 32 bits (WIDTH/DEPTH let a chip variant narrow it, e.g. dvs's AER input).
@@ -15,7 +19,7 @@ import "core/globals.act";
 //   5. Pushes are gated on the trigger level having been configured at least once.
 //      A push blocks until there's room; a CPU read of an empty FIFO asserts
 //      instead of blocking (whoever drives the interrupt must push first).
-template<pint DEPTH; pint WIDTH>
+export template<pint DEPTH; pint WIDTH>
 defproc fifo_in(
     chan?(addr_t) addr; chan?(mode_mem_t) mode;
     chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata;
@@ -104,4 +108,8 @@ defproc fifo_in(
             |]
         ]
     }
+}
+
+}
+}
 }

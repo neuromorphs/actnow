@@ -1,6 +1,8 @@
 import "chips/bench/soc.act";
 import "gen/file_ids.act";
 
+open actnow::chips::bench;
+
 // Boots a real compiled program (software/application/main.c) through the
 // bootloader, lets it configure its own interrupt vector and input FIFO
 // trigger level (BATCH=4), then go to sleep. Pushes two separate 4-word

@@ -1,5 +1,9 @@
 import "core/globals.act";
 
+namespace actnow {
+export namespace core {
+export namespace peripherals {
+
 // GPIO output peripheral, a single MMIO register (address offset ignored):
 //   1. A CPU write updates the register and re-drives all 4 pins with the new
 //      bit values in the same transaction; a CPU read returns the last-written value.
@@ -7,7 +11,7 @@ import "core/globals.act";
 //      core.act's event_id_N convention), each delivered once per write -- CHP has
 //      no persistent, passively-readable wire, so a watcher must receive right
 //      after the write that sets it.
-defproc gpio(
+export defproc gpio(
     chan?(addr_t) addr; chan?(mode_mem_t) mode;
     chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata;
     chan!(bool) pin_0; chan!(bool) pin_1; chan!(bool) pin_2; chan!(bool) pin_3
@@ -29,4 +33,8 @@ defproc gpio(
             ]
         ]
     }
+}
+
+}
+}
 }

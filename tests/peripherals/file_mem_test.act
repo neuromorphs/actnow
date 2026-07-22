@@ -2,6 +2,8 @@ import "core/globals.act";
 import "gen/file_ids.act";
 import "core/peripherals/rom.act";
 
+open actnow::core::peripherals;
+
 defproc file_mem_test() {
     rom<FILE_MEM_TEST_IMAGE> m;
 

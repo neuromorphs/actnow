@@ -1,6 +1,8 @@
 import "chips/bench/soc.act";
 import "gen/file_ids.act";
 
+open actnow::chips::bench;
+
 // REALLY simple probe harness, not a pass/fail test: boots a real compiled
 // program (software/application/main.c) and drives it through its one real
 // event line -- event_id_0, fired by fifo_in's own auto-fire once a batch

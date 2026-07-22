@@ -2,6 +2,12 @@ import "core/globals.act";
 import "core/peripherals/fifo_in.act";
 import "core/peripherals/demux.act";
 
+open actnow::core::peripherals;
+
+namespace actnow {
+export namespace chips {
+export namespace fpga {
+
 // chips/fpga's off-chip periphery: an input event FIFO plus two *raw*
 // pass-through routes -- a read-only ROM and a read/write external interface --
 // behind a 3-way demux (base=4/5/6, no catch-all), wired to whatever core
@@ -25,7 +31,7 @@ import "core/peripherals/demux.act";
 //     fifo_out with a plain pass-through of the demux's route-2 quad to the
 //     chip boundary -- what it binds to off-chip (PS/AXI, PL pins) is decided
 //     one level up / on the Vivado side, not here.
-template<pint FIFO_DEPTH>
+export template<pint FIFO_DEPTH>
 defproc periphery(
     chan?(addr_t) addr_in;
     chan?(mode_mem_t) mode_in;
@@ -78,4 +84,8 @@ defproc periphery(
     demux.mode_out[2] = io_mode;
     demux.wdata_out[2] = io_wdata;
     demux.rdata_out[2] = io_rdata;
+}
+
+}
+}
 }

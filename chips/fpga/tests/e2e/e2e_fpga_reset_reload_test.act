@@ -4,6 +4,9 @@ import "core/peripherals/fifo_out.act";
 import "core/peripherals/rom_selector.act";
 import "gen/file_ids.act";
 
+open actnow::chips::fpga;
+open actnow::core::peripherals;
+
 // FPGA-variant port of chips/bench/tests/e2e/e2e_reset_reload_test.act: the
 // "wrong firmware" scenario -- reset recovers from a genuinely different, broken
 // program by rebooting into a corrected one.

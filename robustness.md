@@ -956,7 +956,7 @@ actionable tasks until these are answered:
       its own length-prefixed payload the same way and copies it into SRAM
       itself, verified end to end by `e2e_boot_test`.
 
-- [ ] untemplate the ram
+- [X] untemplate the ram
 
 - [x] Ensure programs can actually be loaded thru spi prog, and that data
       can be read/written — the narrow version of this (a real program,
@@ -968,7 +968,7 @@ actionable tasks until these are answered:
 
 - [x] SPI boot and SPI prog share the same clk instance. We have to find a way to test this reliably and safely. (using explicit delays )
 
-- [ ] Reset is a channel communication
+- [x] Reset is a channel communication
 
 - [x] SOC is everything, core is SOC
 

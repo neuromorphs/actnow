@@ -1,6 +1,8 @@
 import "chips/bench/soc.act";
 import "gen/file_ids.act";
 
+open actnow::chips::bench;
+
 // Baseline end-to-end scenario: boot a real compiled program
 // (software/boot_only/main.c) through the real bootloader, with zero
 // peripheral interaction, and confirm it reaches WFI cleanly.

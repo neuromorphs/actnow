@@ -1,5 +1,9 @@
 import "core/globals.act";
 
+namespace actnow {
+export namespace core {
+export namespace peripherals {
+
 // 2-way ROM bank selector, routing the CPU-facing ROM port to whichever of two
 // backing rom<...> instances is currently "active":
 //   1. `flip_bank` picks the active bank -- independent of core.act's reset_ext,
@@ -9,7 +13,7 @@ import "core/globals.act";
 //      owns rather than an address match.
 //   3. flip_bank is a flat sibling of the routing branch (not nested inside it),
 //      so a flip lands instantly rather than waiting for an in-flight route to finish.
-defproc rom_selector(
+export defproc rom_selector(
     chan?(addr_t) addr_in;
     chan?(mode_mem_t) mode_in;
     chan?(int<WIDTH_DATA>) wdata_in;
@@ -57,4 +61,8 @@ defproc rom_selector(
             |]
         ]
     }
+}
+
+}
+}
 }

@@ -1,5 +1,7 @@
 import "core/core.act";
 
+open actnow::core;
+
 defproc lui_test() {
 
     core<1> s;

@@ -5,6 +5,12 @@ import "core/peripherals/spi_boot.act";
 import "core/peripherals/spi_prog.act";
 import "core/peripherals/gpio.act";
 
+open actnow::core::peripherals;
+
+namespace actnow {
+export namespace chips {
+export namespace dvs {
+
 // dvs's off-chip periphery: the AER (address-event) input, both SPI
 // peripherals, and GPIO, all behind one demux (no catch-all -- nothing
 // here needs to reach further off-chip), wired to whatever core instance's
@@ -21,7 +27,7 @@ import "core/peripherals/gpio.act";
 // peripheral here -- neither is a RAM bus master. Each paces its own sclk
 // independently via a plain busy-wait loop (see spi_boot.act's header
 // comment).
-template<pint AER_DEPTH>
+export template<pint AER_DEPTH>
 defproc periphery(
     chan?(addr_t) addr_in;
     chan?(mode_mem_t) mode_in;
@@ -78,4 +84,8 @@ defproc periphery(
     gp.pin_1 = gpio_out_1;
     gp.pin_2 = gpio_out_2;
     gp.pin_3 = gpio_out_3;
+}
+
+}
+}
 }

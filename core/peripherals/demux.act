@@ -1,6 +1,10 @@
 import "core/globals.act";
 import "core/utils.act";
 
+namespace actnow {
+export namespace core {
+export namespace peripherals {
+
 // Peripheral-side router: core -> mmu -> core's addr_ext boundary -> this demux
 // -> the actual peripheral (ROM, FIFOs, GPIO, ...). Never talks to the CPU directly.
 //   1. N_EXACT downstream ports, selected by an exact match against EXACT_BASES[k].
@@ -9,7 +13,7 @@ import "core/utils.act";
 //      real reserved/unmapped address.
 // Same "N exact + one optional catch-all" shape as core/mmu.act, kept separate:
 // this one is periphery-facing, mmu is core-facing.
-template<pint N_EXACT; pint EXACT_BASES[N_EXACT]; pint CATCHALL_MIN_BASE>
+export template<pint N_EXACT; pint EXACT_BASES[N_EXACT]; pint CATCHALL_MIN_BASE>
 defproc demux(
     chan?(addr_t) addr_in;
     chan?(mode_mem_t) mode_in;
@@ -72,4 +76,8 @@ defproc demux(
             ]
         ]
     }
+}
+
+}
+}
 }

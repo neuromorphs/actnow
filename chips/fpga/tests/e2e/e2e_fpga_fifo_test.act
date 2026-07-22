@@ -3,6 +3,9 @@ import "core/peripherals/rom.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 
+open actnow::chips::fpga;
+open actnow::core::peripherals;
+
 // FPGA-variant port of chips/bench/tests/e2e/e2e_fifo_test.act: boots
 // software/application/main.c through the bootloader, lets it configure its
 // event_id_0 vector + input-FIFO trigger level (BATCH=4), then sleep. Two

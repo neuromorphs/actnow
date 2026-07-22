@@ -3,6 +3,9 @@ import "core/peripherals/rom.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 
+open actnow::chips::fpga;
+open actnow::core::peripherals;
+
 // FPGA-variant correctness test for the object-centroid/bounding-box
 // tracker: boots software/dvs_track/main.c through the bootloader, then
 // replays the same 256 events (64 batches -- exactly one DUMP_INTERVAL)

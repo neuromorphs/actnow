@@ -1,6 +1,8 @@
 import "chips/bench/soc.act";
 import "gen/file_ids.act";
 
+open actnow::chips::bench;
+
 // Extends e2e_multi_event_test.act's full-width interrupt-controller
 // coverage two ways at once:
 //   - back-to-back pressure: fires events with no artificial inter-event

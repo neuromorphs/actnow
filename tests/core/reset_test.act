@@ -1,5 +1,7 @@
 import "core/core.act";
 
+open actnow::core;
+
 // Exercises core/core.act's external reset (reset_ext): a hand-assembled
 // program hits a deliberate infinite self-loop (never reaching WFI,
 // modeling a genuine hang), external reset recovers it mid-loop, and the

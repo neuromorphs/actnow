@@ -2,6 +2,8 @@ import "chips/dvs/soc.act";
 import "chips/dvs/tests/e2e/spi_flash_stub.act";
 import "gen/file_ids.act";
 
+open actnow::chips::dvs;
+
 // dvs equivalent of chips/bench/tests/e2e/e2e_boot_test.act: boots a real
 // compiled program (software/boot_only/main.c, always bootloader-prefixed
 // since it's an app-style program under software/<name>/) with zero

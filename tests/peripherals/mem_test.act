@@ -3,6 +3,8 @@ import std;
 import "core/globals.act";
 import "core/mem.act";
 
+open actnow::core;
+
 // Testbench for core/mem.act: a byte-addressable, 32-bit-word
 // memory built from 4 byte-wide std::ram banks. A byte at address A lives
 // in bank = A mod 4 (from offset{1..0}), word index = A div 4 (from

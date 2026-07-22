@@ -2,6 +2,12 @@ import "core/globals.act";
 import "core/core.act";
 import "chips/fpga/periphery.act";
 
+open actnow::core;
+
+namespace actnow {
+export namespace chips {
+export namespace fpga {
+
 // chips/fpga's whole chip: core + its off-chip periphery (periphery.act) wired
 // together for the FPGA build. Exposes only what this variant uses:
 //   - a single interrupt: the input FIFO's auto-fire (event_out) drives core's
@@ -13,7 +19,7 @@ import "chips/fpga/periphery.act";
 //   - reset_ext, which is how the core boots *and* how it warm-reboots. core.act
 //     blocks on it before executing anything, so nothing here runs until whoever
 //     owns this chip asserts it once -- there is no implicit power-on-and-go.
-template<pint FIFO_DEPTH>
+export template<pint FIFO_DEPTH>
 defproc soc(
     chan?(bool) reset_ext;
 
@@ -56,4 +62,8 @@ defproc soc(
     s.event_id[0] = fifo_event;
 
     s.reset_ext = reset_ext;
+}
+
+}
+}
 }

@@ -1,6 +1,8 @@
 import "core/globals.act";
 import "core/peripherals/demux.act";
 
+open actnow::core::peripherals;
+
 // Returns true iff w has no bits set above the transfer-size boundary,
 // i.e. the demux masked the higher bits to 0 as required.
 function masked_ok (int<WIDTH_DATA> w; size_mem_t size) : bool {

@@ -6,6 +6,9 @@ import "core/peripherals/demux.act";
 import "core/peripherals/rom_selector.act";
 import "gen/file_ids.act";
 
+open actnow::core;
+open actnow::core::peripherals;
+
 // The "wrong firmware" scenario: unlike e2e_reset_test.act (which reboots
 // the *same* image), this proves reset can recover from a genuinely
 // different, broken program by rebooting into a corrected one.

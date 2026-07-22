@@ -5,6 +5,12 @@ import "core/peripherals/fifo_out.act";
 import "core/peripherals/gpio.act";
 import "core/peripherals/demux.act";
 
+open actnow::core::peripherals;
+
+namespace actnow {
+export namespace chips {
+export namespace bench {
+
 // chips/bench's off-chip periphery: ROM + input FIFO + output FIFO + GPIO
 // output register behind a 4-way demux (base=4/5/6/ADDR_GPIO, no
 // catch-all), wired to whatever core instance's addr_ext/mode_ext/wdata_ext/
@@ -18,7 +24,7 @@ import "core/peripherals/demux.act";
 // something this process should bake in. A caller that leaves fifo_event
 // unconnected is fine as long as it never sends on it -- i.e. as long as
 // fifo_in's trigger_level stays configured unreachable (see fifo_in.act).
-template<pint ROM_IMAGE>
+export template<pint ROM_IMAGE>
 defproc periphery(
     chan?(addr_t) addr_in;
     chan?(mode_mem_t) mode_in;
@@ -73,4 +79,8 @@ defproc periphery(
     gp.pin_1 = gpio_out_1;
     gp.pin_2 = gpio_out_2;
     gp.pin_3 = gpio_out_3;
+}
+
+}
+}
 }

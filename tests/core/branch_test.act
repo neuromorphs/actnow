@@ -1,5 +1,7 @@
 import "core/core.act";
 
+open actnow::core;
+
 // Drives core through a sequence of branches in one continuous run, checking
 // the resulting fetch address after each one (taken -> pc+offset, not taken
 // -> pc+4). x1/x2 start at 0, so BEQ/BNE need no setup; BLT/BLTU reuse the

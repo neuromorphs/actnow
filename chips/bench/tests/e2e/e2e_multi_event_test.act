@@ -1,6 +1,8 @@
 import "chips/bench/soc.act";
 import "gen/file_ids.act";
 
+open actnow::chips::bench;
+
 // Generality/stress test: boots a real compiled program
 // (software/multi_event/main.c) that registers a distinct ISR for every
 // one of the 16 maskable event lines (ISR N: out = in + (N+1)). Fires all

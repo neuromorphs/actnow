@@ -1,6 +1,8 @@
 import "chips/bench/soc.act";
 import "gen/file_ids.act";
 
+open actnow::chips::bench;
+
 // End-to-end test for core/core.act's reset_ext, using a real compiled
 // program through the real bootloader -- complements
 // tests/core/reset_test.act, which proves the same mechanism with

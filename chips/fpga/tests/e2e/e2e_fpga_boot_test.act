@@ -2,6 +2,9 @@ import "chips/fpga/soc.act";
 import "core/peripherals/rom.act";
 import "gen/file_ids.act";
 
+open actnow::chips::fpga;
+open actnow::core::peripherals;
+
 // Baseline end-to-end scenario for the FPGA chip variant: boot a real compiled
 // program (software/boot_only/main.c) through the real bootloader, XIP from the
 // *raw* ROM route (base 4), and confirm it reaches WFI cleanly -- the exact

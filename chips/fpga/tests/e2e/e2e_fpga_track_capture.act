@@ -4,6 +4,9 @@ import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 import sim;
 
+open actnow::chips::fpga;
+open actnow::core::peripherals;
+
 // Not a pass/fail test -- a capture generator for chips/fpga/dvs_track_live.py,
 // mirroring e2e_fpga_denoise_capture.act's structure exactly (same
 // DUMP_INTERVAL=64 cadence, same "only pop when a dump is due" shape), just

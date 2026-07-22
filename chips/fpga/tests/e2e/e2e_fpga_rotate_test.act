@@ -3,6 +3,9 @@ import "core/peripherals/rom.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 
+open actnow::chips::fpga;
+open actnow::core::peripherals;
+
 // FPGA-variant "real-life" test: boots software/dvs_rotate/main.c through the
 // bootloader, then replays 200 events taken verbatim from a real recorded
 // capture (chips/fpga/data/dvs_capture_20260714_151049.csv, packed the same way

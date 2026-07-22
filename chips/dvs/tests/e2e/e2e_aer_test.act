@@ -2,6 +2,8 @@ import "chips/dvs/soc.act";
 import "chips/dvs/tests/e2e/spi_flash_stub.act";
 import "gen/file_ids.act";
 
+open actnow::chips::dvs;
+
 // dvs equivalent of chips/bench/tests/e2e/e2e_fifo_test.act: boots a real
 // compiled program (software/dvs_application/main.c) through the real
 // bootloader (genuinely XIP out of spi_boot, no ROM), lets it configure

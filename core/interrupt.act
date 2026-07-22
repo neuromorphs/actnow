@@ -1,5 +1,8 @@
 import "core/globals.act";
 
+namespace actnow {
+export namespace core {
+
 // Interrupt controller. The vector table/enable register are a fixed
 // 16-slot map (ADDR_INT_CTRL, offset 4*N per vector; ADDR_INT_CTRL_ENABLE
 // for the mask -- see globals.act) regardless of N_EVENTS, so the
@@ -13,7 +16,7 @@ import "core/globals.act";
 //   4. The reset vector itself isn't dispatched here: core.act blocks on its own
 //      reset_ext at boot. This process only clears its state on a *relayed* reset
 //      (reset_int_ctrl) -- it never generates a boot event of its own.
-template<pint N_EVENTS>
+export template<pint N_EVENTS>
 defproc interrupt(
     chan?(bool) event_id[N_EVENTS];
     // Relayed from core's external reset_ext: clears the vector table and
@@ -73,4 +76,7 @@ defproc interrupt(
             |]
         ]
     }
+}
+
+}
 }

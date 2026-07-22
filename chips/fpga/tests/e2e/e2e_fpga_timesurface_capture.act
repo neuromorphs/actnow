@@ -4,6 +4,9 @@ import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 import sim;
 
+open actnow::chips::fpga;
+open actnow::core::peripherals;
+
 // Not a pass/fail test -- a capture generator for a live timesurface
 // viewer, mirroring e2e_fpga_motion_capture.act's structure. Streams
 // chips/fpga/rotate_capture_events.mem (the full real recording) through

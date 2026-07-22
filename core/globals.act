@@ -11,11 +11,11 @@ pint WIDTH_DATA = 32,
 // [ padding[0:0], x_pos[6:0], y_pos[6:0], timestep[15:0], p[0:0] ]
 pint WIDTH_AER = 32;
 
-deftype addr_t(int<WIDTH_ADDR_BASE> base; int<WIDTH_ADDR_OFFSET> offset) { }
+export deftype addr_t(int<WIDTH_ADDR_BASE> base; int<WIDTH_ADDR_OFFSET> offset) { }
 
-defenum op_mem_t { W, R, R_AND_W };
-defenum size_mem_t { BYTE, HALF_WORD, WORD };
-deftype mode_mem_t(op_mem_t op; size_mem_t size) { }
+export defenum op_mem_t { W, R, R_AND_W };
+export defenum size_mem_t { BYTE, HALF_WORD, WORD };
+export deftype mode_mem_t(op_mem_t op; size_mem_t size) { }
 
 pint ADDR_MEM = 0,
     ADDR_INT_CTRL = 1;

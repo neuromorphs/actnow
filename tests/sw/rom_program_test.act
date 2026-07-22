@@ -2,6 +2,9 @@ import "core/core.act";
 import "core/peripherals/rom.act";
 import "gen/file_ids.act";
 
+open actnow::core;
+open actnow::core::peripherals;
+
 // Loads a real compiled RV32I program image and runs it through the actual
 // core pipeline (fetch/decode/execute), instead of hand-crafted instruction
 // words like the other tests. The image comes from

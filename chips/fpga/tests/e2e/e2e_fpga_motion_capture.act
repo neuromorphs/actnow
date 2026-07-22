@@ -4,6 +4,9 @@ import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 import sim;
 
+open actnow::chips::fpga;
+open actnow::core::peripherals;
+
 // Not a pass/fail test -- a capture generator for chips/fpga/dvs_motion_view.py,
 // mirroring e2e_fpga_rotate_capture.act's structure. Streams
 // chips/fpga/rotate_capture_events.mem (the full 61752-event real recording,

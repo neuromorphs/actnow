@@ -1,5 +1,9 @@
 import "core/globals.act";
 
+namespace actnow {
+export namespace core {
+export namespace peripherals {
+
 // SPI programming/data interface, an ordinary CPU-facing MMIO peripheral (not a
 // RAM bus master): the CPU orchestrates data movement via loads/stores to two
 // staging registers; the peripheral only shifts bits over the external SPI bus.
@@ -11,7 +15,7 @@ import "core/globals.act";
 //   3. Still the SPI *master* on its external side -- see spi_boot.act's header
 //      for why that means self-timing sclk via a busy-wait loop (SPI_CLOCK_DELAY_N)
 //      rather than pacing it against rendezvous with the external device.
-defproc spi_prog(
+export defproc spi_prog(
     chan?(addr_t) addr; chan?(mode_mem_t) mode;
     chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata;
 
@@ -92,4 +96,8 @@ defproc spi_prog(
             ]
         ]
     }
+}
+
+}
+}
 }

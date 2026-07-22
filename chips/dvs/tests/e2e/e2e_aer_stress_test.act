@@ -2,6 +2,8 @@ import "chips/dvs/soc.act";
 import "chips/dvs/tests/e2e/spi_flash_stub.act";
 import "gen/file_ids.act";
 
+open actnow::chips::dvs;
+
 // Continuous-push variant of e2e_aer_test. That test pushes exactly BATCH into
 // the AER input, then lets spi_sink verify all BATCH results before the next
 // batch -- so the AER input FIFO (fifo_in) fully drains between interrupt fires.

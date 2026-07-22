@@ -1,5 +1,7 @@
 import "core/regfile.act";
 
+open actnow::core;
+
 defproc regfile_test() {
 
     regfile r;

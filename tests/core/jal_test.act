@@ -1,5 +1,7 @@
 import "core/core.act";
 
+open actnow::core;
+
 // Drives core through JAL followed by JALR in one continuous run. Uses a
 // negative JAL offset, which exercises the immediate's sign-extension (the
 // sign bit only shows up as a problem when it's actually set). JALR's

@@ -3,6 +3,9 @@ import "core/peripherals/rom.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 
+open actnow::chips::fpga;
+open actnow::core::peripherals;
+
 // FPGA-variant correctness test for the denoised time-surface detector:
 // boots software/dvs_denoise/main.c through the bootloader, then replays the
 // first 256 events (64 batches -- exactly one DUMP_INTERVAL) taken verbatim

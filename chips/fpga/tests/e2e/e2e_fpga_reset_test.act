@@ -3,6 +3,9 @@ import "core/peripherals/rom.act";
 import "core/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 
+open actnow::chips::fpga;
+open actnow::core::peripherals;
+
 // FPGA-variant port of chips/bench/tests/e2e/e2e_reset_test.act: exercises
 // core/core.act's reset_ext through the real bootloader + software/application.
 //

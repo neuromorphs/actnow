@@ -2,6 +2,10 @@ import std;
 
 import "core/globals.act";
 
+namespace actnow {
+export namespace core {
+export namespace peripherals {
+
 // Output FIFO, memory-mapped as a single data register (address offset ignored):
 //   1. CPU writes push; the testbench pops the oldest entry via `pop` to observe
 //      what the CPU produced. CPU reads are rejected via assert (output-only).
@@ -9,7 +13,7 @@ import "core/globals.act";
 //      it just stalls until `pop` drains room.
 //   3. Both sides are top-level alternatives re-evaluated every iteration, so
 //      neither can get stuck waiting behind the other.
-template<pint DEPTH>
+export template<pint DEPTH>
 defproc fifo_out(
     chan?(addr_t) addr; chan?(mode_mem_t) mode;
     chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata;
@@ -44,4 +48,8 @@ defproc fifo_out(
             |]
         ]
     }
+}
+
+}
+}
 }
