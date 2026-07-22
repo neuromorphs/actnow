@@ -1,4 +1,4 @@
-import "core/core.act";
+import "assets/core/cpu.act";
 
 open actnow::core;
 
@@ -10,7 +10,7 @@ open actnow::core;
 // pattern should not.
 defproc branch_test() {
 
-    core<1> s;
+    cpu<1> s;
     addr_t addr;
     mode_mem_t mode;
     int<32> insn, off;

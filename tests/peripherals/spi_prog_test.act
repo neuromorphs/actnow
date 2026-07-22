@@ -1,7 +1,7 @@
-import "core/globals.act";
-import "core/peripherals/spi_prog.act";
+import "assets/core/globals.act";
+import "assets/peripherals/spi_prog.act";
 
-open actnow::core::peripherals;
+open actnow::peripherals;
 
 // Plays the external SPI device's role: a slave gated purely by observing
 // cs/sclk/mosi/miso transitions, matching a real (non-ACT) external SPI

@@ -1,9 +1,8 @@
 import std;
 
-import "core/globals.act";
+import "assets/core/globals.act";
 
 namespace actnow {
-export namespace core {
 export namespace peripherals {
 
 // Input FIFO, memory-mapped as a single data register (address offset ignored):
@@ -110,6 +109,5 @@ defproc fifo_in(
     }
 }
 
-}
 }
 }

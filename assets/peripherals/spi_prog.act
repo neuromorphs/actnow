@@ -1,7 +1,6 @@
-import "core/globals.act";
+import "assets/core/globals.act";
 
 namespace actnow {
-export namespace core {
 export namespace peripherals {
 
 // SPI programming/data interface, an ordinary CPU-facing MMIO peripheral (not a
@@ -98,6 +97,5 @@ export defproc spi_prog(
     }
 }
 
-}
 }
 }

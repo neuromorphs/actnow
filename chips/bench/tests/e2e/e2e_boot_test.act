@@ -9,8 +9,8 @@ open actnow::chips::bench;
 //
 // boot_only never touches a channel this test could otherwise block on, so
 // the only thing this chp body needs to do is the one thing nothing else
-// can do for it: assert reset_ext once so core actually boots (core.act no
-// longer boots itself -- see core/core.act's own header comment). Once
+// can do for it: assert reset_ext once so core actually boots (cpu.act no
+// longer boots itself -- see assets/core/cpu.act's own header comment). Once
 // released, actsim's `cycle` doesn't return until the whole simulation
 // quiesces -- so core's own "decoded wfi" log line is guaranteed to appear
 // by completion either way. chips/bench/Makefile's e2e_boot_test rule

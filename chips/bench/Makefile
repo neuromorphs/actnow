@@ -113,7 +113,7 @@ e2e_multi_event_test:
 		echo "e2e_multi_event_test: PASS"; \
 	fi
 
-# Exercises core/core.act's reset_ext port with a real compiled program
+# Exercises assets/core/core.act's reset_ext port with a real compiled program
 # through the real bootloader (unlike tests/core/reset_test.act, which
 # hand-assembles instructions directly): boots software/application/main.c,
 # runs one batch through it, fires external reset, then confirms the exact
@@ -191,7 +191,7 @@ e2e_multi_event_reset_test:
 		echo "e2e_multi_event_reset_test: PASS"; \
 	fi
 
-# Exercises GPIO (core/peripherals/gpio.act) end to end, both directions in
+# Exercises GPIO (assets/peripherals/gpio.act) end to end, both directions in
 # one real program (software/gpio_demo/main.c): firing gpio_in_0/gpio_in_1
 # wakes the CPU through the existing interrupt-controller vectoring, and
 # each ISR's own MMIO store drives the GPIO output pins, observed here.
@@ -219,7 +219,7 @@ e2e_gpio_test:
 # The full "oh shit, wrong firmware -- reset and reboot into the corrected
 # one" scenario: unlike e2e_reset_test above (which reboots the *same*
 # image), this boots a genuinely broken program (software/hang), then flips
-# core/peripherals/rom_selector.act's bank select to the corrected program
+# assets/peripherals/rom_selector.act's bank select to the corrected program
 # (software/application) and asserts reset_ext. $(ROM_IMAGE_HANG)/
 # $(ROM_IMAGE_APPLICATION) are permanent fixtures owned by the top-level
 # Makefile's own file-registry chain (built once, not rebuilt per test like

@@ -1,11 +1,11 @@
-import "core/globals.act";
-import "core/peripherals/rom.act";
-import "core/peripherals/fifo_in.act";
-import "core/peripherals/fifo_out.act";
-import "core/peripherals/gpio.act";
-import "core/peripherals/demux.act";
+import "assets/core/globals.act";
+import "assets/peripherals/rom.act";
+import "assets/peripherals/fifo_in.act";
+import "assets/peripherals/fifo_out.act";
+import "assets/peripherals/gpio.act";
+import "assets/peripherals/demux.act";
 
-open actnow::core::peripherals;
+open actnow::peripherals;
 
 namespace actnow {
 export namespace chips {

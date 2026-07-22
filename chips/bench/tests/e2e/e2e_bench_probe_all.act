@@ -19,10 +19,10 @@ open actnow::chips::bench;
 //   quit
 //
 // c.push/c.pop are the "data" ports at the chip boundary; c.fifo_event is
-// the event-out trigger; c.s.pc/c.s.instr are core.act's own program
+// the event-out trigger; c.s.pc/c.s.instr are cpu.act's own program
 // counter and fetched-instruction register (core's chp body, instance
 // path c.<soc>.s.<core>); c.s.mmu.* are the CPU-facing instruction-fetch
-// and load/store channels between core and core/mmu.act, each watchable
+// and load/store channels between core and assets/core/mmu.act, each watchable
 // the same way (confirmed live via `get` before writing this file).
 defproc e2e_bench_probe_all() {
     soc<ROM_IMAGE> c;

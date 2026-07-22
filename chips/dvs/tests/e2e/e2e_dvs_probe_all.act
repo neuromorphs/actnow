@@ -93,7 +93,7 @@ defproc gpio_out_probe(
 // gpio_in_0/1 and swd_0/1 are left unconnected: dvs_application never
 // enables those interrupt lines, so nothing would ever receive on them --
 // driving them here would just deadlock waiting for a receiver that never
-// arrives (core/interrupt.act only services an event line once software's
+// arrives (assets/core/interrupt.act only services an event line once software's
 // own enable bit for it is set).
 defproc e2e_dvs_probe_all() {
     soc<8> c;

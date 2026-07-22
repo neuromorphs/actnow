@@ -1,12 +1,12 @@
 import std;
 
-import "core/globals.act";
+import "assets/core/globals.act";
 
 namespace actnow {
 export namespace core {
 
 // Internal read/write memory: byte-addressable, 32-bit-word RAM built from
-// 4 byte-wide std::ram banks (see core/peripherals/rom.act for the
+// 4 byte-wide std::ram banks (see assets/peripherals/rom.act for the
 // file-preloaded, read-only counterpart used for off-chip ROM modeling).
 export defproc mem(chan?(addr_t) addr; chan?(mode_mem_t) mode; chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata) {
     pint WORD_BITS = std::ceil_log2(SIZE_MEM_WORDS);

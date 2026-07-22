@@ -1,5 +1,5 @@
-import "core/globals.act";
-import "core/mmu.act";
+import "assets/core/globals.act";
+import "assets/core/mmu.act";
 
 open actnow::core;
 

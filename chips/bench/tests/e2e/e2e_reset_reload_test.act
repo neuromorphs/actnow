@@ -1,13 +1,13 @@
-import "core/core.act";
-import "core/peripherals/rom.act";
-import "core/peripherals/fifo_in.act";
-import "core/peripherals/fifo_out.act";
-import "core/peripherals/demux.act";
-import "core/peripherals/rom_selector.act";
+import "assets/core/cpu.act";
+import "assets/peripherals/rom.act";
+import "assets/peripherals/fifo_in.act";
+import "assets/peripherals/fifo_out.act";
+import "assets/peripherals/demux.act";
+import "assets/peripherals/rom_selector.act";
 import "gen/file_ids.act";
 
 open actnow::core;
-open actnow::core::peripherals;
+open actnow::peripherals;
 
 // The "wrong firmware" scenario: unlike e2e_reset_test.act (which reboots
 // the *same* image), this proves reset can recover from a genuinely
@@ -34,7 +34,7 @@ open actnow::core::peripherals;
 // program -- and run the same batch e2e_fifo_test.act uses, proving the
 // corrected program genuinely boots and runs.
 defproc e2e_reset_reload_test() {
-    core<1> s;
+    cpu<1> s;
     pint DEMUX_N = 3;
     pint DEMUX_BASES[DEMUX_N];
     DEMUX_BASES = {4, 5, 6};

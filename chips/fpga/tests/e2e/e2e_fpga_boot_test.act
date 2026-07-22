@@ -1,9 +1,9 @@
 import "chips/fpga/soc.act";
-import "core/peripherals/rom.act";
+import "assets/peripherals/rom.act";
 import "gen/file_ids.act";
 
 open actnow::chips::fpga;
-open actnow::core::peripherals;
+open actnow::peripherals;
 
 // Baseline end-to-end scenario for the FPGA chip variant: boot a real compiled
 // program (software/boot_only/main.c) through the real bootloader, XIP from the
@@ -14,8 +14,8 @@ open actnow::core::peripherals;
 //
 // boot_only never touches a peripheral this test could otherwise block on, so
 // the only thing this chp body does is the one thing nothing else can do for it:
-// assert reset_ext once, so core actually boots (core.act blocks until
-// reset_ext is asserted -- see core/core.act's header). Once released,
+// assert reset_ext once, so core actually boots (cpu.act blocks until
+// reset_ext is asserted -- see assets/core/cpu.act's header). Once released,
 // actsim's `cycle` doesn't return until the whole simulation quiesces, so
 // core's own "decoded wfi" log line is guaranteed to appear by completion.
 // The Makefile rule checks the log for that line directly, same as

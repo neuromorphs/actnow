@@ -9,7 +9,7 @@
 #
 # Must be run from this directory (actnow/) -- ACT resolves every `import`
 # relative to the working directory the compiler was invoked from, not
-# relative to the importing file, so core/core.act's own imports only resolve
+# relative to the importing file, so assets/core/core.act's own imports only resolve
 # correctly when this is the cwd. See the README's Toolchain section.
 
 AFLAT  := aflat

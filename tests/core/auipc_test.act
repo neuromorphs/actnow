@@ -1,4 +1,4 @@
-import "core/core.act";
+import "assets/core/cpu.act";
 
 open actnow::core;
 
@@ -6,7 +6,7 @@ open actnow::core;
 // pc+imm -- not the immediate alone, and not written to the wrong register.
 defproc auipc_test() {
 
-    core<1> s;
+    cpu<1> s;
     addr_t addr;
     mode_mem_t mode;
     int<32> insn;

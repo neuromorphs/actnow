@@ -1,8 +1,8 @@
-import "core/core.act";
+import "assets/core/cpu.act";
 
 open actnow::core;
 
-// Exercises core/core.act's external reset (reset_ext): a hand-assembled
+// Exercises assets/core/cpu.act's external reset (reset_ext): a hand-assembled
 // program hits a deliberate infinite self-loop (never reaching WFI,
 // modeling a genuine hang), external reset recovers it mid-loop, and the
 // post-reset program reads back the interrupt controller's vector table/
@@ -137,7 +137,7 @@ defproc fetch_answerer(
 }
 
 defproc reset_test() {
-    core<1> s;
+    cpu<1> s;
     fetch_answerer fa;
     chan(bool) done;
 

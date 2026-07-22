@@ -9,7 +9,7 @@ export namespace core {
 //   3. If rd_valid and rd_addr != 0, write rd_data into regs[rd_addr] -- writes
 //      to x0 are silently dropped.
 //   4. Read and write are separate req_pkt transactions from the caller's side
-//      (see core.act), so "read now, write the computed result later" is just
+//      (see cpu.act), so "read now, write the computed result later" is just
 //      two sends on the same channel.
 export deftype reg_req(int<5> rs1_addr; bool rs1_valid;
                  int<5> rs2_addr; bool rs2_valid;

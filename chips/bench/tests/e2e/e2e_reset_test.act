@@ -3,7 +3,7 @@ import "gen/file_ids.act";
 
 open actnow::chips::bench;
 
-// End-to-end test for core/core.act's reset_ext, using a real compiled
+// End-to-end test for assets/core/cpu.act's reset_ext, using a real compiled
 // program through the real bootloader -- complements
 // tests/core/reset_test.act, which proves the same mechanism with
 // hand-assembled instructions and checks hang recovery/vector-clearing in

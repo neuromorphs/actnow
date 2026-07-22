@@ -1,7 +1,6 @@
-import "core/globals.act";
+import "assets/core/globals.act";
 
 namespace actnow {
-export namespace core {
 export namespace peripherals {
 
 // SPI boot loader: answers core's every fetch/read on the dvs chip via a live SPI
@@ -64,6 +63,5 @@ export defproc spi_boot(
     }
 }
 
-}
 }
 }

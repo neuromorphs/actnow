@@ -1,10 +1,10 @@
 import "chips/fpga/soc.act";
-import "core/peripherals/rom.act";
-import "core/peripherals/fifo_out.act";
+import "assets/peripherals/rom.act";
+import "assets/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 
 open actnow::chips::fpga;
-open actnow::core::peripherals;
+open actnow::peripherals;
 
 // FPGA-variant correctness test for the time-surface detector: boots
 // software/dvs_timesurface/main.c through the bootloader, then replays the

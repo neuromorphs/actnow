@@ -1,7 +1,7 @@
 // Shared constants/types for the whole design:
 //   1. Data/address widths and addr_t/mode_mem_t types, used everywhere.
 //   2. ADDR_* base assignments -- the address map every router/peripheral matches on.
-//   3. RV32I opcode and instruction-field-width constants used by core.act's decoder.
+//   3. RV32I opcode and instruction-field-width constants used by cpu.act's decoder.
 pint WIDTH_DATA = 32,
     WIDTH_ADDR = 20,
     WIDTH_ADDR_BASE = 4,
@@ -46,7 +46,7 @@ pint ADDR_RESET = 0x40000;
 // handler, and nothing upstream needs a guessed "wait for boot" delay.
 pint ADDR_INT_CTRL_ENABLE = 64;
 
-// GPIO output register (core/peripherals/gpio.act), routed by
+// GPIO output register (assets/peripherals/gpio.act), routed by
 // chips/bench/periphery.act's demux alongside ROM(4)/fifo_in(5)/fifo_out(6),
 // and by chips/dvs/periphery.act's demux the same way.
 pint ADDR_GPIO = 7;
@@ -74,7 +74,7 @@ pint SPI_CLOCK_DELAY_N = 20;
 pint SIZE_MEM_WORDS = 8 * 1024;
 
 // RV32I instruction field widths (bit positions themselves are fixed by the
-// ISA -- see core.act's field extraction -- these are just the widths of the
+// ISA -- see cpu.act's field extraction -- these are just the widths of the
 // variables that hold each field).
 pint WIDTH_OPCODE = 7,
     WIDTH_REG = 5,      // rd, rs1, rs2 -- 32 architectural registers

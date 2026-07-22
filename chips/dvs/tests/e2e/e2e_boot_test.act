@@ -22,7 +22,7 @@ open actnow::chips::dvs;
 //
 // Same reason as chips/bench's own e2e_boot_test: nothing else here to
 // synchronize against, so the only thing this chp body does is assert
-// reset_ext once to actually boot core (core.act blocks until reset_ext is
+// reset_ext once to actually boot core (cpu.act blocks until reset_ext is
 // asserted -- see its header comment). chips/dvs/Makefile's rule checks
 // core's own "decoded wfi" log line directly instead of a "test complete"
 // line.

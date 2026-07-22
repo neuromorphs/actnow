@@ -59,10 +59,10 @@ fi
 # directory) and segfaults if given an absolute -o path, so both the ACT
 # file and the output dir must be passed as relative paths. Every .act file
 # in this repo writes its own imports relative to the repo root (e.g.
-# core/core.act's "import core/globals.act" -- see the top-level Makefile's
+# assets/core/core.act's "import assets/core/globals.act" -- see the top-level Makefile's
 # own comment on this), so chp2fpga must be run with cwd=REPO_ROOT, not the
-# ACT file's own directory -- cd'ing into core/ instead would make
-# core/core.act's "core/globals.act" import resolve to core/core/globals.act.
+# ACT file's own directory -- cd'ing into assets/core/ instead would make
+# assets/core/core.act's "assets/core/globals.act" import resolve to assets/core/assets/core/globals.act.
 # realpath --relative-to is a GNU coreutils extension, not available in
 # macOS's BSD realpath (and this repo can't assume grealpath is installed),
 # so compute the relative path with python3 instead -- present everywhere

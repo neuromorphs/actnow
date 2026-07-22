@@ -5,7 +5,7 @@ import "gen/file_ids.act";
 open actnow::chips::dvs;
 
 // dvs equivalent of chips/bench/tests/e2e/e2e_reset_test.act: end-to-end
-// test for core/core.act's reset_ext using a real compiled program through
+// test for assets/core/cpu.act's reset_ext using a real compiled program through
 // the real bootloader (genuinely XIP out of spi_boot).
 //
 // Sequence: boot, run one batch through the program's real ISR (same as

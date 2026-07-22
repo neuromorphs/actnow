@@ -1,9 +1,9 @@
-import "core/globals.act";
-import "core/interrupt.act";
-import "core/regfile.act";
-import "core/utils.act";
-import "core/mmu.act";
-import "core/mem.act";
+import "assets/core/globals.act";
+import "assets/core/interrupt.act";
+import "assets/core/regfile.act";
+import "assets/core/utils.act";
+import "assets/core/mmu.act";
+import "assets/core/mem.act";
 
 namespace actnow {
 export namespace core {
@@ -20,7 +20,7 @@ export namespace core {
 //      16-slot) vector table; reset_ext is relayed to it so a reset also
 //      clears pending vectors.
 export template<pint N_EVENTS>
-defproc core(
+defproc cpu(
     chan?(bool) event_id[N_EVENTS];
     // Puts the core back into its boot state (pc=ADDR_RESET) and clears the
     // interrupt controller's vector table/enable mask, same as a cold boot.
@@ -84,7 +84,7 @@ defproc core(
     // 2 exact routes (internal RAM, interrupt controller) + 1 catch-all for
     // anything off-chip (base>=ADDR_EXT_MIN), which passes straight through
     // to addr_ext/mode_ext/wdata_ext/rdata_ext -- whatever composes soc
-    // wires a core/peripherals/demux.act instance there to reach the actual
+    // wires a assets/peripherals/demux.act instance there to reach the actual
     // peripheral.
     pint SOC_MMU_N_EXACT = 2;
     pint SOC_MMU_EXACT_BASES[SOC_MMU_N_EXACT];

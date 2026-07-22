@@ -1,4 +1,4 @@
-import "core/core.act";
+import "assets/core/cpu.act";
 
 open actnow::core;
 
@@ -25,7 +25,7 @@ open actnow::core;
 // needs to keep answering instruction fetches on addr_ext.
 defproc wfi_test() {
 
-    core<2> s;
+    cpu<2> s;
     addr_t addr;
     mode_mem_t mode;
     int<32> delay;

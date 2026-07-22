@@ -1,9 +1,9 @@
-import "core/core.act";
-import "core/peripherals/rom.act";
+import "assets/core/cpu.act";
+import "assets/peripherals/rom.act";
 import "gen/file_ids.act";
 
 open actnow::core;
-open actnow::core::peripherals;
+open actnow::peripherals;
 
 // Loads a real compiled RV32I program image and runs it through the actual
 // core pipeline (fetch/decode/execute), instead of hand-crafted instruction
@@ -13,7 +13,7 @@ open actnow::core::peripherals;
 //
 // rom<ROM_IMAGE> serves it: a read-only instance of the same std::ram-backed
 // memory layout core's internal RAM uses, rejecting any write -- fine here,
-// since .data/.bss writes go to internal RAM via core's own core/mem.act
+// since .data/.bss writes go to internal RAM via core's own assets/core/mem.act
 // instance, never to addr_ext.
 //
 // ROM_TEST defaults to software/tests/simple.S, riscv-tests' basic
@@ -21,7 +21,7 @@ open actnow::core::peripherals;
 // with this project's own WFI opcode. Reaching "decoded wfi" in the log
 // below with no crash or hang is what "passing" means here.
 defproc rom_program_test() {
-    core<1> s;
+    cpu<1> s;
     rom<ROM_IMAGE> fm;
     fm.addr = s.addr_ext;
     fm.mode = s.mode_ext;
@@ -30,7 +30,7 @@ defproc rom_program_test() {
 
     chp {
         // Nothing else to drive by hand -- core blocks until reset_ext is
-        // asserted (see core/core.act's header comment), so the only thing
+        // asserted (see assets/core/cpu.act's header comment), so the only thing
         // this needs to do is assert it once; fm services every fetch after
         // that from the preloaded image. Simulation reaches quiescence once
         // core decodes WFI and goes idle (both core and fm end up blocked

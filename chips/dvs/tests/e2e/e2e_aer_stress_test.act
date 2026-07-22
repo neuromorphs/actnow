@@ -11,7 +11,7 @@ open actnow::chips::dvs;
 // drains the results over SPI, which is what a live SciDVS does.
 //
 // Regression for the fifo_in single-batch hang (fixed by the watermark/re-arm
-// logic in core/peripherals/fifo_in.act): before the fix the core services only
+// logic in assets/peripherals/fifo_in.act): before the fix the core services only
 // the first batch (3 results) then deadlocks under a continuous producer. Same
 // scenario as chips/bench/tests/e2e/e2e_fifo_stress_test.act and
 // chips/fpga/tests/e2e/e2e_fpga_fifo_stress.act, but with the dvs chip's real

@@ -1,10 +1,10 @@
 import "chips/fpga/soc.act";
-import "core/peripherals/rom.act";
-import "core/peripherals/fifo_out.act";
+import "assets/peripherals/rom.act";
+import "assets/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 
 open actnow::chips::fpga;
-open actnow::core::peripherals;
+open actnow::peripherals;
 
 // FPGA-variant "real-life" test for the motion detector: boots
 // software/dvs_motion/main.c through the bootloader, then replays

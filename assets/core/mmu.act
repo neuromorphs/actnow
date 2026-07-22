@@ -1,5 +1,5 @@
-import "core/globals.act";
-import "core/utils.act";
+import "assets/core/globals.act";
+import "assets/core/utils.act";
 
 namespace actnow {
 export namespace core {
@@ -14,7 +14,7 @@ export namespace core {
 //   5. Arbitration is a top-level probed select between the two ports (core is single-issue,
 //      so they're never both pending -- this just makes it structural).
 //   6. Unmapped addresses are silently dropped; only the low BYTE/HALF_WORD/WORD bits pass through.
-// Same dispatch shape as core/peripherals/demux.act, kept separate: this one is core-facing,
+// Same dispatch shape as assets/peripherals/demux.act, kept separate: this one is core-facing,
 // that one periphery-facing.
 export template<pint N_EXACT; pint EXACT_BASES[N_EXACT]; pint CATCHALL_MIN_BASE>
 defproc mmu(

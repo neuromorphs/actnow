@@ -1,5 +1,5 @@
-import "core/globals.act";
-import "core/core.act";
+import "assets/core/globals.act";
+import "assets/core/cpu.act";
 import "chips/bench/periphery.act";
 
 open actnow::core;
@@ -57,7 +57,7 @@ defproc soc(
     chan!(bool) gpio_out_0; chan!(bool) gpio_out_1;
     chan!(bool) gpio_out_2; chan!(bool) gpio_out_3
 ) {
-    core<16> s;
+    cpu<16> s;
     periphery<ROM_IMAGE> p;
 
     p.addr_in = s.addr_ext;

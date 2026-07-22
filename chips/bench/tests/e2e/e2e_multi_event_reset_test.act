@@ -10,7 +10,7 @@ open actnow::chips::bench;
 //     architecture is single-issue and non-preemptive, so overlapping ISRs
 //     can't happen here regardless -- what this proves is that firing the
 //     next event immediately is still safe purely from
-//     core/interrupt.act's own structure: it's a single sequential loop
+//     assets/core/interrupt.act's own structure: it's a single sequential loop
 //     that sends event_pc!vectors[N] (blocked until soc goes idle) before
 //     ever looping back to offer the next event_id_N, so a premature
 //     `event_ch[k]!(true)` just blocks at that rendezvous until the

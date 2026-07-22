@@ -1,14 +1,13 @@
-import "core/globals.act";
+import "assets/core/globals.act";
 
 namespace actnow {
-export namespace core {
 export namespace peripherals {
 
 // GPIO output peripheral, a single MMIO register (address offset ignored):
 //   1. A CPU write updates the register and re-drives all 4 pins with the new
 //      bit values in the same transaction; a CPU read returns the last-written value.
 //   2. Pins are 4 individually-named chan!(bool) ports (not an array, matching
-//      core.act's event_id_N convention), each delivered once per write -- CHP has
+//      cpu.act's event_id_N convention), each delivered once per write -- CHP has
 //      no persistent, passively-readable wire, so a watcher must receive right
 //      after the write that sets it.
 export defproc gpio(
@@ -35,6 +34,5 @@ export defproc gpio(
     }
 }
 
-}
 }
 }

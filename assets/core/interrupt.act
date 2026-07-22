@@ -1,4 +1,4 @@
-import "core/globals.act";
+import "assets/core/globals.act";
 
 namespace actnow {
 export namespace core {
@@ -13,7 +13,7 @@ export namespace core {
 //      an asserting device just blocks rather than firing an unconfigured vector.
 //   3. When an enabled event_id[N] fires, event_pc gets vectors[N] -- works the same
 //      whether the program is XIP from ROM or copied into SRAM.
-//   4. The reset vector itself isn't dispatched here: core.act blocks on its own
+//   4. The reset vector itself isn't dispatched here: cpu.act blocks on its own
 //      reset_ext at boot. This process only clears its state on a *relayed* reset
 //      (reset_int_ctrl) -- it never generates a boot event of its own.
 export template<pint N_EVENTS>
