@@ -2,6 +2,8 @@ import "chips/dvs/soc.act";
 import "chips/dvs/tests/e2e/spi_flash_stub.act";
 import "gen/file_ids.act";
 
+open actnow::chips::dvs;
+
 // dvs equivalent of chips/bench/tests/e2e/e2e_gpio_test.act: end-to-end
 // test for GPIO, exercising both directions in one real compiled program
 // (software/dvs_gpio_demo/main.c), booted genuinely XIP out of spi_boot

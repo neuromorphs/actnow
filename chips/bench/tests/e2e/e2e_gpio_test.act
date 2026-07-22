@@ -1,6 +1,8 @@
 import "chips/bench/soc.act";
 import "gen/file_ids.act";
 
+open actnow::chips::bench;
+
 // End-to-end test for GPIO, exercising both directions in one real
 // compiled program (software/gpio_demo/main.c):
 //   - input: firing one of soc's two GPIO input pins (gpio_in_0/

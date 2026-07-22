@@ -1,6 +1,12 @@
-import "core/globals.act";
-import "core/core.act";
+import "assets/core/globals.act";
+import "assets/core/cpu.act";
 import "chips/bench/periphery.act";
+
+open actnow::core;
+
+namespace actnow {
+export namespace chips {
+export namespace bench {
 
 // chips/bench's whole chip: core + its off-chip periphery (periphery.act)
 // wired together, exposing everything a chips/bench testbench needs:
@@ -22,7 +28,7 @@ import "chips/bench/periphery.act";
 //       - `gpio_out_0`..`gpio_out_3` pass straight through to periphery.act's
 //         gpio peripheral pins; software drives them with an MMIO write to
 //         base=ADDR_GPIO.
-template<pint ROM_IMAGE>
+export template<pint ROM_IMAGE>
 defproc soc(
     chan?(bool) event_id_0;
     chan?(bool) event_id_1;
@@ -51,7 +57,7 @@ defproc soc(
     chan!(bool) gpio_out_0; chan!(bool) gpio_out_1;
     chan!(bool) gpio_out_2; chan!(bool) gpio_out_3
 ) {
-    core<16> s;
+    cpu<16> s;
     periphery<ROM_IMAGE> p;
 
     p.addr_in = s.addr_ext;
@@ -83,4 +89,8 @@ defproc soc(
     s.event_id[14] = gpio_in_0;
     s.event_id[15] = gpio_in_1;
     s.reset_ext = reset_ext;
+}
+
+}
+}
 }

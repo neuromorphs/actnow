@@ -1,7 +1,10 @@
 import "chips/fpga/soc.act";
-import "core/peripherals/rom.act";
-import "core/peripherals/fifo_out.act";
+import "assets/peripherals/rom.act";
+import "assets/peripherals/fifo_out.act";
 import "gen/file_ids.act";
+
+open actnow::chips::fpga;
+open actnow::peripherals;
 
 // FPGA-variant "real-life" test: boots software/dvs_rotate/main.c through the
 // bootloader, then replays 200 events taken verbatim from a real recorded
@@ -43,8 +46,8 @@ defproc e2e_fpga_rotate_test() {
     chp {
         log("======== dvs rotate-45 e2e test start (fpga) ========");
 
-        // Cold boot: core.act blocks on reset_ext before it does anything at
-        // all (core/core.act:129), so this has to fire once before the first
+        // Cold boot: cpu.act blocks on reset_ext before it does anything at
+        // all (assets/core/cpu.act:129), so this has to fire once before the first
         // push -- e2e_fpga_fifo_test's own missing-reset_ext gap is a
         // separate known issue, not one this new test should copy.
         c.reset_ext!true;

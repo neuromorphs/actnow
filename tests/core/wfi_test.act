@@ -1,4 +1,6 @@
-import "core/core.act";
+import "assets/core/cpu.act";
+
+open actnow::core;
 
 // Drives core through two wake/sleep cycles via event_id[1] then event_id[0].
 //
@@ -23,7 +25,7 @@ import "core/core.act";
 // needs to keep answering instruction fetches on addr_ext.
 defproc wfi_test() {
 
-    core<2> s;
+    cpu<2> s;
     addr_t addr;
     mode_mem_t mode;
     int<32> delay;

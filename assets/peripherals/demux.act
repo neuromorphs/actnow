@@ -1,5 +1,10 @@
-import "core/globals.act";
-import "core/utils.act";
+import "assets/core/globals.act";
+import "assets/core/utils.act";
+
+open actnow::core;
+
+namespace actnow {
+export namespace peripherals {
 
 // Peripheral-side router: core -> mmu -> core's addr_ext boundary -> this demux
 // -> the actual peripheral (ROM, FIFOs, GPIO, ...). Never talks to the CPU directly.
@@ -7,9 +12,9 @@ import "core/utils.act";
 //   2. One more downstream port, addr_out[N_EXACT], catches base >= CATCHALL_MIN_BASE.
 //   3. No match -> silently dropped (reads untouched, writes absorbed), same as a
 //      real reserved/unmapped address.
-// Same "N exact + one optional catch-all" shape as core/mmu.act, kept separate:
+// Same "N exact + one optional catch-all" shape as assets/core/mmu.act, kept separate:
 // this one is periphery-facing, mmu is core-facing.
-template<pint N_EXACT; pint EXACT_BASES[N_EXACT]; pint CATCHALL_MIN_BASE>
+export template<pint N_EXACT; pint EXACT_BASES[N_EXACT]; pint CATCHALL_MIN_BASE>
 defproc demux(
     chan?(addr_t) addr_in;
     chan?(mode_mem_t) mode_in;
@@ -72,4 +77,7 @@ defproc demux(
             ]
         ]
     }
+}
+
+}
 }

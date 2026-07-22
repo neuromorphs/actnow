@@ -1,6 +1,8 @@
 import "chips/bench/soc.act";
 import "gen/file_ids.act";
 
+open actnow::chips::bench;
+
 // Continuous-push variant of e2e_fifo_test. That test pushes exactly BATCH,
 // then pops all BATCH results before pushing the next batch -- so fifo_in fully
 // drains between interrupt fires. This one pushes a long stream as fast as
@@ -12,7 +14,7 @@ import "gen/file_ids.act";
 // count==trigger_level push, that only re-arms if the FIFO drains below the
 // level between batches, so a continuous producer that saturates it deadlocks
 // the core after one batch. The watermark/re-arm fix in
-// core/peripherals/fifo_in.act makes it service every batch. See the identical
+// assets/peripherals/fifo_in.act makes it service every batch. See the identical
 // scenario for the fpga chip in chips/fpga/tests/e2e/e2e_fpga_fifo_stress.act.
 //
 // 3 full batches (BATCH=4 in software/application): enough to prove the

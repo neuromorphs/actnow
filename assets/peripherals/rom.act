@@ -1,13 +1,16 @@
 import std;
 import sim;
 
-import "core/globals.act";
+import "assets/core/globals.act";
+
+namespace actnow {
+export namespace peripherals {
 
 // Read-only memory, preloaded from file_id at startup; writes are rejected
 // via assert instead of silently discarded. Same std::ram bank layout as
-// core/mem.act's internal read/write RAM, used here to model off-chip ROM
+// assets/core/mem.act's internal read/write RAM, used here to model off-chip ROM
 // (e.g. chips/bench's boot ROM, e2e test images).
-template<pint file_id>
+export template<pint file_id>
 defproc rom(chan?(addr_t) addr; chan?(mode_mem_t) mode; chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata) {
     pint WORD_BITS = std::ceil_log2(SIZE_MEM_WORDS);
     std::ram<SIZE_MEM_WORDS, 8> bank[4];
@@ -102,4 +105,7 @@ defproc rom(chan?(addr_t) addr; chan?(mode_mem_t) mode; chan?(int<WIDTH_DATA>) w
             ]
         ]
     }
+}
+
+}
 }

@@ -1,5 +1,7 @@
-import "core/globals.act";
-import "core/peripherals/demux.act";
+import "assets/core/globals.act";
+import "assets/peripherals/demux.act";
+
+open actnow::peripherals;
 
 // Returns true iff w has no bits set above the transfer-size boundary,
 // i.e. the demux masked the higher bits to 0 as required.

@@ -1,10 +1,16 @@
-import "core/globals.act";
-import "core/core.act";
+import "assets/core/globals.act";
+import "assets/core/cpu.act";
 import "chips/dvs/periphery.act";
+
+open actnow::core;
+
+namespace actnow {
+export namespace chips {
+export namespace dvs {
 
 // dvs's whole chip: core + its off-chip periphery (chips/dvs/periphery.act)
 // wired together. dvs only needs 3 event lines, so core is instantiated
-// core<3> rather than carrying bench's full 16:
+// cpu<3> rather than carrying bench's full 16:
 //   - event_id[0] is hardwired directly to the AER input's own event_out --
 //     nothing ever needs to fire that line manually, so there's no reason
 //     to expose the wiring as a choice (contrast chips/bench/soc.act's
@@ -19,7 +25,7 @@ import "chips/dvs/periphery.act";
 // gpio peripheral pins; software drives them with an MMIO write to
 // base=ADDR_GPIO. Both SPI peripherals' external pins are exposed here
 // since they're real chip-package pins.
-template<pint AER_DEPTH>
+export template<pint AER_DEPTH>
 defproc soc(
     chan?(bool) gpio_in_0; chan?(bool) gpio_in_1;
     chan?(bool) swd_0; chan?(bool) swd_1;
@@ -33,7 +39,7 @@ defproc soc(
     chan!(bool) gpio_out_0; chan!(bool) gpio_out_1;
     chan!(bool) gpio_out_2; chan!(bool) gpio_out_3
 ) {
-    core<3> s;
+    cpu<3> s;
     periphery<AER_DEPTH> p;
 
     p.addr_in = s.addr_ext;
@@ -59,4 +65,8 @@ defproc soc(
     s.event_id[1] = gpio_in_0;
     s.event_id[2] = gpio_in_1;
     s.reset_ext = reset_ext;
+}
+
+}
+}
 }

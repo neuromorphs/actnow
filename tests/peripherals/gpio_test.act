@@ -1,5 +1,7 @@
-import "core/globals.act";
-import "core/peripherals/gpio.act";
+import "assets/core/globals.act";
+import "assets/peripherals/gpio.act";
+
+open actnow::peripherals;
 
 // Drives gpio directly (no soc/periphery involved) to check the peripheral's
 // own CPU-side semantics in isolation: a write updates the register and

@@ -1,9 +1,15 @@
-import "core/globals.act";
-import "core/peripherals/fifo_in.act";
-import "core/peripherals/demux.act";
-import "core/peripherals/spi_boot.act";
-import "core/peripherals/spi_prog.act";
-import "core/peripherals/gpio.act";
+import "assets/core/globals.act";
+import "assets/peripherals/fifo_in.act";
+import "assets/peripherals/demux.act";
+import "assets/peripherals/spi_boot.act";
+import "assets/peripherals/spi_prog.act";
+import "assets/peripherals/gpio.act";
+
+open actnow::peripherals;
+
+namespace actnow {
+export namespace chips {
+export namespace dvs {
 
 // dvs's off-chip periphery: the AER (address-event) input, both SPI
 // peripherals, and GPIO, all behind one demux (no catch-all -- nothing
@@ -12,8 +18,8 @@ import "core/peripherals/gpio.act";
 // addr_in/mode_in/wdata_in/rdata_in below.
 //
 // The AER input is fifo_in<AER_DEPTH, WIDTH_AER>, reusing
-// core/peripherals/fifo_in.act's generic buffer with WIDTH_AER
-// (core/globals.act) sized for an AER pixel-event payload.
+// assets/peripherals/fifo_in.act's generic buffer with WIDTH_AER
+// (assets/core/globals.act) sized for an AER pixel-event payload.
 //
 // No fifo_out here or anywhere else in this chip variant -- any
 // chip-to-outside data path goes through spi_prog instead. Both spi_boot
@@ -21,7 +27,7 @@ import "core/peripherals/gpio.act";
 // peripheral here -- neither is a RAM bus master. Each paces its own sclk
 // independently via a plain busy-wait loop (see spi_boot.act's header
 // comment).
-template<pint AER_DEPTH>
+export template<pint AER_DEPTH>
 defproc periphery(
     chan?(addr_t) addr_in;
     chan?(mode_mem_t) mode_in;
@@ -78,4 +84,8 @@ defproc periphery(
     gp.pin_1 = gpio_out_1;
     gp.pin_2 = gpio_out_2;
     gp.pin_3 = gpio_out_3;
+}
+
+}
+}
 }

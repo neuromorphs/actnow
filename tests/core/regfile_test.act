@@ -1,4 +1,6 @@
-import "core/regfile.act";
+import "assets/core/regfile.act";
+
+open actnow::core;
 
 defproc regfile_test() {
 

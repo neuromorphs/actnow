@@ -1,14 +1,17 @@
 import "chips/fpga/soc.act";
-import "core/peripherals/rom.act";
-import "core/peripherals/fifo_out.act";
+import "assets/peripherals/rom.act";
+import "assets/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 import sim;
+
+open actnow::chips::fpga;
+open actnow::peripherals;
 
 // Not a pass/fail test -- a capture generator for chips/fpga/dvs_rotate_view.py.
 // Streams chips/fpga/rotate_capture_events.mem (one decimal packed AER word
 // per line) through the real simulated core running software/dvs_rotate/
 // main.c's actual ISR, using actsim's runtime file I/O (sim::file::*, the
-// same mechanism core/peripherals/rom.act uses to preload ROM images) rather
+// same mechanism assets/peripherals/rom.act uses to preload ROM images) rather
 // than unrolling one CHP statement per event -- this loop body is a fixed
 // handful of statements regardless of event count, so it scales to the full
 // 61752-event recording without generating a huge program.

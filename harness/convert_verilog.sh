@@ -5,7 +5,7 @@
 # Usage:
 #   ./convert_verilog.sh [-p process] [-f act_file] [-o output_dir]
 #
-#   -p  top-level process name to expand (default: soc<4>)
+#   -p  top-level process name to expand (default: actnow::chips::fpga::soc<4>)
 #   -f  ACT source file containing the process, relative to the repo root
 #       (default: chips/fpga/soc.act)
 #   -o  directory to write the generated Verilog into, relative to this
@@ -15,7 +15,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-PROCESS="soc<4>"
+PROCESS="actnow::chips::fpga::soc<4>"
 ACT_FILE="chips/fpga/soc.act"
 OUT_DIR="$SCRIPT_DIR/gen"
 
@@ -59,10 +59,10 @@ fi
 # directory) and segfaults if given an absolute -o path, so both the ACT
 # file and the output dir must be passed as relative paths. Every .act file
 # in this repo writes its own imports relative to the repo root (e.g.
-# core/core.act's "import core/globals.act" -- see the top-level Makefile's
+# assets/core/core.act's "import assets/core/globals.act" -- see the top-level Makefile's
 # own comment on this), so chp2fpga must be run with cwd=REPO_ROOT, not the
-# ACT file's own directory -- cd'ing into core/ instead would make
-# core/core.act's "core/globals.act" import resolve to core/core/globals.act.
+# ACT file's own directory -- cd'ing into assets/core/ instead would make
+# assets/core/core.act's "assets/core/globals.act" import resolve to assets/core/assets/core/globals.act.
 # realpath --relative-to is a GNU coreutils extension, not available in
 # macOS's BSD realpath (and this repo can't assume grealpath is installed),
 # so compute the relative path with python3 instead -- present everywhere
@@ -97,17 +97,19 @@ echo "convert_verilog.sh: (cd \"$REPO_ROOT\" && \"$CHP2FPGA\" -a -p \"$PROCESS\"
 # patched builds): the internal `event_pc` channel probe in core's main loop is
 # emitted as the bare name `\event_pc_valid`, but the channel is aliased to the
 # `inter` subinstance port and only declared as `\inter.event_pc_valid`. Left
-# unfixed, core*.v fails to compile ("event_pc_valid is not declared"). Only
-# the guard expression uses the bare name; the port connection below it is
-# correct. core is templated on N_EVENTS, so chp2fpga names its output after
-# the process + template args (e.g. core1.v for core<1>), never a literal
-# core.v -- match any coreN.v instead of assuming the untemplated name.
+# unfixed, actnow_core_core*.v fails to compile ("event_pc_valid is not
+# declared"). Only the guard expression uses the bare name; the port
+# connection below it is correct. core is templated on N_EVENTS and lives in
+# the actnow::core namespace, so chp2fpga names its output after the
+# ::-joined-with-_ process path + template args (e.g. actnow_core_core1.v for
+# actnow::core::core<1>) -- match any actnow_core_coreN.v instead of assuming
+# an unqualified/untemplated name.
 #
 # sed -i's argument is a GNU/BSD portability landmine: GNU takes the suffix
 # attached with no space (or none at all), BSD *requires* one (even empty).
 # `-i.bak` + cleanup is the one form both accept identically.
 shopt -s nullglob
-for f in "$OUT_DIR"/core[0-9]*.v; do
+for f in "$OUT_DIR"/actnow_core_core[0-9]*.v; do
     sed -i.bak 's/(\\event_pc_valid )/(\\inter.event_pc_valid )/' "$f"
     rm -f "$f.bak"
 done

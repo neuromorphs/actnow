@@ -1,7 +1,10 @@
 import "chips/fpga/soc.act";
-import "core/peripherals/rom.act";
-import "core/peripherals/fifo_out.act";
+import "assets/peripherals/rom.act";
+import "assets/peripherals/fifo_out.act";
 import "gen/file_ids.act";
+
+open actnow::chips::fpga;
+open actnow::peripherals;
 
 // FPGA-variant test for the hot-pixel rejection of software/dvs_track/
 // main.c's spatio-temporal correlation filter: replays 40 copies of one

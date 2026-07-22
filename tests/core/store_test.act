@@ -1,4 +1,6 @@
-import "core/core.act";
+import "assets/core/cpu.act";
+
+open actnow::core;
 
 // Drives core through LUI (base address in x1), ADDI (all-ones value in x2),
 // then all three STORE variants (SW, SB, SH) against that base, then WFI.
@@ -10,7 +12,7 @@ import "core/core.act";
 // needing to eyeball regfile's internal log line.
 defproc store_test() {
 
-    core<1> s;
+    cpu<1> s;
     addr_t addr;
     mode_mem_t mode;
     int<32> wdata;

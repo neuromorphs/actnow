@@ -2,6 +2,8 @@ import "chips/dvs/soc.act";
 import "chips/dvs/tests/e2e/spi_flash_stub.act";
 import "gen/file_ids.act";
 
+open actnow::chips::dvs;
+
 // Decodes spi_prog's raw SPI wires (bit-banged protocol, same shift loop as
 // e2e_aer_test.act's spi_sink) and logs every transaction -- reads and
 // writes alike, address and data -- instead of asserting anything. This is
@@ -91,7 +93,7 @@ defproc gpio_out_probe(
 // gpio_in_0/1 and swd_0/1 are left unconnected: dvs_application never
 // enables those interrupt lines, so nothing would ever receive on them --
 // driving them here would just deadlock waiting for a receiver that never
-// arrives (core/interrupt.act only services an event line once software's
+// arrives (assets/core/interrupt.act only services an event line once software's
 // own enable bit for it is set).
 defproc e2e_dvs_probe_all() {
     soc<8> c;

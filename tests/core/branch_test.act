@@ -1,4 +1,6 @@
-import "core/core.act";
+import "assets/core/cpu.act";
+
+open actnow::core;
 
 // Drives core through a sequence of branches in one continuous run, checking
 // the resulting fetch address after each one (taken -> pc+offset, not taken
@@ -8,7 +10,7 @@ import "core/core.act";
 // pattern should not.
 defproc branch_test() {
 
-    core<1> s;
+    cpu<1> s;
     addr_t addr;
     mode_mem_t mode;
     int<32> insn, off;

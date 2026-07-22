@@ -1,5 +1,7 @@
-import "core/globals.act";
-import "core/peripherals/spi_boot.act";
+import "assets/core/globals.act";
+import "assets/peripherals/spi_boot.act";
+
+open actnow::peripherals;
 
 // Plays the external SPI flash's role: a slave that spi_boot (the master)
 // initiates transmissions with. Real SPI slaves never hand anything back

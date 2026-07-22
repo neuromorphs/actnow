@@ -1,8 +1,11 @@
 import "chips/fpga/soc.act";
-import "core/peripherals/rom.act";
-import "core/peripherals/fifo_out.act";
+import "assets/peripherals/rom.act";
+import "assets/peripherals/fifo_out.act";
 import "gen/file_ids.act";
 import sim;
+
+open actnow::chips::fpga;
+open actnow::peripherals;
 
 // Not a pass/fail test -- a capture generator for a live timesurface
 // viewer, mirroring e2e_fpga_motion_capture.act's structure. Streams
