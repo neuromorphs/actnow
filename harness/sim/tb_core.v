@@ -170,7 +170,7 @@ module tb_core;
     end
 
     // ---- DUT ----
-    \soc4 uut (
+    \actnow_chips_fpga_soc4 uut (
          .\clock (clk)
         ,.\reset (rst)
 
