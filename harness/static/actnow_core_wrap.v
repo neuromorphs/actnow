@@ -4,7 +4,7 @@
 // something to talk to:
 //
 //        AXI4-Stream events ─▶ fifo_push (base 5)  ┐
-//   BRAM (PS-loaded firmware) ─▶ rom_*  (base 4)   ├─▶  \soc4  ─▶ io_* (base 6) ─▶ AXI4-Stream results
+//   BRAM (PS-loaded firmware) ─▶ rom_*  (base 4)   ├─▶  \actnow_chips_fpga_soc4  ─▶ io_* (base 6) ─▶ AXI4-Stream results
 //        AXI-GPIO reset bit  ─▶ reset_ext          ┘
 //
 // fifo_push needs no adapter at all: it is already a valid/ready channel with a
@@ -138,10 +138,10 @@ module actnow_core_wrap (
         .reset_count     (reset_count)
     );
 
-    // The converted chip itself (chp2fpga of chips/fpga/soc<4>, gen/soc4.v).
+    // The converted chip itself (chp2fpga of chips/fpga/soc<4>, gen/actnow_chips_fpga_soc4.v).
     // Escaped names throughout -- chp2fpga emits ACT's dotted channel-field names
     // (\rom_addr.base) verbatim.
-    \soc4 core_i (
+    \actnow_chips_fpga_soc4 core_i (
          .\clock (clk)
         ,.\reset (rst)
 
