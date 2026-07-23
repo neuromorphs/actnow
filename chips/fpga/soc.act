@@ -67,3 +67,5 @@ defproc soc(
 }
 }
 }
+
+defproc wrapper <: actnow::chips::fpga::soc<4>() {}

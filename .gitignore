@@ -26,3 +26,4 @@ chips/fpga/track_capture_results.mem
 .DS_Store
 riscv32-unknown-elf.gcc-12.1.0.tar.gz
 .DS_Store
+expr.act

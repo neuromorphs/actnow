@@ -9,11 +9,14 @@ namespace actnow {
 export namespace core {
 
 // The RV32I CPU core: fetch/decode/execute pipeline plus its internal peripherals.
-//   1. Cold boot blocks on reset_ext until asserted, then jumps pc to ADDR_RESET --
-//      no implicit power-on-and-go, matching real hardware.
-//   2. Each loop iteration: probe reset_ext (recoverable mid-run), fetch one
-//      instruction through mmu's instr port, decode all fields concurrently, then
-//      dispatch on opcode (WFI/R-type/I-type/LUI/EBREAK/branch/store/AUIPC/...).
+//   1. Cold boot: `booted` starts false, so the loop's one reset_ext
+//      selection only has its #reset_ext branch enabled -- blocks until
+//      asserted, then jumps pc to ADDR_RESET, exactly like the old
+//      separate pre-loop preamble, no implicit power-on-and-go.
+//   2. Each loop iteration: resolve reset_ext/event_pc/next_pc (recoverable
+//      mid-run), fetch one instruction through mmu's instr port, decode all
+//      fields concurrently, then dispatch on opcode
+//      (WFI/R-type/I-type/LUI/EBREAK/branch/store/AUIPC/...).
 //   3. regfile handles register reads/writes; mmu arbitrates instr vs data access
 //      to internal RAM, the interrupt controller, and anything off-chip.
 //   4. interrupt.act owns the event_id[N_EVENTS] lines and their (fixed
@@ -47,7 +50,11 @@ defproc cpu(
     int<WIDTH_DATA> next_pc;
 
     bool is_wfi;
-    bool reset_recv;
+    // Read by the loop's reset_ext selection before it's ever written inside
+    // the loop (the very first iteration), so it needs a real initial value --
+    // set via a plain CHP assignment before the loop (not a channel op, so it
+    // doesn't affect reset_ext's single-access-point property).
+    bool booted;
 
     reg_req req_pkt;
     reg_resp resp_pkt;
@@ -109,30 +116,30 @@ defproc cpu(
     mmu.rdata_out[2] = rdata_ext;
 
     chp {
-        // Cold boot: the CPU does nothing at all until reset_ext is
-        // actually asserted, exactly like real hardware -- there's no
-        // implicit "power on and go" path. A plain blocking receive, no
-        // select and no state guard: reset_ext is the one and only way to
-        // boot, so there is nothing else to race against here.
-        ( reset_ext?reset_recv,
-        log("external reset: pc ", ADDR_RESET),
-        pc := ADDR_RESET,
-        reset_int_ctrl!true );  // relay onward to clear interrupt.act's own state
+        booted := false;
 
         *[
-            // Already running: reset_ext still races as a flat sibling of
-            // "keep going" -- a probe alone (not blocking) catches it
-            // between any two instructions without needing a guard held
-            // across the fetch below.
-            [
+            // Single reset_ext access point: before the first reset,
+            // `booted` is false so only the #reset_ext branch is enabled --
+            // blocks exactly like the old pre-loop cold-boot preamble.
+            // Afterward the same selection also resolves every later
+            // "what happens next" decision (WFI/EBREAK halt waiting on
+            // reset_ext or event_pc, or a normal advance to next_pc), so
+            // reset_ext is received from exactly one program point in the
+            // whole process -- required for chp2fpga's decomp pass, which
+            // refuses a channel that's both probed and multiply-accessed.
+            [|
                 #reset_ext ->
-                    ( reset_ext?reset_recv;
+                    reset_ext?;
                     log("external reset: pc ", ADDR_RESET);
-                    pc := ADDR_RESET,
-                    reset_int_ctrl!true)
-                [] ~#reset_ext -> skip
-            ];
+                    pc := ADDR_RESET;
+                    reset_int_ctrl!true;
+                    booted := true
+                [] booted & is_wfi & #event_pc -> event_pc?pc
+                [] booted & ~is_wfi -> pc := next_pc
+            |];
 
+            [ booted ->
             // instruction fetch
             addr_core.base := pc{19..16}, addr_core.offset := pc{15..0},
             mode_core.op := op_mem_t.R, mode_core.size := size_mem_t.WORD;
@@ -390,22 +397,8 @@ defproc cpu(
 
                 [] else -> skip
             ];
-            log("is_wfi = ", is_wfi);
-
-            [ is_wfi ->
-                // idle again -- same wait as before the loop, repeated
-                // rather than factored out, to keep this a plain
-                // straight-line wait instead of a guard held across time
-                [|
-                    #reset_ext ->
-                        reset_ext?reset_recv;
-                        log("external reset: pc ", ADDR_RESET);
-                        pc := ADDR_RESET;
-                        reset_int_ctrl!true
-                    [] #event_pc -> event_pc?pc
-                |]
-                [] else ->
-                pc := next_pc
+            log("is_wfi = ", is_wfi)
+              [] ~booted -> skip
             ]
         ]
     }
