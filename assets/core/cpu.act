@@ -155,7 +155,7 @@ defproc cpu(
             // defaults
             imm := 0,
             is_wfi := false,
-            next_pc := alu(pc, int(4,32), 0b000, 0b0000000); // pc + 4, via the shared ALU
+            next_pc := pc + int(4,32); // pc + 4 -- always ADD, no need for alu()'s op-select
 
             [   // WFI
                 (opcode = OPCODE_WFI) ->
@@ -257,7 +257,7 @@ defproc cpu(
                        [] else -> skip ]);
 
                     [ branch_taken(resp_pkt.rs1_data, resp_pkt.rs2_data, funct3) ->
-                        next_pc := alu(pc, imm, 0b000, 0b0000000) // pc + imm
+                        next_pc := pc + imm // pc + imm
                       [] else -> skip
                     ]
 
@@ -299,7 +299,7 @@ defproc cpu(
                     imm := instr{31..12} << 12;
                     req_pkt.rs1_valid := false, req_pkt.rs2_valid := false,
                     req_pkt.rd_addr := rd, req_pkt.rd_valid := true,
-                    req_pkt.rd_data := alu(pc, imm, 0b000, 0b0000000); // pc + imm
+                    req_pkt.rd_data := pc + imm; // pc + imm
                     rf.req!req_pkt
                 // J-type (JAL)
                 [] (opcode = OPCODE_JAL) ->
@@ -320,12 +320,12 @@ defproc cpu(
                     // JAL never reads a register -- it's pure PC-relative, write-only
                     req_pkt.rs1_valid := false, req_pkt.rs2_valid := false,
                     req_pkt.rd_addr := rd, req_pkt.rd_valid := true,
-                    req_pkt.rd_data := alu(pc, int(4,32), 0b000, 0b0000000) // return address = pc + 4
+                    req_pkt.rd_data := pc + int(4,32) // return address = pc + 4
                     );
 
                     // sending the write-back and computing the jump target are independent --
                     // neither depends on the other, so they can happen concurrently
-                    rf.req!req_pkt, next_pc := alu(pc, imm, 0b000, 0b0000000) // pc + imm
+                    rf.req!req_pkt, next_pc := pc + imm // pc + imm
 
                 [] (opcode = OPCODE_JALR) ->
                     log("I-type instruction (JALR)");
@@ -339,18 +339,18 @@ defproc cpu(
                     (
                     req_pkt.rs1_addr := rs1, req_pkt.rs1_valid := true,
                     req_pkt.rs2_valid := false, req_pkt.rd_addr := rd, req_pkt.rd_valid := true,
-                    req_pkt.rd_data := alu(pc, int(4,32), 0b000, 0b0000000) // return address = pc + 4
+                    req_pkt.rd_data := pc + int(4,32) // return address = pc + 4
                     );
 
                     rf.req!req_pkt;
                     rf.resp?resp_pkt;
 
-                    // target = (rs1 + imm) & ~1 -- both steps via the shared ALU (AND, funct3=111).
-                    // this is a genuine dependency chain (the mask needs the sum first), so it
-                    // can't be parallelized away -- two sequential ALU calls is unavoidable here
-                    // without a second, dedicated adder+AND gate
-                    next_pc := alu(resp_pkt.rs1_data, imm, 0b000, 0b0000000);
-                    next_pc := alu(next_pc, ~(int(1,32)), 0b111, 0b0000000)
+                    // target = (rs1 + imm) & ~1. Still a genuine two-step dependency chain
+                    // (bit 0 can't be cleared before the sum exists), but neither step needs
+                    // alu()'s full 9-way op-select -- a plain add, then AND against a
+                    // compile-time constant, both skip that mux entirely.
+                    next_pc := resp_pkt.rs1_data + imm;
+                    next_pc := next_pc & ~(int(1,32))
                 
                 [] (opcode = OPCODE_LOAD) ->
                     log("I-type instruction (LOAD)");
