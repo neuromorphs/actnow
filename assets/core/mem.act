@@ -6,11 +6,24 @@ namespace actnow {
 export namespace core {
 
 // Internal read/write memory: byte-addressable, 32-bit-word RAM built from
-// 4 byte-wide std::ram banks (see assets/peripherals/rom.act for the
-// file-preloaded, read-only counterpart used for off-chip ROM modeling).
+// 4 byte-wide banks. A byte at address A lives in bank = A mod 4 (from
+// offset{1..0}), word index = A div 4 (from offset>>2); the low byte of a
+// word is lane 0. Sized transfers only touch the low BYTE/HALF_WORD/WORD
+// bytes -- writes ignore the rest of the supplied word, reads zero-extend.
+//
+// The banks are four *separate* run-time-indexed dynamic arrays rather than
+// std::ram instances.  Two reasons:
+//   1. A manually instantiated std::ram is skipped by the decomp
+//      memory-extraction pass, which then emits dangling ram references.
+//      A run-time-indexed array is extracted into a real memory macro.
+//   2. They must stay separate: one int<8>[4][N] would be flattened into a
+//      single N*4-deep memory, serializing the byte lanes.  Four separate
+//      arrays extract to four independent memories, so the per-lane accesses
+//      below stay parallel (see ACT_OPT_GUIDE).
 export defproc mem(chan?(addr_t) addr; chan?(mode_mem_t) mode; chan?(int<WIDTH_DATA>) wdata; chan!(int<WIDTH_DATA>) rdata) {
     pint WORD_BITS = std::ceil_log2(SIZE_MEM_WORDS);
-    std::ram<SIZE_MEM_WORDS, 8> bank[4];
+    int<8> bank0[SIZE_MEM_WORDS], bank1[SIZE_MEM_WORDS],
+           bank2[SIZE_MEM_WORDS], bank3[SIZE_MEM_WORDS];
 
     addr_t ad;
     mode_mem_t md;
@@ -20,7 +33,6 @@ export defproc mem(chan?(addr_t) addr; chan?(mode_mem_t) mode; chan?(int<WIDTH_D
     int<2> off;                 // byte lane within word
     int<WORD_BITS> widx;        // word index (bank location)
     int<3> nbytes;              // 1 / 2 / 4
-    int<2> cmd;                 // std::ram command: 0=write 1=read 2=rmw
     int<WIDTH_DATA> wd;         // incoming write word (data in low bits)
     int<8> bo[4];               // per-bank read byte
 
@@ -35,54 +47,86 @@ export defproc mem(chan?(addr_t) addr; chan?(mode_mem_t) mode; chan?(int<WIDTH_D
                 size = size_mem_t.BYTE -> nbytes := 1
                 [] size = size_mem_t.HALF_WORD -> nbytes := 2
                 [] else -> nbytes := 4
-            ],
-            [
-                op = op_mem_t.W -> cmd := 0
-                [] op = op_mem_t.R -> cmd := 1
-                [] else -> cmd := 2
             ];
 
-            // receive wdata if write
-            [
-                op = op_mem_t.R -> skip
-                [] else -> wdata?wd
-            ],
-            // in parallel, prep std::ram banks
-            (, i : 4 :
+            // Phase 1: receive the write word (write / read-modify-write) in
+            // parallel with reading the old addressed bytes (read / RMW).
+            // wdata?wd is a disjoint write and each lane is its own memory, so
+            // all five branches are independent.
+            (
                 [
-                    (i >= off) & (i < off + nbytes) -> bank[i].addr!widx, bank[i].rd!cmd
+                    op = op_mem_t.R -> skip
+                    [] else -> wdata?wd
+                ],
+                [
+                    (0 >= off) & (0 < off + nbytes) ->
+                        [ op = op_mem_t.W -> skip [] else -> bo[0] := bank0[widx] ]
+                    [] else -> skip
+                ],
+                [
+                    (1 >= off) & (1 < off + nbytes) ->
+                        [ op = op_mem_t.W -> skip [] else -> bo[1] := bank1[widx] ]
+                    [] else -> skip
+                ],
+                [
+                    (2 >= off) & (2 < off + nbytes) ->
+                        [ op = op_mem_t.W -> skip [] else -> bo[2] := bank2[widx] ]
+                    [] else -> skip
+                ],
+                [
+                    (3 >= off) & (3 < off + nbytes) ->
+                        [ op = op_mem_t.W -> skip [] else -> bo[3] := bank3[widx] ]
                     [] else -> skip
                 ]
             );
 
-            // transfer data with banks
-            (, i : 4 :
+            // Phase 2: write the new addressed bytes (write / RMW) in parallel
+            // with returning the old bytes (read / RMW).  Lane writes touch
+            // distinct memories and rdata only reads bo, so these are
+            // independent too.
+            (
                 [
-                    (i >= off) & (i < off + nbytes) ->
-                        // send to banks if write
+                    (0 >= off) & (0 < off + nbytes) ->
                         [
                             op = op_mem_t.R -> skip
-                            [] else -> bank[i].din!int(wd >> (8 * (i - off)), 8)
-                        ],
-                        // in parallel, receive from banks if read
-                        [
-                            op = op_mem_t.W -> skip
-                            [] else -> bank[i].dout?bo[i]
+                            [] else -> bank0[widx] := int(wd >> (8 * (0 - off)), 8)
                         ]
                     [] else -> skip
+                ],
+                [
+                    (1 >= off) & (1 < off + nbytes) ->
+                        [
+                            op = op_mem_t.R -> skip
+                            [] else -> bank1[widx] := int(wd >> (8 * (1 - off)), 8)
+                        ]
+                    [] else -> skip
+                ],
+                [
+                    (2 >= off) & (2 < off + nbytes) ->
+                        [
+                            op = op_mem_t.R -> skip
+                            [] else -> bank2[widx] := int(wd >> (8 * (2 - off)), 8)
+                        ]
+                    [] else -> skip
+                ],
+                [
+                    (3 >= off) & (3 < off + nbytes) ->
+                        [
+                            op = op_mem_t.R -> skip
+                            [] else -> bank3[widx] := int(wd >> (8 * (3 - off)), 8)
+                        ]
+                    [] else -> skip
+                ],
+                [
+                    op = op_mem_t.W -> skip
+                    [] else ->
+                        [
+                            size = size_mem_t.BYTE -> rdata!{int(0, 24), bo[off]}
+                            [] size = size_mem_t.HALF_WORD -> rdata!{int(0, 16), bo[off + 1], bo[off]}
+                            [] else -> rdata!{bo[3], bo[2], bo[1], bo[0]}
+                        ]
                 ]
-            );
-
-            // send rdata if read
-            [
-                op = op_mem_t.W -> skip
-                [] else ->
-                    [
-                        size = size_mem_t.BYTE -> rdata!{int(0, 24), bo[off]}
-                        [] size = size_mem_t.HALF_WORD -> rdata!{int(0, 16), bo[off + 1], bo[off]}
-                        [] else -> rdata!{bo[3], bo[2], bo[1], bo[0]}
-                    ]
-            ]
+            )
         ]
     }
 }
