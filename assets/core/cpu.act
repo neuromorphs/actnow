@@ -111,13 +111,11 @@ defproc cpu(
     chp {
         // Cold boot: the CPU does nothing at all until reset_ext is
         // actually asserted, exactly like real hardware -- there's no
-        // implicit "power on and go" path. A plain blocking receive, no
-        // select and no state guard: reset_ext is the one and only way to
-        // boot, so there is nothing else to race against here.
-        ( reset_ext?reset_recv,
-        log("external reset: pc ", ADDR_RESET),
-        pc := ADDR_RESET,
-        reset_int_ctrl!true );  // relay onward to clear interrupt.act's own state
+        // implicit "power on and go" path. This is a *probe-only* wait:
+        // reset_ext is received once, at the top of the main loop below.
+        // Keeping reset_ext to a single receive avoids the decomp
+        // synthesizer's "probe and multichan on same channel" rejection.
+        [ #reset_ext ];
 
         *[
             // Already running: reset_ext still races as a flat sibling of
@@ -397,11 +395,7 @@ defproc cpu(
                 // rather than factored out, to keep this a plain
                 // straight-line wait instead of a guard held across time
                 [|
-                    #reset_ext ->
-                        reset_ext?reset_recv;
-                        log("external reset: pc ", ADDR_RESET);
-                        pc := ADDR_RESET;
-                        reset_int_ctrl!true
+                    #reset_ext -> skip   // serviced at the top of the loop
                     [] #event_pc -> event_pc?pc
                 |]
                 [] else ->
